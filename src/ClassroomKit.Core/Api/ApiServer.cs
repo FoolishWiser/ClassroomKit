@@ -269,6 +269,7 @@ public sealed class ApiServer
                 maxClients = snap.MaxClientCount,
                 targetClients = cfg.Hotspot.TargetClients,
                 registryPeers = cfg.Hotspot.RegistryPeers,
+                allowWifiUplink = cfg.Hotspot.AllowWifiUplink,
                 noConnectionsTimeout = snap.NoConnectionsTimeoutEnabled,
                 currentSsid = snap.CurrentSsid
             },

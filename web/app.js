@@ -81,7 +81,16 @@ function renderState(s) {
   if (document.activeElement !== $('in-ssid')) $('in-ssid').value = s.hotspot.ssid || '';
   if (document.activeElement !== $('in-pass')) $('in-pass').value = s.hotspot.passphrase || '';
   if (document.activeElement !== $('in-target')) $('in-target').value = s.hotspot.targetClients;
-  $('in-wifi').checked = !!s.uplink.isWifi;
+  // 勾选状态要反映「配置里是否允许」，不是「当前上行是不是 Wi-Fi」
+  $('in-wifi').checked = !!s.hotspot.allowWifiUplink;
+
+  // 主按钮跟随当前状态：开着就突出「关闭热点」，关着就突出「开启热点」
+  const running = s.hotspot.state === 'On' || s.guardState === 'On';
+  $('btn-on').className = running ? 'btn' : 'btn primary';
+  $('btn-off').className = running ? 'btn primary' : 'btn';
+  if (s.uplink.isWifi && !s.hotspot.allowWifiUplink) {
+    $('uplink').textContent = (s.uplink.name || 'Wi-Fi') + '（拒绝开热点）';
+  }
 }
 
 function renderClients(data) {

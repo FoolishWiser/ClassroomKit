@@ -35,6 +35,14 @@ powershell -ExecutionPolicy Bypass -File install.ps1 -Ssid "CLASSROOM-302" -Pass
 
 装完会自动：复制到 `C:\Program Files\ClassroomKit` → 建 `C:\ProgramData\ClassroomKit` 并授权普通用户可写 → 放宽设备上限 → 注册登录自启任务 → 启动守护。
 
+「强力卸载」按钮要拉起的 BCUninstaller 约 100 MB（自带 .NET 运行时），默认不塞进安装包。需要时在一体机上跑一次：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File get-bcu.ps1
+```
+
+它会把便携版解到 `C:\Program Files\ClassroomKit\BCU\`（也可手动放；或在 `config.json` 里写 `bcu.path`）。不放的话热点功能完全不受影响，只是点按钮会提示没找到。
+
 ## 命令行
 
 ```text
@@ -93,6 +101,7 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
 | 常驻内存 | 私有约 **56 MB**，工作集约 152 MB |
 | 空闲 CPU | 60 秒采样 0.06 秒 ≈ **0.1%**（单核） |
 | 无设备自动关 | 已显式关闭（否则 5 分钟热点自己消失） |
+| 强力卸载 | BCU 便携版 6.3.0 解压后 428 MB / 1348 文件，`7z t` 校验通过；面板按钮定位到 exe 并拉起（API 返回 ok、日志有记录；真机上先弹 UAC——BCU 清单是 requireAdministrator） |
 
 ## 目录
 
@@ -100,7 +109,7 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
 src/ClassroomKit.Core     纯逻辑：配置、状态机、HTTP、API（可在 Linux 上跑单测）
 src/ClassroomKit.Agent    WinRT 热点、托盘、计划任务、BCU 拉起
 web/                      控制面板（无框架、无 CDN，离线可用）
-scripts/                  build / install / uninstall / rebuild / probe
+scripts/                  build / install / uninstall / rebuild / probe / get-bcu
 tests/ClassroomKit.Tests  零依赖测试（dotnet run，16 项）
 docs/                     部署手册、ClassIsland 接入、原理与限制
 ```
