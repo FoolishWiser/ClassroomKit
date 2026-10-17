@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ClassroomKit 控制面板</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <div class="brand">
+    <span class="logo">▣</span>
+    <div>
+      <h1>ClassroomKit</h1>
+      <p class="sub" id="subtitle">教室一体机热点</p>
+    </div>
+  </div>
+  <span class="badge" id="badge">连接中…</span>
+</header>
+
+<section class="card hero">
+  <div class="hero-main">
+    <div class="ssid" id="ssid">—</div>
+    <div class="pass">密码 <code id="passphrase">—</code>
+      <button class="link" id="btn-copy">复制</button>
+    </div>
+  </div>
+  <div class="hero-side">
+    <div class="clients"><span id="clients">0</span><small>/<span id="target">10</span> 台</small></div>
+    <div class="hint" id="state-hint">读取中</div>
+  </div>
+</section>
+
+<section class="card grid">
+  <div class="cell"><label>热点状态</label><strong id="op-state">—</strong></div>
+  <div class="cell"><label>系统上限</label><strong id="max-clients">—</strong></div>
+  <div class="cell"><label>上行</label><strong id="uplink">—</strong></div>
+  <div class="cell"><label>无设备自动关</label><strong id="timeout">—</strong></div>
+  <div class="cell"><label>注册表放宽</label><strong id="registry-peers">—</strong></div>
+  <div class="cell"><label>已运行</label><strong id="uptime">—</strong></div>
+</section>
+
+<div class="alert hidden" id="alert"></div>
+
+<section class="card">
+  <div class="row">
+    <button class="btn primary" id="btn-on">开启热点</button>
+    <button class="btn" id="btn-off">关闭热点</button>
+    <button class="btn" id="btn-fix">修复设备上限</button>
+    <button class="btn" id="btn-bcu">强力卸载</button>
+  </div>
+  <div class="row">
+    <button class="btn ghost" id="btn-logs">刷新日志</button>
+  </div>
+</section>
+
+<section class="card">
+  <h2>热点设置</h2>
+  <form id="settings">
+    <label>名称（SSID）<input id="in-ssid" maxlength="32" autocomplete="off"></label>
+    <label>密码<input id="in-pass" maxlength="63" autocomplete="off"></label>
+    <label>目标设备数<input id="in-target" type="number" min="1" max="64"></label>
+    <label class="check"><input type="checkbox" id="in-wifi"> 允许用 Wi-Fi 当上行（不推荐）</label>
+    <button class="btn primary" type="submit">保存设置</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>在线设备 <small id="client-count"></small></h2>
+  <table id="clients-table">
+    <thead><tr><th>设备</th><th>MAC</th><th>IP</th></tr></thead>
+    <tbody id="clients-body"><tr><td colspan="3" class="empty">暂无设备</td></tr></tbody>
+  </table>
+</section>
+
+<section class="card">
+  <h2>日志</h2>
+  <pre id="logs" class="logs">加载中…</pre>
+</section>
+
+<footer>
+  <span id="footer-version">—</span>
+  <a id="footer-link" href="#">控制面板地址</a>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
