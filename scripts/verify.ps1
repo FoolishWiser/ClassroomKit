@@ -244,7 +244,52 @@ if (-not $cfg) {
             $before = (Get-Content $configPath -Raw | ConvertFrom-Json)
             Get-Process ClassroomKit.Agent -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
             Start-Sleep -Seconds 2
-            Start-Process -FilePath $exe -ArgumentList "--run" -WorkingDirectory $InstallDir -WindowStyle Hidden
+            # 用交互令牌的临时任务拉起，进程才会落在用户会话里（从 SSH/Session 0 直接 Start-Process 会得到无托盘实例）。
+            # 走 XML 注册而不是 /TR，避免路径含空格时 schtasks 把参数按空格劈开。
+            $tmp = "ClassroomKit-Agent-Verify"
+            $taskXml = Join-Path $env:TEMP "ck-verify-task.xml"
+            $xml = @"
+<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo><Description>ClassroomKit verify</Description></RegistrationInfo>
+  <Triggers />
+  <Principals>
+    <Principal id="Author">
+      <UserId>$env:COMPUTERNAME\$env:USERNAME</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>false</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>7</Priority>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>$exe</Command>
+    </Exec>
+  </Actions>
+</Task>
+"@
+            [IO.File]::WriteAllText($taskXml, $xml, [Text.Encoding]::Unicode)
+            & schtasks.exe /Create /TN $tmp /XML $taskXml /F 2>&1 | Out-Null
+            if ($LASTEXITCODE -eq 0) {
+                & schtasks.exe /Run /TN $tmp 2>&1 | Out-Null
+                & schtasks.exe /Delete /TN $tmp /F 2>&1 | Out-Null
+            } else {
+                Start-Process -FilePath $exe -WorkingDirectory $InstallDir -WindowStyle Hidden
+            }
             $up = Wait-Until { try { (Api "/api/health").ok -eq $true } catch { $false } } 30
             $after = (Get-Content $configPath -Raw | ConvertFrom-Json)
             $ok = ($up -and $after.token -eq $before.token -and $after.hotspot.ssid -eq $before.hotspot.ssid)
