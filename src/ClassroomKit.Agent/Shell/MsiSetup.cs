@@ -63,10 +63,11 @@ internal static class MsiSetup
         var (taskOk, taskMsg) = ScheduledTaskInstaller.Install(Paths.ExePath);
         Log(taskMsg);
 
-        // 计划任务挂在「Users 组 + 登录触发」，所以只会在用户登录后、以用户身份启动（托盘图标才看得见）。
-        // 安装当下若有已登录桌面，试着立刻跑一次；失败就等下次登录，不算错误。
-        var (runOk, runMsg) = ScheduledTaskInstaller.RunNow();
-        Log(runOk ? "已请求立即启动：" + runMsg : "暂未启动（当前没有可用的交互会话，下次登录会自动启动）：" + runMsg);
+        // 计划任务挂在「Users 组 + 登录触发」，只会在用户登录后、以用户身份启动（托盘图标才看得见）。
+        // MSI 的自定义动作跑在 Session 0，直接 /Run 会把进程拉进 Session 0（没托盘、没有交互桌面），
+        // 所以这里用「交互令牌临时任务」把它送进用户会话；没有已登录用户就等下次登录，不算错误。
+        var (runOk, runMsg) = ScheduledTaskInstaller.StartInUserSession(Paths.ExePath);
+        Log(runOk ? "已请求立即启动：" + runMsg : "暂未启动（下次登录会自动启动）：" + runMsg);
 
         Log("安装后配置完成");
         return 0;

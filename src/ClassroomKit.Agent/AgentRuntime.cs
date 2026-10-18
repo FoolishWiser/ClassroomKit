@@ -62,6 +62,11 @@ public sealed class AgentRuntime : IDisposable
     {
         Log.Info($"ClassroomKit Agent 启动 v{typeof(AgentRuntime).Assembly.GetName().Version?.ToString(3)}");
         Log.Info($"配置：{Paths.ConfigPath}｜面板：{BaseUrl}｜上行策略：{(Config.Current.Hotspot.AllowWifiUplink ? "允许 Wi-Fi" : "仅有线")}");
+        using (var self = System.Diagnostics.Process.GetCurrentProcess())
+        {
+            if (self.SessionId == 0)
+                Log.Warn("当前运行在 Session 0（没有交互桌面）：热点照常工作，但托盘图标不会出现；从开始菜单「ClassroomKit 控制面板」重新启动，或重新登录即可看到托盘");
+        }
 
         try
         {

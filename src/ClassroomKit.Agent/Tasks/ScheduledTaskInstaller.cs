@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace ClassroomKit.Agent.Tasks;
@@ -46,6 +47,74 @@ public static class ScheduledTaskInstaller
         var (code, _) = Run("schtasks.exe", $"/Query /TN \"{TaskName}\"");
         return code == 0;
     }
+
+    /// <summary>
+    /// 在“已登录的桌面会话”里立即启动一次。
+    /// 为什么不用 <see cref="RunNow"/>：安装程序（MSI 的 deferred 动作）跑在 Session 0，
+    /// /Run 会把进程拉进 Session 0 —— 没有托盘、也没有交互桌面。改成临时用交互令牌任务拉起，进程就落在用户会话里。
+    /// </summary>
+    public static (bool Ok, string Message) StartInUserSession(string exePath)
+    {
+        var user = ConsoleUser();
+        if (string.IsNullOrWhiteSpace(user))
+            return (false, "当前没有已登录的桌面用户，跳过立即启动（下次登录会自动启动）");
+
+        const string temp = "ClassroomKit-Agent-Start";
+        try
+        {
+            var create = Run("schtasks.exe",
+                $"/Create /TN \"{temp}\" /TR \"\\\"{exePath}\\\"\" /SC ONCE /ST 23:59 /RU \"{user}\" /IT /F");
+            if (create.Code != 0) return (false, $"临时任务创建失败（{create.Code}）：{create.Output}");
+
+            var run = Run("schtasks.exe", $"/Run /TN \"{temp}\"");
+            Run("schtasks.exe", $"/Delete /TN \"{temp}\" /F");
+            return run.Code == 0
+                ? (true, $"已在 {user} 的桌面会话启动")
+                : (false, $"启动失败（{run.Code}）：{run.Output}");
+        }
+        catch (Exception ex)
+        {
+            return (false, $"启动失败：{ex.Message}");
+        }
+    }
+
+    /// <summary>当前 console（交互桌面）会话的用户名；没人登录就返回 null。</summary>
+    public static string? ConsoleUser()
+    {
+        try
+        {
+            var sessionId = WTSGetActiveConsoleSessionId();
+            if (sessionId < 0 || sessionId == 0xFFFFFFFF) return null;
+            if (!WTSQuerySessionInformationW(IntPtr.Zero, sessionId, WtsUserName, out var buffer, out var bytes))
+                return null;
+            try
+            {
+                if (bytes <= 2 || buffer == IntPtr.Zero) return null;
+                var name = Marshal.PtrToStringUni(buffer)?.Trim();
+                return string.IsNullOrWhiteSpace(name) ? null : name;
+            }
+            finally
+            {
+                if (buffer != IntPtr.Zero) WTSFreeMemory(buffer);
+            }
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private const int WtsUserName = 5;
+
+    [DllImport("kernel32.dll")]
+    private static extern int WTSGetActiveConsoleSessionId();
+
+    [DllImport("wtsapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool WTSQuerySessionInformationW(IntPtr server, int sessionId, int infoClass, out IntPtr buffer, out int bytes);
+
+    [DllImport("wtsapi32.dll")]
+    private static extern void WTSFreeMemory(IntPtr buffer);
 
     /// <summary>立即启动一次（还原卡擦掉任务后由 ClassIsland 触发 --ensure 也能兜住）。</summary>
     public static (bool Ok, string Message) RunNow()
