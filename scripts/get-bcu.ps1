@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   给「强力卸载」按钮装工具：下载 BCUninstaller 便携版并解到程序的 BCU 子目录。
 .DESCRIPTION

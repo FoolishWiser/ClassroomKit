@@ -22,6 +22,20 @@
 
 ## 快速开始
 
+### 方式一：MSI 安装包（推荐）
+
+```text
+双击 ClassroomKit-0.1.0-x64.msi
+# 或者命令行静默安装：
+msiexec /i ClassroomKit-0.1.0-x64.msi /qn
+```
+
+装完自动：落地到 `C:\Program Files\ClassroomKit` → 建 `C:\ProgramData\ClassroomKit` 并授权普通用户可写 → 放宽设备上限（`WifiMaxPeers=16`）→ 注册登录自启任务 → 立刻拉起守护。开始菜单会多一项「ClassroomKit 控制面板」，点了直接带令牌打开面板（等价于 `ClassroomKit.Agent.exe --panel`）。
+
+卸载走「应用和功能」，或 `msiexec /x ClassroomKit-0.1.0-x64.msi`：会关热点 → 删计划任务 → 把 `WifiMaxPeers` 恢复成系统默认 → 清掉 BCU 目录，**保留** `C:\ProgramData\ClassroomKit`（配置与日志；重装后密码和面板令牌不变）。
+
+### 方式二：绿色目录（没有安装包时）
+
 ```powershell
 # 1. 在一台装了 .NET 8 SDK 的 Windows 上打包（只需一次）
 powershell -ExecutionPolicy Bypass -File scripts\build.ps1
@@ -109,9 +123,10 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
 src/ClassroomKit.Core     纯逻辑：配置、状态机、HTTP、API（可在 Linux 上跑单测）
 src/ClassroomKit.Agent    WinRT 热点、托盘、计划任务、BCU 拉起
 web/                      控制面板（无框架、无 CDN，离线可用）
-scripts/                  build / install / uninstall / rebuild / probe / get-bcu
+scripts/                  build / build-msi / install / uninstall / rebuild / probe / get-bcu / verify
 tests/ClassroomKit.Tests  零依赖测试（dotnet run，16 项）
 docs/                     部署手册、ClassIsland 接入、原理与限制
+installer/                MSI 定义（product.wxs；文件清单 files.wxs 由 build-msi.ps1 生成）
 ```
 
 ## 测试
@@ -121,6 +136,15 @@ dotnet run --project tests/ClassroomKit.Tests -c Release
 ```
 
 覆盖配置规范化与落盘、守护状态机九条分支（无上行 / 上行是 Wi-Fi / 策略关 / 正常开 / 退避 / 容量告警 / 自动关超时 / SSID 漂移 / 读状态失败）、HTTP 端到端（鉴权、表单与 JSON、静态文件）。
+
+装到目标机之后，再跑一遍**整机验收**（30 项，含注册表、系统上限、策略开关、计划任务、改设置落盘、异常输入、BCU 按钮）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File verify.ps1
+# 可选：-InstallDir "D:\ClassroomKit" -SkipRestart -ReportPath C:\ck-verify.txt
+```
+
+报告默认写 `%TEMP%\ck-verify.txt`，有失败就以退出码 1 结束（便于塞进部署脚本）。
 
 ## 文档
 

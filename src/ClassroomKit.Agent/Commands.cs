@@ -33,6 +33,9 @@ ClassroomKit.Agent {Version}
   --fix-peers       提权写入 WifiMaxPeers 并重启 icssvc（放宽设备数上限）
   --install-task    注册登录自启计划任务
   --uninstall-task  删除登录自启计划任务
+  --panel           用默认浏览器打开 Web 控制面板（带令牌）
+  --msi-setup       （MSI 安装包内部使用）安装后配置
+  --msi-cleanup     （MSI 安装包内部使用）卸载前清理
   --version         版本号
 """);
         return 0;
@@ -150,6 +153,25 @@ ClassroomKit.Agent {Version}
         WriteResult(message);
         log?.Info($"修复设备上限：{message}");
         return (ok, message);
+    }
+
+    /// <summary>用默认浏览器打开带令牌的面板地址（托盘菜单「打开面板」和开始菜单快捷方式都走这里）。</summary>
+    public static int Panel()
+    {
+        var store = new ConfigStore(Paths.ConfigPath);
+        var url = $"http://127.0.0.1:{store.Current.Port}/?t={store.Current.Token}";
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            Console.WriteLine(url);
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"打开浏览器失败：{ex.Message}");
+            Console.WriteLine(url);
+            return 1;
+        }
     }
 
     public static int ProbeCli()

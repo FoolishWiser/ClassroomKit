@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ClassroomKit 教室一体机热点 · MSI 安装包定义（WiX 4/5/6/7 通用语法）
+
+  设计要点：
+    · perMachine 安装到 Program Files\ClassroomKit，带 MajorUpgrade（同 UpgradeCode 直接覆盖升级）。
+    · ProductCode 由 build-msi.ps1 按版本号算出：同版本重建是"同一产品"替换，不会留下重复的卸载项；
+      不同版本则是不同产品，由 MajorUpgrade 负责移除旧版。
+    · 程序文件用 <Files> 通配收集，新增文件不需要改这个文件。
+    · 主要逻辑放在 ClassroomKit.Agent.exe 自己的 msi-setup / msi-cleanup 动词里
+      （建 ProgramData、授权、写配置、放宽 WifiMaxPeers、注册计划任务 / 反向清理），
+      MSI 只负责"放文件 + 在正确的时机调用它"，避免依赖 PowerShell 执行策略。
+    · 卸载保留 C:\ProgramData\ClassroomKit（配置和日志），重装后密码与面板令牌不变；
+      要彻底清除请手动删该目录。
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <Package ProductCode="$(var.ProductCode)"
+           Name="ClassroomKit 教室一体机热点"
+           Manufacturer="ClassroomKit"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="8f0b6f7e-3c2d-4a51-9a63-7d1c5b9e4a10"
+           Scope="perMachine"
+           Compressed="yes"
+           InstallerVersion="500">
+
+    <SummaryInformation Description="ClassroomKit 教室一体机热点守护（开机自动开热点、放宽设备数上限、强力卸载）"
+                        Manufacturer="ClassroomKit" />
+
+    <MajorUpgrade DowngradeErrorMessage="已经安装了更新版本的 ClassroomKit，请先在「应用和功能」里卸载它。" />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <!-- 安装目录（子目录与文件组件由 scripts/build-msi.ps1 扫描 dist\ 自动生成 installer/files.wxs） -->
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="ClassroomKit" />
+    </StandardDirectory>
+
+    <!-- 开始菜单：一键打开控制面板（panel 动词会带上令牌） -->
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ProgramMenuDir" Name="ClassroomKit">
+        <Component Id="MenuComponent" Guid="*">
+          <Shortcut Id="PanelShortcut"
+                    Name="ClassroomKit 控制面板"
+                    Description="用浏览器打开热点控制面板（自动带登录令牌）"
+                    Target="[INSTALLFOLDER]ClassroomKit.Agent.exe"
+                    Arguments="--panel"
+                    WorkingDirectory="INSTALLFOLDER" />
+          <RemoveFolder Id="ProgramMenuDir" On="uninstall" />
+          <RegistryValue Root="HKLM" Key="Software\ClassroomKit" Name="installed" Type="integer" Value="1" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="ClassroomKit" Level="1" AllowAbsent="no">
+      <ComponentRef Id="MenuComponent" />
+      <ComponentGroupRef Id="Files" />
+    </Feature>
+
+    <!-- 自定义动作：deferred + no impersonate（以 SYSTEM 运行，才能改 HKLM 注册表和计划任务） -->
+    <!-- 用 FileRef 直接指向程序本体（文件清单里 ClassroomKit.Agent.exe 的 File Id 固定为 f_ClassroomKit_Agent_exe，
+         由 scripts/build-msi.ps1 生成；这样不用把安装路径写死）。 -->
+    <CustomAction Id="MsiSetup"
+                  FileRef="f_ClassroomKit_Agent_exe"
+                  ExeCommand="--msi-setup"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check" />
+
+    <CustomAction Id="MsiCleanup"
+                  FileRef="f_ClassroomKit_Agent_exe"
+                  ExeCommand="--msi-cleanup"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <InstallExecuteSequence>
+      <!-- 卸载：删文件之前先停进程、删任务、恢复 WifiMaxPeers（升级时也会跑，随后新版本会重新配置） -->
+      <Custom Action="MsiCleanup" Before="RemoveFiles" Condition='REMOVE~="ALL"' />
+      <!-- 安装：文件放好之后再建数据目录 / 写配置 / 放宽上限 / 注册自启任务 -->
+      <Custom Action="MsiSetup" After="InstallFiles" Condition='NOT Installed' />
+    </InstallExecuteSequence>
+
+  </Package>
+</Wix>

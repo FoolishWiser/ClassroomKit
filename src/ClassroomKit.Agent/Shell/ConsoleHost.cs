@@ -13,12 +13,25 @@ internal static class ConsoleHost
     {
         try
         {
+            // 关键：输出已被重定向到管道 / 文件时（bash 的 | 、PowerShell 的 $(...) 捕获、
+            // cmd 的 > file），.NET 拿到的标准句柄本来就是对的；此时若再去 AttachConsole
+            // 并把 Console.Out 改指 CONOUT$，调用方只会捕获到空串。
+            var outRedirected = Console.IsOutputRedirected;
+            var errRedirected = Console.IsErrorRedirected;
+            if (outRedirected && errRedirected) return;
+
             if (!AttachConsole(-1)) return;
 
             // 输出走 UTF-8：Git-Bash / Windows Terminal / 管道里都不乱码
             var utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
-            var stdout = new StreamWriter(Console.OpenStandardOutput(), utf8) { AutoFlush = true };
-            Console.SetOut(stdout);
+            if (!outRedirected)
+            {
+                Console.SetOut(new StreamWriter(Console.OpenStandardOutput(), utf8) { AutoFlush = true });
+            }
+            if (!errRedirected)
+            {
+                Console.SetError(new StreamWriter(Console.OpenStandardError(), utf8) { AutoFlush = true });
+            }
 
             try { Console.OutputEncoding = utf8; } catch { /* 某些重定向场景不允许改 */ }
         }
