@@ -50,10 +50,12 @@ public sealed class ApiServer
     public Func<CancellationToken, Task<(bool Ok, string Message)>>? FixPeersAsync { get; set; }
     public Func<CancellationToken, Task<(bool Ok, string Message)>>? LaunchBcuAsync { get; set; }
     public Action? RequestExit { get; set; }
+    public Func<object>? GetUplinks { get; set; }
+    public Func<bool, (bool Ok, string Message)>? Uninstall { get; set; }
     public Action<UserSettings>? ApplySettings { get; set; }
     public Action<bool>? ApplyPolicy { get; set; }
 
-    public sealed record UserSettings(string Ssid, string Passphrase, int TargetClients, bool AllowWifiUplink);
+    public sealed record UserSettings(string Ssid, string Passphrase, int TargetClients, bool AllowWifiUplink, string UplinkMode, bool FallbackToLan);
 
     public void AttachGuard(HotspotGuard guard) => _guard = guard;
 
@@ -100,6 +102,12 @@ public sealed class ApiServer
             case "/api/state":
                 return HttpResponse.Json(JsonSerializer.Serialize(StateDto(), Json));
 
+            case "/api/uplinks":
+            {
+                var dto = GetUplinks?.Invoke() ?? new { mode = "auto", candidates = Array.Empty<object>() };
+                return HttpResponse.Json(JsonSerializer.Serialize(dto, Json));
+            }
+
             case "/api/clients":
                 return HttpResponse.Json(JsonSerializer.Serialize(ClientsDto(), Json));
 
@@ -131,12 +139,14 @@ public sealed class ApiServer
                     var pass = ReadString(body, "passphrase") ?? cfg.Passphrase;
                     var target = ReadInt(body, "targetClients") ?? cfg.TargetClients;
                     var allowWifi = ReadBool(body, "allowWifiUplink") ?? cfg.AllowWifiUplink;
+                    var uplinkMode = ReadString(body, "uplinkMode") ?? _config.Current.Uplink.Mode;
+                    var fallback = ReadBool(body, "fallbackToLan") ?? _config.Current.Uplink.FallbackToLan;
 
                     if (ssid.Length is < 1 or > 32) throw new ApiException("SSID 需 1–32 字符");
                     if (pass.Length is < 8 or > 63) throw new ApiException("密码需 8–63 字符");
                     if (target is < 1 or > 64) throw new ApiException("目标容量需 1–64");
 
-                    ApplySettings?.Invoke(new UserSettings(ssid, pass, target, allowWifi));
+                    ApplySettings?.Invoke(new UserSettings(ssid, pass, target, allowWifi, uplinkMode, fallback));
                     return new { ok = true };
                 });
 
@@ -222,6 +232,16 @@ public sealed class ApiServer
                 return HttpResponse.Json(JsonSerializer.Serialize(new { ok, action, message }, Json), ok ? 200 : 500);
             }
 
+            case "uninstall":
+            {
+                if (Uninstall is null) return HttpResponse.Text("not supported", 409);
+                var keepData = ReadFields(request).TryGetValue("keepData", out var kd) &&
+                               (kd is "1" or "true" or "on" or "yes");
+                var (ok, message) = Uninstall(keepData);
+                _log.Warn($"自我卸载：{message}");
+                return HttpResponse.Json(JsonSerializer.Serialize(new { ok, action, message }, Json), ok ? 200 : 500);
+            }
+
             case "exit":
                 RequestExit?.Invoke();
                 return HttpResponse.Json(JsonSerializer.Serialize(new { ok = true, action }, Json));
@@ -277,7 +297,12 @@ public sealed class ApiServer
             {
                 available = snap.UplinkAvailable,
                 isWifi = snap.UplinkIsWifi,
-                name = snap.UplinkName
+                name = snap.UplinkName,
+                id = snap.UplinkId,
+                hasInternet = snap.UplinkHasInternet,
+                reason = snap.UplinkReason,
+                mode = cfg.Uplink.Mode,
+                fallbackToLan = cfg.Uplink.FallbackToLan
             },
             capability = snap.Capability.ToString(),
             restartCount = _guard?.RestartCount ?? 0,

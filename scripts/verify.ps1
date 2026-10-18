@@ -9,6 +9,7 @@
 [CmdletBinding()]
 param(
     [string]$InstallDir = "C:\Program Files\ClassroomKit",
+    [string]$ExpectedVersion = "",
     [string]$ReportPath = "",
     [switch]$SkipRestart
 )
@@ -104,9 +105,11 @@ if (-not $cfg) {
     }
 
     # ---------- CLI ----------
-    Test-Name "--version 输出 0.1.0" {
-        $v = (Run-Cli "--version") -join " "
-        return @(($v -match "0\.1\.0"), $v.Trim())
+    Test-Name "--version 输出合法版本号" {
+        $v = ((Run-Cli "--version") -join " ").Trim()
+        $ok = $v -match "ClassroomKit\.Agent \d+\.\d+\.\d+"
+        if ($ok -and $ExpectedVersion) { $ok = $v -match [regex]::Escape($ExpectedVersion) }
+        return @($ok, $v)
     }
     Test-Name "--status 是合法 JSON 且字段齐全" {
         $s = (Run-Cli "--status") -join ""
@@ -133,6 +136,17 @@ if (-not $cfg) {
         $need = @("state", "ssid", "passphrase", "clients", "maxClients", "targetClients", "registryPeers", "allowWifiUplink", "noConnectionsTimeout", "currentSsid")
         $missing = $need | Where-Object { -not ($s.hotspot.PSObject.Properties.Name -contains $_) }
         return @(($missing.Count -eq 0), "缺失=$($missing -join ',')")
+    }
+    Test-Name "GET /api/state 上行信息完整" {
+        $u = (State).uplink
+        $need = @("available", "isWifi", "name", "hasInternet", "mode", "fallbackToLan", "reason")
+        $missing = $need | Where-Object { -not ($u.PSObject.Properties.Name -contains $_) }
+        return @(($missing.Count -eq 0), "网卡=$($u.name)，有外网=$($u.hasInternet)，缺失=$($missing -join ',')")
+    }
+    Test-Name "GET /api/uplinks 能列出候选网卡" {
+        $r = Api "/api/uplinks"
+        $n = @($r.candidates).Count
+        return @(($n -ge 1 -and -not [string]::IsNullOrWhiteSpace($r.source)), "source=$($r.source)，候选=$n 块，理由=$($r.reason)")
     }
     Test-Name "GET /api/clients" { $c = Api "/api/clients"; return @(($null -ne $c.count -and $null -ne $c.targetClients), "count=$($c.count)/$($c.targetClients)") }
     Test-Name "GET /api/logs?take=20 有内容" { $l = Api "/api/logs?take=20"; return @(($l.lines.Count -gt 0), "行数=$($l.lines.Count)") }

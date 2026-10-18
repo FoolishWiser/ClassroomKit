@@ -28,6 +28,8 @@ internal static class Program
                 "--fix-peers" => Commands.FixPeersCli(),
                 "--install-task" => Commands.InstallTask(),
                 "--panel" => Commands.Panel(),
+                "--uplinks" => Commands.UplinksCli(),
+                "--uninstall" => Commands.Uninstall(args),
                 "--msi-setup" => MsiSetup.Install(),
                 "--msi-cleanup" => MsiSetup.Cleanup(),
                 "--uninstall-task" => Commands.UninstallTask(),

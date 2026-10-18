@@ -26,6 +26,10 @@ internal static class Program
         await ConfigTestsAsync();
 
         Console.WriteLine();
+        Console.WriteLine("[上行网卡选择]");
+        await UplinkTests.RunAsync();
+
+        Console.WriteLine();
         Console.WriteLine("[HotspotGuard 状态机]");
         await GuardTestsAsync();
 

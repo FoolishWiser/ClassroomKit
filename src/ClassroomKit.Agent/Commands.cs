@@ -34,6 +34,8 @@ ClassroomKit.Agent {Version}
   --install-task    注册登录自启计划任务
   --uninstall-task  删除登录自启计划任务
   --panel           用默认浏览器打开 Web 控制面板（带令牌）
+  --uplinks         列出本机网卡并输出上行选择结果（JSON）
+  --uninstall       卸载本程序（MSI 装走 msiexec /x；绿色版自删目录）。加 --purge-data 连配置日志一起删
   --msi-setup       （MSI 安装包内部使用）安装后配置
   --msi-cleanup     （MSI 安装包内部使用）卸载前清理
   --version         版本号
@@ -172,6 +174,67 @@ ClassroomKit.Agent {Version}
             Console.WriteLine(url);
             return 1;
         }
+    }
+
+    /// <summary>诊断用：列出所有网卡与最终选中的上行（JSON）。</summary>
+    public static int UplinksCli()
+    {
+        var store = new ConfigStore(Paths.ConfigPath);
+        var log = new AppLog(Paths.LogDir);
+        var probe = new UplinkProbe(log);
+        var choice = probe.Resolve(store.Current.Uplink, store.Current.Hotspot.AllowWifiUplink);
+
+        var json = JsonSerializer.Serialize(new
+        {
+            mode = store.Current.Uplink.Mode,
+            allowWifiUplink = store.Current.Hotspot.AllowWifiUplink,
+            fallbackToLan = store.Current.Uplink.FallbackToLan,
+            source = choice.Source.ToString(),
+            reason = choice.Reason,
+            describe = choice.Describe(),
+            chosen = choice.Chosen is null ? null : new
+            {
+                choice.Chosen.Id,
+                choice.Chosen.Name,
+                choice.Chosen.Description,
+                choice.Chosen.Ipv4,
+                choice.Chosen.HasInternet,
+                choice.Chosen.HasGateway,
+                choice.Chosen.IsWifi
+            },
+            candidates = choice.Candidates.Select(c => new
+            {
+                c.Id,
+                c.Name,
+                c.Description,
+                c.Ipv4,
+                c.IsWired,
+                c.IsWifi,
+                c.HasGateway,
+                c.HasInternet,
+                c.IsTethering,
+                c.Metric,
+                c.SpeedMbps,
+                c.Usable
+            })
+        }, new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+
+        Console.WriteLine(json);
+        return choice.Chosen is null ? 3 : 0;
+    }
+
+    /// <summary>命令行卸载：默认保留配置日志，加 --purge-data 一起删。</summary>
+    public static int Uninstall(string[] args)
+    {
+        var keepData = !args.Any(a => a.Equals("--purge-data", StringComparison.OrdinalIgnoreCase));
+        var plan = SelfUninstaller.BuildPlan(keepData);
+        Console.WriteLine($"安装方式：{plan.Mode}");
+        Console.WriteLine(plan.Describe());
+
+        var (ok, message) = SelfUninstaller.Start(keepData);
+        Console.WriteLine(message);
+        if (ok) Console.WriteLine("本进程即将退出，卸载在后台继续（会弹一次管理员授权）。");
+        return ok ? 0 : 1;
     }
 
     public static int ProbeCli()

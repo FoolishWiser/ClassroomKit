@@ -6,13 +6,22 @@ using Windows.Networking.NetworkOperators;
 
 namespace ClassroomKit.Agent.Tethering;
 
-/// <summary>WinRT NetworkOperatorTetheringManager 的真实实现。</summary>
+/// <summary>WinRT NetworkOperatorTetheringManager 的真实实现。上行网卡由 <see cref="UplinkProbe"/> 挑选。</summary>
 public sealed class TetheringService : ITethering
 {
-    private const uint InterfaceWifi = 71;
+    private readonly UplinkProbe _probe;
+    private readonly Func<AppConfig> _config;
 
-    public Task<TetheringSnapshot> GetSnapshotAsync(CancellationToken ct) =>
-        Task.Run(Snapshot, ct);
+    public TetheringService(UplinkProbe probe, Func<AppConfig> config)
+    {
+        _probe = probe;
+        _config = config;
+    }
+
+    /// <summary>最近一次选择结果（面板与日志用）。</summary>
+    public UplinkChoice LastChoice { get; private set; } = new();
+
+    public Task<TetheringSnapshot> GetSnapshotAsync(CancellationToken ct) => Task.Run(Snapshot, ct);
 
     public Task<bool> StartAsync(CancellationToken ct) => Task.Run(async () =>
     {
@@ -122,36 +131,48 @@ public sealed class TetheringService : ITethering
 
     public string? LastError { get; private set; }
 
-    private static TetheringSnapshot Snapshot()
+    private TetheringSnapshot Snapshot()
     {
-        ConnectionProfile? profile;
-        var isWifi = false;
-        var uplinkName = "";
-        var uplinkUp = false;
-
+        var cfg = _config();
+        UplinkChoice choice;
         try
         {
-            profile = NetworkInformation.GetInternetConnectionProfile();
-            if (profile is not null)
-            {
-                var adapter = profile.NetworkAdapter;
-                isWifi = adapter is not null && adapter.IanaInterfaceType == InterfaceWifi;
-                uplinkName = profile.ProfileName ?? "";
-                uplinkUp = profile.GetNetworkConnectivityLevel() != NetworkConnectivityLevel.None;
-            }
+            choice = _probe.Resolve(cfg.Uplink, cfg.Hotspot.AllowWifiUplink);
         }
         catch (Exception ex)
         {
             return TetheringSnapshot.Empty with { Error = ex.Message };
         }
 
-        if (profile is null || !uplinkUp)
+        LastChoice = choice;
+
+        if (choice.Chosen is null)
+        {
+            // 只有 Wi-Fi 能连通时，让守护状态机报“上行是 Wi-Fi（拒绝）”而不是笼统的“等待上行”
+            var blockedWifi = choice.Source == UplinkSource.WifiBlocked;
+            return TetheringSnapshot.Empty with
+            {
+                UplinkAvailable = blockedWifi,
+                UplinkIsWifi = blockedWifi,
+                UplinkName = null,
+                UplinkReason = choice.Reason,
+                Error = choice.Reason
+            };
+        }
+
+        var uplink = choice.Chosen;
+        var profile = UplinkProbe.ProfileFor(uplink);
+        if (profile is null)
         {
             return TetheringSnapshot.Empty with
             {
-                UplinkAvailable = false,
-                UplinkIsWifi = isWifi,
-                UplinkName = uplinkName
+                UplinkAvailable = true,
+                UplinkIsWifi = uplink.IsWifi,
+                UplinkName = uplink.Label,
+                UplinkId = uplink.Id,
+                UplinkHasInternet = uplink.HasInternet,
+                UplinkReason = choice.Reason,
+                Error = $"网卡 {uplink.Label} 没有可用的连接配置"
             };
         }
 
@@ -190,8 +211,11 @@ public sealed class TetheringService : ITethering
                 MaxClientCount = (int)manager.MaxClientCount,
                 NoConnectionsTimeoutEnabled = timeout,
                 UplinkAvailable = true,
-                UplinkIsWifi = isWifi,
-                UplinkName = uplinkName,
+                UplinkIsWifi = uplink.IsWifi,
+                UplinkName = uplink.Label,
+                UplinkId = uplink.Id,
+                UplinkHasInternet = uplink.HasInternet,
+                UplinkReason = choice.Reason,
                 Capability = capability == TetheringCapability.Enabled ? Capability.Enabled : Capability.Disabled,
                 Error = capability == TetheringCapability.Enabled ? null : $"热点能力未启用：{capability}",
                 CurrentSsid = ssid,
@@ -203,24 +227,38 @@ public sealed class TetheringService : ITethering
             return TetheringSnapshot.Empty with
             {
                 UplinkAvailable = true,
-                UplinkIsWifi = isWifi,
-                UplinkName = uplinkName,
+                UplinkIsWifi = uplink.IsWifi,
+                UplinkName = uplink.Label,
+                UplinkId = uplink.Id,
+                UplinkHasInternet = uplink.HasInternet,
+                UplinkReason = choice.Reason,
                 Error = ex.Message
             };
         }
     }
 
-    private static NetworkOperatorTetheringManager? TryCreateManager(out string? error)
+    private NetworkOperatorTetheringManager? TryCreateManager(out string? error)
     {
         error = null;
+        var cfg = _config();
+        var choice = _probe.Resolve(cfg.Uplink, cfg.Hotspot.AllowWifiUplink);
+        LastChoice = choice;
+
+        if (choice.Chosen is null)
+        {
+            error = choice.Reason;
+            return null;
+        }
+
+        var profile = UplinkProbe.ProfileFor(choice.Chosen);
+        if (profile is null)
+        {
+            error = $"网卡 {choice.Chosen.Label} 没有可用的连接配置";
+            return null;
+        }
+
         try
         {
-            var profile = NetworkInformation.GetInternetConnectionProfile();
-            if (profile is null)
-            {
-                error = "没有可用的上行连接（网线未插？）";
-                return null;
-            }
             return NetworkOperatorTetheringManager.CreateFromConnectionProfile(profile);
         }
         catch (Exception ex)

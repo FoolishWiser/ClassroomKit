@@ -49,7 +49,9 @@ function renderState(s) {
   $('target').textContent = s.hotspot.targetClients;
   $('op-state').textContent = stateText[s.hotspot.state] || s.hotspot.state;
   $('max-clients').textContent = s.hotspot.maxClients ? s.hotspot.maxClients + ' 台' : '—';
-  $('uplink').textContent = s.uplink.available ? (s.uplink.name || '已连接') + (s.uplink.isWifi ? '（Wi-Fi）' : '') : '未连接';
+  $('uplink').textContent = s.uplink.available
+    ? (s.uplink.name || '已连接') + (s.uplink.hasInternet ? '' : '（无外网）')
+    : '未连接';
   $('timeout').textContent = s.hotspot.noConnectionsTimeout === true ? '已开启（会自动关）' : '已关闭';
   $('registry-peers').textContent = s.hotspot.registryPeers ? '目标 ' + s.hotspot.registryPeers : '—';
   $('uptime').textContent = fmtUptime(s.uptimeSec);
@@ -81,6 +83,12 @@ function renderState(s) {
   if (document.activeElement !== $('in-ssid')) $('in-ssid').value = s.hotspot.ssid || '';
   if (document.activeElement !== $('in-pass')) $('in-pass').value = s.hotspot.passphrase || '';
   if (document.activeElement !== $('in-target')) $('in-target').value = s.hotspot.targetClients;
+  $('in-fallback').checked = s.uplink.fallbackToLan !== false;
+  if (document.activeElement !== $('in-uplink')) {
+    $('in-uplink').value = s.uplink.mode === 'auto' ? 'auto' : (s.uplink.mode || 'auto');
+    if ($('in-uplink').selectedIndex < 0) $('in-uplink').value = 'auto';
+  }
+  if (s.uplink.reason) $('uplink-note').textContent = s.uplink.reason + (s.uplink.name ? '：' + s.uplink.name : '');
   // 勾选状态要反映「配置里是否允许」，不是「当前上行是不是 Wi-Fi」
   $('in-wifi').checked = !!s.hotspot.allowWifiUplink;
 
@@ -154,6 +162,7 @@ $('btn-off').onclick = () => act('stop', '已关闭热点');
 $('btn-fix').onclick = () => act('fix-peers', '已尝试修复设备上限');
 $('btn-bcu').onclick = () => act('bcu', '正在拉起强力卸载工具');
 $('btn-logs').onclick = refreshLogs;
+$('btn-rescan').onclick = () => refreshUplinks(true);
 $('btn-copy').onclick = async () => {
   const text = $('passphrase').textContent;
   try { await navigator.clipboard.writeText(text); toast('密码已复制'); }
@@ -166,7 +175,9 @@ $('settings').onsubmit = async (e) => {
     ssid: $('in-ssid').value.trim(),
     passphrase: $('in-pass').value,
     targetClients: parseInt($('in-target').value, 10) || 10,
-    allowWifiUplink: $('in-wifi').checked
+    allowWifiUplink: $('in-wifi').checked,
+    uplinkMode: $('in-uplink').value || 'auto',
+    fallbackToLan: $('in-fallback').checked
   };
   try {
     await api('/api/settings', { method: 'POST', body: JSON.stringify(body) });
@@ -177,9 +188,57 @@ $('settings').onsubmit = async (e) => {
 
 $('footer-link').href = location.origin + '/?t=' + encodeURIComponent(token);
 
+async function refreshUplinks(force) {
+  if (!force && document.activeElement === $('in-uplink')) return;
+  try {
+    const data = await api('/api/uplinks');
+    const sel = $('in-uplink');
+    const keep = sel.value || 'auto';
+    const opts = ['<option value="auto">自动（推荐：先挑有外网的网卡）</option>'];
+    for (const c of data.candidates || []) {
+      const tags = [];
+      if (c.isTethering) tags.push('本机热点');
+      else if (c.hasInternet) tags.push('有外网');
+      else if (c.hasGateway) tags.push('无外网');
+      else tags.push('无网关');
+      if (c.isWifi) tags.push('Wi-Fi');
+      const disabled = c.usable ? '' : ' disabled';
+      const label = c.label + ' · ' + (c.ipv4 || '—') + '（' + tags.join('、') + '）';
+      opts.push('<option value="' + c.id + '"' + disabled + '>' + escapeHtml(label) + '</option>');
+    }
+    sel.innerHTML = opts.join('');
+    sel.value = keep;
+    if (sel.selectedIndex < 0) sel.value = 'auto';
+
+    const chosen = data.chosen;
+    $('uplink-note').textContent = chosen
+      ? data.reason + '：' + chosen.label + '（' + (chosen.hasInternet ? '有外网' : '无外网·仅局域网') + '）'
+      : data.reason;
+  } catch (e) {
+    $('uplink-note').textContent = '网卡检测失败：' + e.message;
+  }
+}
+
+async function uninstall() {
+  const purge = $('in-purge').checked;
+  const tail = purge ? '\n\n⚠️ 配置与日志也会删除，无法恢复。' : '\n\n配置与日志会保留，重装后仍是现在的名称/密码。';
+  if (!confirm('确定要卸载 ClassroomKit 吗？热点会立即关闭。' + tail)) return;
+  if (!confirm('最后确认：卸载后需要重新安装才能再用热点。继续？')) return;
+  try {
+    const r = await api('/api/action', { method: 'POST', body: JSON.stringify({ action: 'uninstall', keepData: purge ? 'false' : 'true' }) });
+    setBadge('卸载中…', 'warn');
+    toast(r.message || '已开始卸载');
+    setTimeout(() => { setBadge('已卸载', 'err'); $('state-hint').textContent = '程序已卸载，可关闭此页面'; }, 6000);
+  } catch (e) { toast(e.message, true); }
+}
+
+$('btn-uninstall').onclick = uninstall;
+
 refreshState();
+refreshUplinks(true);
 refreshClients();
 refreshLogs();
 setInterval(refreshState, 2000);
+setInterval(() => refreshUplinks(false), 15000);
 setInterval(refreshClients, 5000);
 setInterval(refreshLogs, 15000);

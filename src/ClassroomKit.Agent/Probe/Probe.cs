@@ -14,7 +14,10 @@ public static class Probe
     public static string Collect()
     {
         var store = new ConfigStore(Paths.ConfigPath);
-        var snapshot = new TetheringService().GetSnapshotAsync(CancellationToken.None).GetAwaiter().GetResult();
+        var log = new ClassroomKit.Core.Logging.AppLog(Paths.LogDir);
+        var probe = new UplinkProbe(log);
+        var tethering = new TetheringService(probe, () => store.Current);
+        var snapshot = tethering.GetSnapshotAsync(CancellationToken.None).GetAwaiter().GetResult();
 
         var data = new Dictionary<string, object?>
         {
@@ -36,6 +39,24 @@ public static class Probe
             ["uplinkAvailable"] = snapshot.UplinkAvailable,
             ["uplinkIsWifi"] = snapshot.UplinkIsWifi,
             ["uplinkName"] = snapshot.UplinkName,
+            ["uplinkId"] = snapshot.UplinkId,
+            ["uplinkHasInternet"] = snapshot.UplinkHasInternet,
+            ["uplinkReason"] = snapshot.UplinkReason,
+            ["uplinkMode"] = store.Current.Uplink.Mode,
+            ["uplinks"] = probe.Enumerate().Select(c => new
+            {
+                c.Id,
+                c.Name,
+                c.Description,
+                c.Ipv4,
+                c.IsWired,
+                c.IsWifi,
+                c.HasGateway,
+                c.HasInternet,
+                c.IsTethering,
+                c.Metric,
+                c.Usable
+            }).ToArray(),
             ["hotspotError"] = snapshot.Error,
             ["taskInstalled"] = ScheduledTaskInstaller.IsInstalled(),
             ["bcuPath"] = BcuLauncher.Locate(store.Current.Bcu.Path),

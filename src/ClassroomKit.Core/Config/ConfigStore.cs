@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text.Json;
+using ClassroomKit.Core.Hotspot;
 using ClassroomKit.Core.Model;
 
 namespace ClassroomKit.Core.Config;
@@ -53,6 +54,8 @@ public sealed class ConfigStore
             var cfg = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions);
             if (cfg is null) return null;
             cfg.Hotspot ??= new HotspotConfig();
+            cfg.Uplink ??= new UplinkConfig();
+            if (string.IsNullOrWhiteSpace(cfg.Uplink.Mode)) cfg.Uplink.Mode = UplinkSelector.Auto;
             cfg.Bcu ??= new BcuConfig();
             cfg.Tray ??= new TrayConfig();
             if (string.IsNullOrWhiteSpace(cfg.Token)) cfg.Token = NewToken();

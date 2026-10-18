@@ -98,6 +98,20 @@ h1 { font-size: 18px; margin: 0; }
 .btn:disabled { opacity: .5; }
 .btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
 .btn.ghost { background: transparent; }
+.btn.danger { border-color: rgba(210,70,70,.55); color: #ff9b9b; }
+.btn.danger:hover { background: rgba(210,70,70,.12); }
+.with-btn { display: flex; gap: 8px; align-items: stretch; }
+.with-btn select { flex: 1; }
+.note { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.5; }
+select {
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 10px 12px;
+  font-size: 15px;
+  min-height: 42px;
+}
 .link { background: none; border: none; color: var(--blue); font-size: 13px; cursor: pointer; padding: 0 4px; }
 
 h2 { font-size: 14px; margin: 0 0 10px; color: var(--muted); font-weight: 600; }

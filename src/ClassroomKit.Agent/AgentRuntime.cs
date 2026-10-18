@@ -23,7 +23,8 @@ public sealed class AgentRuntime : IDisposable
     {
         Config = new ConfigStore(Paths.ConfigPath);
         Log = new AppLog(Paths.LogDir);
-        Tethering = new TetheringService();
+        Uplink = new UplinkProbe(Log);
+        Tethering = new TetheringService(Uplink, () => Config.Current);
         Guard = new HotspotGuard(Tethering, () => Config.Current, Log);
 
         var version = typeof(AgentRuntime).Assembly.GetName().Version?.ToString(3) ?? "0.1.0";
@@ -35,11 +36,14 @@ public sealed class AgentRuntime : IDisposable
         Api.ApplySettings = ApplySettings;
         Api.FixPeersAsync = (ct) => Task.FromResult(Commands.FixPeersCore(Log));
         Api.LaunchBcuAsync = (ct) => Task.FromResult(BcuLauncher.Launch(Config.Current.Bcu));
+        Api.GetUplinks = UplinksDto;
+        Api.Uninstall = Uninstall;
         Api.RequestExit = () => ExitRequested?.Invoke();
     }
 
     public ConfigStore Config { get; }
     public AppLog Log { get; }
+    public UplinkProbe Uplink { get; }
     public TetheringService Tethering { get; }
     public HotspotGuard Guard { get; }
     public ApiServer Api { get; }
@@ -161,15 +165,37 @@ public sealed class AgentRuntime : IDisposable
 
     private void ApplySettings(ApiServer.UserSettings settings)
     {
+        var uplinkChanged = !string.Equals(Config.Current.Uplink.Mode, settings.UplinkMode, StringComparison.OrdinalIgnoreCase);
+
         Config.Update(c =>
         {
             c.Hotspot.Ssid = settings.Ssid;
             c.Hotspot.Passphrase = settings.Passphrase;
             c.Hotspot.TargetClients = settings.TargetClients;
             c.Hotspot.AllowWifiUplink = settings.AllowWifiUplink;
+            c.Uplink.Mode = string.IsNullOrWhiteSpace(settings.UplinkMode) ? UplinkSelector.Auto : settings.UplinkMode.Trim();
+            c.Uplink.FallbackToLan = settings.FallbackToLan;
             return true;
         });
-        Log.Info($"设置已更新：SSID={settings.Ssid}｜目标 {settings.TargetClients} 台");
+        Log.Info($"设置已更新：SSID={settings.Ssid}｜目标 {settings.TargetClients} 台｜上行 {(uplinkChanged ? settings.UplinkMode : Config.Current.Uplink.Mode)}");
+
+        if (uplinkChanged)
+        {
+            // 换了上行网卡就得重开一次热点，否则系统还按旧的网卡共享
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Tethering.StopAsync(_cts.Token);
+                    Log.Info("上行网卡已切换，热点已关闭，等待守护用新网卡重开");
+                    Wake();
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"切换上行时关闭热点失败：{ex.Message}");
+                }
+            });
+        }
         _ = Task.Run(async () =>
         {
             try
@@ -182,6 +208,63 @@ public sealed class AgentRuntime : IDisposable
                 Log.Warn($"应用热点配置失败：{ex.Message}");
             }
         });
+    }
+
+    /// <summary>面板“上行网卡”下拉框的数据：所有候选 + 当前选中 + 选择理由。</summary>
+    private object UplinksDto()
+    {
+        var cfg = Config.Current;
+        var choice = Uplink.Resolve(cfg.Uplink, cfg.Hotspot.AllowWifiUplink);
+        var chosenId = choice.Chosen?.Id;
+
+        return new
+        {
+            mode = cfg.Uplink.Mode,
+            allowWifiUplink = cfg.Hotspot.AllowWifiUplink,
+            fallbackToLan = cfg.Uplink.FallbackToLan,
+            source = choice.Source.ToString(),
+            reason = choice.Reason,
+            describe = choice.Describe(),
+            chosen = choice.Chosen is null ? null : new
+            {
+                id = choice.Chosen.Id,
+                label = choice.Chosen.Label,
+                isWifi = choice.Chosen.IsWifi,
+                hasInternet = choice.Chosen.HasInternet,
+                ipv4 = choice.Chosen.Ipv4
+            },
+            candidates = choice.Candidates.Select(c => new
+            {
+                id = c.Id,
+                name = c.Name,
+                label = c.Label,
+                description = c.Description,
+                isWired = c.IsWired,
+                isWifi = c.IsWifi,
+                hasGateway = c.HasGateway,
+                hasInternet = c.HasInternet,
+                isTethering = c.IsTethering,
+                ipv4 = c.Ipv4,
+                metric = c.Metric,
+                usable = c.Usable,
+                chosen = string.Equals(c.Id, chosenId, StringComparison.OrdinalIgnoreCase)
+            }).ToArray()
+        };
+    }
+
+    private (bool Ok, string Message) Uninstall(bool keepData)
+    {
+        var (ok, message) = SelfUninstaller.Start(keepData, Log.Warn);
+        if (ok)
+        {
+            // 先让 HTTP 响应发出去，再退出自己（脚本会等 2 秒后 taskkill）
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(800);
+                ExitRequested?.Invoke();
+            });
+        }
+        return (ok, message);
     }
 
     public void Stop()

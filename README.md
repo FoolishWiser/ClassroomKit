@@ -67,6 +67,10 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
 --probe                           收集本机能力（JSON），评估能不能用
 --fix-peers                       提权写 WifiMaxPeers 并重启 icssvc
 --install-task / --uninstall-task 注册 / 删除登录自启任务
+--uplinks                        列出本机所有网卡，说明会挑哪块开热点
+--uninstall                      卸载自己（MSI 装的走 msiexec /x；绿色版自己删目录）
+--uninstall --purge-data         连 C:\ProgramData\ClassroomKit（配置/日志）一起删
+--panel                          用默认浏览器打开面板
 --version
 ```
 
@@ -78,9 +82,29 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
 | `GET /api/clients` | 在线设备列表 |
 | `GET /api/logs?take=100` | 最近日志 |
 | `GET /api/health` | 存活探针 |
-| `POST /api/action` | `action=start\|stop\|ensure\|fix-peers\|bcu\|exit`（form 或 JSON 均可） |
+| `GET /api/uplinks` | 本机所有网卡 + 自动选中的那块 + 选择理由 |
+| `POST /api/action` | `action=start\|stop\|ensure\|fix-peers\|bcu\|uninstall\|exit`（form 或 JSON 均可；`uninstall` 可带 `keepData=true`） |
 | `POST /api/policy` | `enabled=true\|false` |
-| `POST /api/settings` | `ssid` / `passphrase` / `targetClients` / `allowWifiUplink` |
+| `POST /api/settings` | `ssid` / `passphrase` / `targetClients` / `allowWifiUplink` / `uplinkMode` / `fallbackToLan` |
+
+## 多块网卡：自动挑「真有外网」的那块
+
+一体机上常有好几块有线网卡（校内网 / 监控 / 预留），学校还经常整片断外网。程序不靠“Windows 默认连接”，而是自己枚举所有网卡再挑：
+
+1. **有外网**（NCSI 判定能上网）的优先；同是有外网时，有线优先于无线，再看默认路由 metric（小者优先）和速率；
+2. 谁都没外网 → **退回局域网兜底**（`fallbackToLan`）：只要有网关就用，学生连上能访问一体机上的课件，只是上不了外网；
+3. 连网关都没配、只有 IP（学校只给地址、或网络抖动刚把默认路由删掉）→ 也**允许兜底**开热点，优先级低于有网关的网卡；
+4. 本机自己开出来的热点网卡（`192.168.137.x` / Wi-Fi Direct）永不被选，避免自己共享自己；
+5. 想固定用某块：面板「上行网卡」下拉选它，或配置里写 `uplink.mode`（网卡名 / Id / 驱动描述片段都认）。指定的网卡拔线了会自动回退自动选择。
+
+面板每 15 秒刷新网卡列表，显示每块是「有外网 / 无外网 / 无网关 / 本机热点」。命令行查：`ClassroomKit.Agent.exe --uplinks`。
+
+## 卸载
+
+- **MSI 装的**：控制面板「应用」里卸载，或 `msiexec /x ClassroomKit-0.1.1-x64.msi`；面板「维护 → 卸载本软件」也会调起同样的流程。
+- **绿色版**：面板「维护 → 卸载本软件」，或 `ClassroomKit.Agent.exe --uninstall`。
+- 卸载会停进程、删自启任务、把 `WifiMaxPeers` 改回原值并重启共享服务、删安装目录（含 BCU）；**默认保留** `C:\ProgramData\ClassroomKit`（配置和日志，方便重装后沿用 SSID/密码）。想连配置日志一起删：面板勾「同时删除配置与日志」再点卸载，或 `ClassroomKit.Agent.exe --uninstall --purge-data`（这两种方式都会先调 `msiexec /x` 再删目录；直接 `msiexec /x` 卸载则一定保留配置）。
+- 需要管理员权限：没提权会弹一次 UAC，点「是」即可。
 
 ## 配置（`C:\ProgramData\ClassroomKit\config.json`）
 
@@ -98,6 +122,10 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
     "allowWifiUplink": false,
     "guardIntervalSec": 15,
     "autoStartOnLaunch": true
+  },
+  "uplink": {
+    "mode": "auto",
+    "fallbackToLan": true
   },
   "bcu": { "enabled": true, "path": "" },
   "tray": { "enabled": true }
