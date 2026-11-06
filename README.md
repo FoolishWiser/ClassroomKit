@@ -7,6 +7,8 @@
 - 守护式：热点被关、SSID 被改、网卡抽风、系统到点自动关热点，都会自动恢复
 - 登录自启（计划任务，延迟 8 秒），老师还在输密码时热点就已经起来了
 
+![控制面板](docs/img/panel.png)
+
 ## 为什么不是「ClassIsland 插件」或「现成热点软件」
 
 | 方案 | 问题 |
@@ -25,14 +27,14 @@
 ### 方式一：MSI 安装包（推荐）
 
 ```text
-双击 ClassroomKit-0.1.0-x64.msi
+双击 ClassroomKit-0.1.1-x64.msi
 # 或者命令行静默安装：
-msiexec /i ClassroomKit-0.1.0-x64.msi /qn
+msiexec /i ClassroomKit-0.1.1-x64.msi /qn
 ```
 
 装完自动：落地到 `C:\Program Files\ClassroomKit` → 建 `C:\ProgramData\ClassroomKit` 并授权普通用户可写 → 放宽设备上限（`WifiMaxPeers=16`）→ 注册登录自启任务 → 立刻拉起守护。开始菜单会多一项「ClassroomKit 控制面板」，点了直接带令牌打开面板（等价于 `ClassroomKit.Agent.exe --panel`）。
 
-卸载走「应用和功能」，或 `msiexec /x ClassroomKit-0.1.0-x64.msi`：会关热点 → 删计划任务 → 把 `WifiMaxPeers` 恢复成系统默认 → 清掉 BCU 目录，**保留** `C:\ProgramData\ClassroomKit`（配置与日志；重装后密码和面板令牌不变）。
+卸载走「应用和功能」，或 `msiexec /x ClassroomKit-0.1.1-x64.msi`：会关热点 → 删计划任务 → 把 `WifiMaxPeers` 恢复成系统默认 → 清掉 BCU 目录，**保留** `C:\ProgramData\ClassroomKit`（配置与日志；重装后密码和面板令牌不变）。
 
 ### 方式二：绿色目录（没有安装包时）
 
