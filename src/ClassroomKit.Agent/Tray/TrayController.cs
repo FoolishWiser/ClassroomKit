@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Drawing;
+using ClassroomKit.Agent.Board;
 using ClassroomKit.Agent.Shell;
+using ClassroomKit.Core.Board;
 using ClassroomKit.Core.Hotspot;
 using ClassroomKit.Core.Model;
 using Forms = System.Windows.Forms;
@@ -50,6 +52,8 @@ public sealed class TrayController : IDisposable
         menu.Items.Add(new Forms.ToolStripMenuItem("打开控制面板", null, (_, _) => OpenPanel()));
         menu.Items.Add(_pauseMenu);
         menu.Items.Add(_resumeItem);
+        menu.Items.Add(new Forms.ToolStripMenuItem("保存 ClassInX 板书并关闭 ClassInX", null, (_, _) => SaveClassInBoard()));
+        menu.Items.Add(new Forms.ToolStripMenuItem("检查板书软件冲突", null, (_, _) => CheckConflict()));
         menu.Items.Add(new Forms.ToolStripMenuItem("复制热点密码", null, (_, _) => CopyPassword()));
         menu.Items.Add(new Forms.ToolStripMenuItem("查看日志", null, (_, _) => OpenFolder(Paths.LogDir)));
         menu.Items.Add(new Forms.ToolStripMenuItem("强力卸载（BCU）", null, (_, _) => LaunchBcu()));
@@ -170,6 +174,95 @@ public sealed class TrayController : IDisposable
         {
             // 忽略
         }
+    }
+
+    /// <summary>托盘菜单：保存 ClassInX 板书（后台线程跑，避免卡住托盘）。</summary>
+    private void SaveClassInBoard()
+    {
+        var closeAfter = _runtime.Config.Current.BoardSave.CloseAfterSave;
+        _runtime.Log.Info($"托盘触发：保存 ClassInX 板书（保存后关闭={closeAfter}）");
+        _ = Task.Run(() =>
+        {
+            BoardSaveResult result;
+            try
+            {
+                result = _runtime.BoardSaver.Save(closeAfter);
+            }
+            catch (Exception ex)
+            {
+                _runtime.Log.Error($"保存板书异常：{ex.Message}");
+                result = new BoardSaveResult(false, "保存板书异常：" + ex.Message, 0, Array.Empty<string>(), Array.Empty<BoardSaveStep>());
+            }
+
+            _runtime.Log.Info(result.Ok ? $"板书保存成功：{result.Message}" : $"板书保存失败：{result.Message}");
+            ShowBalloon(result.Ok ? "板书已保存" : "保存板书失败", result.Message, result.Ok);
+        });
+    }
+
+    /// <summary>托盘菜单：手动检查一次板书冲突（忽略冷却）。</summary>
+    private void CheckConflict()
+    {
+        var (_, message) = _runtime.ConflictWatcher.CheckNow(force: true);
+        _runtime.Log.Info($"手动检查板书冲突：{message}");
+        if (message != "已触发") ShowBalloon("板书冲突检查", message, false);
+    }
+
+    /// <summary>面板上的「预览提示窗」：只显示，不执行任何关闭动作。</summary>
+    public void ShowConflictPreview()
+    {
+        void Run()
+        {
+            try
+            {
+                var choice = ConflictDialog.Ask("ClassIn悬浮窗 + 希沃悬浮窗 + WPS放映（预览，不会关闭任何软件）", 30);
+                _runtime.Log.Info($"冲突提示窗预览结束，选择：{choice}（预览不执行动作）");
+            }
+            catch (Exception ex)
+            {
+                _runtime.Log.Warn($"预览冲突窗失败：{ex.Message}");
+            }
+        }
+
+        if (_ui is not null) _ui.Post(_ => Run(), null);
+        else Run();
+    }
+
+    /// <summary>由冲突监控回调：切到 UI 线程弹窗，并把选择结果落成动作。</summary>
+    public void ShowConflictDialog(BoardSituation situation)
+    {
+        void Run()
+        {
+            try
+            {
+                var choice = ConflictDialog.Ask(situation.Describe());
+                _runtime.ConflictWatcher.ApplyChoice(choice);
+            }
+            catch (Exception ex)
+            {
+                _runtime.Log.Warn($"板书冲突弹窗失败：{ex.Message}");
+            }
+        }
+
+        if (_ui is not null) _ui.Post(_ => Run(), null);
+        else Run();
+    }
+
+    private void ShowBalloon(string title, string text, bool ok)
+    {
+        void Show()
+        {
+            try
+            {
+                _icon.ShowBalloonTip(3000, title, text, ok ? Forms.ToolTipIcon.Info : Forms.ToolTipIcon.Warning);
+            }
+            catch
+            {
+                // 气泡被系统策略禁用时忽略
+            }
+        }
+
+        if (_ui is not null) _ui.Post(_ => Show(), null);
+        else Show();
     }
 
     private void LaunchBcu()

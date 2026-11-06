@@ -30,6 +30,10 @@ internal static class Program
         await UplinkTests.RunAsync();
 
         Console.WriteLine();
+        Console.WriteLine("[板书冲突与配方]");
+        await BoardTests.RunAsync();
+
+        Console.WriteLine();
         Console.WriteLine("[HotspotGuard 状态机]");
         await GuardTestsAsync();
 

@@ -41,7 +41,40 @@ const stateText = {
   On: '运行中', Off: '已关闭', Starting: '正在启动', Unknown: '未知'
 };
 
+// ---- 表单脏标记 ----
+// 面板每 2 秒拉一次 /api/state 并回写表单。以前只跳过「当前有焦点的那个输入框」，
+// 于是用户点一下空白处（输入框失焦）下一拍就被服务端旧值覆盖 —— 看上去像"自动回滚"。
+// 现在只要用户动过表单就记为"脏"，在保存/放弃之前一律不再回写表单。
+const FORM_FIELDS = ['in-ssid', 'in-pass', 'in-target', 'in-uplink', 'in-fallback', 'in-wifi'];
+let formDirty = false;
+let lastState = null;
+
+function setDirty(v) {
+  if (formDirty === v) return;
+  formDirty = v;
+  $('btn-discard').style.display = v ? '' : 'none';
+  $('dirty-note').style.display = v ? '' : 'none';
+}
+
+function fillForm(s) {
+  $('in-ssid').value = s.hotspot.ssid || '';
+  $('in-pass').value = s.hotspot.passphrase || '';
+  $('in-target').value = s.hotspot.targetClients;
+  $('in-fallback').checked = s.uplink.fallbackToLan !== false;
+  $('in-wifi').checked = !!s.hotspot.allowWifiUplink;
+  $('in-uplink').value = s.uplink.mode === 'auto' ? 'auto' : (s.uplink.mode || 'auto');
+  if ($('in-uplink').selectedIndex < 0) $('in-uplink').value = 'auto';
+}
+
+for (const id of FORM_FIELDS) {
+  const el = $(id);
+  if (!el) continue;
+  el.addEventListener('input', () => setDirty(true));
+  el.addEventListener('change', () => setDirty(true));
+}
+
 function renderState(s) {
+  lastState = s;
   $('ssid').textContent = s.hotspot.ssid || '—';
   $('passphrase').textContent = s.hotspot.passphrase || '—';
   $('clients').textContent = s.hotspot.clients;
@@ -80,17 +113,9 @@ function renderState(s) {
   if (alerts.length) { box.textContent = alerts.join('\n'); box.classList.remove('hidden'); }
   else box.classList.add('hidden');
 
-  if (document.activeElement !== $('in-ssid')) $('in-ssid').value = s.hotspot.ssid || '';
-  if (document.activeElement !== $('in-pass')) $('in-pass').value = s.hotspot.passphrase || '';
-  if (document.activeElement !== $('in-target')) $('in-target').value = s.hotspot.targetClients;
-  $('in-fallback').checked = s.uplink.fallbackToLan !== false;
-  if (document.activeElement !== $('in-uplink')) {
-    $('in-uplink').value = s.uplink.mode === 'auto' ? 'auto' : (s.uplink.mode || 'auto');
-    if ($('in-uplink').selectedIndex < 0) $('in-uplink').value = 'auto';
-  }
+  // 表单只在"没被用户改过"时回写，否则保持用户正在编辑的内容
+  if (!formDirty) fillForm(s);
   if (s.uplink.reason) $('uplink-note').textContent = s.uplink.reason + (s.uplink.name ? '：' + s.uplink.name : '');
-  // 勾选状态要反映「配置里是否允许」，不是「当前上行是不是 Wi-Fi」
-  $('in-wifi').checked = !!s.hotspot.allowWifiUplink;
 
   // 主按钮跟随当前状态：开着就突出「关闭热点」，关着就突出「开启热点」
   const running = s.hotspot.state === 'On' || s.guardState === 'On';
@@ -181,15 +206,24 @@ $('settings').onsubmit = async (e) => {
   };
   try {
     await api('/api/settings', { method: 'POST', body: JSON.stringify(body) });
+    setDirty(false);
     toast('设置已保存');
     await refreshState();
+    await refreshUplinks(true);
   } catch (err) { toast(err.message, true); }
+};
+
+$('btn-discard').onclick = () => {
+  setDirty(false);
+  if (lastState) fillForm(lastState);
+  refreshUplinks(true);
+  toast('已放弃未保存的修改');
 };
 
 $('footer-link').href = location.origin + '/?t=' + encodeURIComponent(token);
 
 async function refreshUplinks(force) {
-  if (!force && document.activeElement === $('in-uplink')) return;
+  if (!force && (formDirty || document.activeElement === $('in-uplink'))) return;
   try {
     const data = await api('/api/uplinks');
     const sel = $('in-uplink');

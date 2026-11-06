@@ -26,8 +26,8 @@
 
 预编译安装包在 [Releases](https://github.com/FoolishWiser/ClassroomKit/releases/latest)：
 
-- `ClassroomKit-0.1.1-x64.msi`（约 62 MB，推荐）
-- `ClassroomKit-0.1.1-win-x64.zip`（绿色版）
+- `ClassroomKit-0.2.0-x64.msi`（约 62 MB，推荐）
+- `ClassroomKit-0.2.0-win-x64.zip`（绿色版）
 
 两者都是自包含单文件，目标机不需要装 .NET。
 
@@ -36,14 +36,14 @@
 ### 方式一：MSI 安装包（推荐）
 
 ```text
-双击 ClassroomKit-0.1.1-x64.msi
+双击 ClassroomKit-0.2.0-x64.msi
 # 或者命令行静默安装：
-msiexec /i ClassroomKit-0.1.1-x64.msi /qn
+msiexec /i ClassroomKit-0.2.0-x64.msi /qn
 ```
 
 装完自动：落地到 `C:\Program Files\ClassroomKit` → 建 `C:\ProgramData\ClassroomKit` 并授权普通用户可写 → 放宽设备上限（`WifiMaxPeers=16`）→ 注册登录自启任务 → 立刻拉起守护。开始菜单会多一项「ClassroomKit 控制面板」，点了直接带令牌打开面板（等价于 `ClassroomKit.Agent.exe --panel`）。
 
-卸载走「应用和功能」，或 `msiexec /x ClassroomKit-0.1.1-x64.msi`：会关热点 → 删计划任务 → 把 `WifiMaxPeers` 恢复成系统默认 → 清掉 BCU 目录，**保留** `C:\ProgramData\ClassroomKit`（配置与日志；重装后密码和面板令牌不变）。
+卸载走「应用和功能」，或 `msiexec /x ClassroomKit-0.2.0-x64.msi`：会关热点 → 删计划任务 → 把 `WifiMaxPeers` 恢复成系统默认 → 清掉 BCU 目录，**保留** `C:\ProgramData\ClassroomKit`（配置与日志；重装后密码和面板令牌不变）。
 
 ### 方式二：绿色目录（没有安装包时）
 
@@ -82,6 +82,11 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
 --uninstall                      卸载自己（MSI 装的走 msiexec /x；绿色版自己删目录）
 --uninstall --purge-data         连 C:\ProgramData\ClassroomKit（配置/日志）一起删
 --panel                          用默认浏览器打开面板
+--save-classin-board            保存 ClassInX 板书（三种格式）并关闭 ClassInX
+--save-classin-board --no-close 只保存，不关 ClassInX
+--conflict-check                 检查板书软件是否全屏冲突（JSON；无冲突退出码 8）
+--conflict-preview               在屏幕上预览一次冲突提示窗
+--probe-classin                  重新探测 ClassInX 保存对话框的坐标并写入 ui-recipe.json
 --version
 ```
 
@@ -94,7 +99,11 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
 | `GET /api/logs?take=100` | 最近日志 |
 | `GET /api/health` | 存活探针 |
 | `GET /api/uplinks` | 本机所有网卡 + 自动选中的那块 + 选择理由 |
-| `POST /api/action` | `action=start\|stop\|ensure\|fix-peers\|bcu\|uninstall\|exit`（form 或 JSON 均可；`uninstall` 可带 `keepData=true`） |
+| `GET /api/board` | 板书相关：ClassInX 是否在跑、保存目录、冲突可见性判定与冷却状态 |
+| `POST /api/action` | `action=start\|stop\|ensure\|fix-peers\|bcu\|uninstall\|exit\|save-classin-board\|conflict-check\|conflict-choice\|conflict-preview`（form 或 JSON 均可） |
+
+`action` 细节：`uninstall` 可带 `keepData=true`；`save-classin-board` 可带 `closeAfterSave=false` 只存不关；
+`conflict-check` 可带 `force=true` 忽略冷却；`conflict-choice` 接受 `choice=keep-both|keep-classin|keep-seewo|keep-none`（给 ClassIsland 或外部脚本回应用弹窗用）；`conflict-preview` 只在屏幕上弹一次提示窗，不关闭任何软件。
 | `POST /api/policy` | `enabled=true\|false` |
 | `POST /api/settings` | `ssid` / `passphrase` / `targetClients` / `allowWifiUplink` / `uplinkMode` / `fallbackToLan` |
 
@@ -110,9 +119,38 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
 
 面板每 15 秒刷新网卡列表，显示每块是「有外网 / 无外网 / 无网关 / 本机热点」。命令行查：`ClassroomKit.Agent.exe --uplinks`。
 
+## 板书：一键保存并关闭 ClassInX
+
+托盘右键 → **保存 ClassInX 板书并关闭 ClassInX**：自动完成「Ctrl+S → 保存至本地 → 三种格式全勾 → 保存 → 关闭 ClassInX」，实测 **1.8 秒**（人工大约 15 秒，还要记得勾 pdf）。
+
+- 文件落在 ClassInX 的默认保存位置：`文档\ClassIn X Files\黑板_<日期>_<时间>.{edb,png,pdf}`，保存完成后气泡会告诉你存了哪几个；
+- 同名文件已存在时 ClassInX 会逐个弹「是否替换」，程序自动点「是」，不需要人盯着；
+- 想只存不关（比如接着讲）：命令行加 `--no-close`，配置文件里把 `boardSave.closeAfterSave` 设成 `false`；
+- ClassInX 没开、或界面上没有板书窗口时会直接告诉你「没找到板书窗口」，不会乱点；
+- 换了 ClassInX 版本、按钮位置变了怎么办：托盘菜单或 `ClassroomKit.Agent.exe --probe-classin` 重新探测一次，坐标写进 `C:\ProgramData\ClassroomKit\ui-recipe.json`。探测失败时改这个 JSON 也能手工修。
+
+## 板书软件冲突提示
+
+教室里常同时开着**希沃白板**和 **ClassInX**，两个悬浮窗叠在全屏内容上，学生看不清。程序每 2 秒看一眼窗口，命中「两个悬浮窗同时存在 + 有东西占满全屏」时弹一个置顶提示：
+
+![冲突提示窗](docs/img/conflict-dialog.png)
+
+四个选项就是四种处理，选完立刻执行：
+
+| 选项 | 动作 |
+| --- | --- |
+| 都保留 | 什么都不做（60 秒不选也是这个） |
+| 保留 ClassInX | 关闭希沃白板（先关窗口，5 秒不退再结束进程） |
+| 保留希沃白板 | 关闭 ClassInX |
+| 都不保留 | 两个都关 |
+
+「全屏」认三种：**WPS 放映**（标题 `WPS Presentation Slide Show` + 进程 `wpp`，实测 WPS 12 通用宿主下放映窗是 `Qt5QWindowIcon` 且**不置顶**）、**ClassInX 板书全屏**、**希沃白板全屏**；还可以在 `conflict.extraFullscreenProcesses` 里加自己学校的放映程序（按进程名）。
+
+不打扰的细节：同一个冲突只弹一次，之后 **40 分钟**内不再弹（`conflict.cooldownMinutes` 可调 1–1440）；想立刻再检查一次，托盘菜单 →「检查板书软件冲突」，或 `POST /api/action {"action":"conflict-check","force":true}`；ClassIsland 也能接：收到提示后由班牌/自动化调 `conflict-choice` 直接给出选择。
+
 ## 卸载
 
-- **MSI 装的**：控制面板「应用」里卸载，或 `msiexec /x ClassroomKit-0.1.1-x64.msi`；面板「维护 → 卸载本软件」也会调起同样的流程。
+- **MSI 装的**：控制面板「应用」里卸载，或 `msiexec /x ClassroomKit-0.2.0-x64.msi`；面板「维护 → 卸载本软件」也会调起同样的流程。
 - **绿色版**：面板「维护 → 卸载本软件」，或 `ClassroomKit.Agent.exe --uninstall`。
 - 卸载会停进程、删自启任务、把 `WifiMaxPeers` 改回原值并重启共享服务、删安装目录（含 BCU）；**默认保留** `C:\ProgramData\ClassroomKit`（配置和日志，方便重装后沿用 SSID/密码）。想连配置日志一起删：面板勾「同时删除配置与日志」再点卸载，或 `ClassroomKit.Agent.exe --uninstall --purge-data`（这两种方式都会先调 `msiexec /x` 再删目录；直接 `msiexec /x` 卸载则一定保留配置）。
 - 需要管理员权限：没提权会弹一次 UAC，点「是」即可。
@@ -138,6 +176,12 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
     "mode": "auto",
     "fallbackToLan": true
   },
+  "boardSave": { "enabled": true, "closeAfterSave": true },
+  "conflict": {
+    "enabled": true,
+    "cooldownMinutes": 40,
+    "extraFullscreenProcesses": []
+  },
   "bcu": { "enabled": true, "path": "" },
   "tray": { "enabled": true }
 }
@@ -154,6 +198,8 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
 | 常驻内存 | 私有约 **56 MB**，工作集约 152 MB |
 | 空闲 CPU | 60 秒采样 0.06 秒 ≈ **0.1%**（单核） |
 | 无设备自动关 | 已显式关闭（否则 5 分钟热点自己消失） |
+| ClassInX 板书保存 | 全轮询实现 **1.76 秒**（Ctrl+S 160ms / 对话框 340ms / 面板 490ms / 补勾 pdf 470ms / 三个覆盖确认 800ms） |
+| 冲突提示判定 | 每 2 秒扫一次可见窗口；40 分钟冷却；弹窗 60 秒倒计时默认「都保留」 |
 | 强力卸载 | BCU 便携版 6.3.0 解压后 428 MB / 1348 文件，`7z t` 校验通过；面板按钮定位到 exe 并拉起（API 返回 ok、日志有记录；真机上先弹 UAC——BCU 清单是 requireAdministrator） |
 
 ## 目录
@@ -163,7 +209,7 @@ src/ClassroomKit.Core     纯逻辑：配置、状态机、HTTP、API（可在 L
 src/ClassroomKit.Agent    WinRT 热点、托盘、计划任务、BCU 拉起
 web/                      控制面板（无框架、无 CDN，离线可用）
 scripts/                  build / build-msi / install / uninstall / rebuild / probe / get-bcu / verify
-tests/ClassroomKit.Tests  零依赖测试（dotnet run，16 项）
+tests/ClassroomKit.Tests  零依赖测试（dotnet run，55 项）
 docs/                     部署手册、ClassIsland 接入、原理与限制
 installer/                MSI 定义（product.wxs；文件清单 files.wxs 由 build-msi.ps1 生成）
 ```
@@ -174,9 +220,9 @@ installer/                MSI 定义（product.wxs；文件清单 files.wxs 由 
 dotnet run --project tests/ClassroomKit.Tests -c Release
 ```
 
-覆盖配置规范化与落盘、守护状态机九条分支（无上行 / 上行是 Wi-Fi / 策略关 / 正常开 / 退避 / 容量告警 / 自动关超时 / SSID 漂移 / 读状态失败）、HTTP 端到端（鉴权、表单与 JSON、静态文件）。
+55 项，覆盖配置规范化与落盘、上行网卡选择、守护状态机九条分支（无上行 / 上行是 Wi-Fi / 策略关 / 正常开 / 退避 / 容量告警 / 自动关超时 / SSID 漂移 / 读状态失败）、窗口分类与冲突冷却、UI 配方匹配、HTTP 端到端（鉴权、表单与 JSON、静态文件）。
 
-装到目标机之后，再跑一遍**整机验收**（30 项，含注册表、系统上限、策略开关、计划任务、改设置落盘、异常输入、BCU 按钮）：
+装到目标机之后，再跑一遍**整机验收**（42 项，含注册表、系统上限、策略开关、计划任务、改设置落盘、异常输入、网卡判别、板书/冲突接口、BCU 按钮）：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File verify.ps1

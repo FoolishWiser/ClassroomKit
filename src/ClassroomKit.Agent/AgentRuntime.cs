@@ -1,7 +1,9 @@
+using ClassroomKit.Agent.Board;
 using ClassroomKit.Agent.Bcu;
 using ClassroomKit.Agent.Shell;
 using ClassroomKit.Agent.Tethering;
 using ClassroomKit.Core.Api;
+using ClassroomKit.Core.Board;
 using ClassroomKit.Core.Config;
 using ClassroomKit.Core.Hotspot;
 using ClassroomKit.Core.Http;
@@ -39,6 +41,20 @@ public sealed class AgentRuntime : IDisposable
         Api.GetUplinks = UplinksDto;
         Api.Uninstall = Uninstall;
         Api.RequestExit = () => ExitRequested?.Invoke();
+
+        Recipe = UiRecipe.Load(Paths.RecipePath);
+        BoardSaver = new ClassInBoardSaver(Log, Recipe);
+        ConflictWatcher = new ConflictWatcher(Log, () => Config.Current.Conflict, () => Config.Current.Conflict.ExtraFullscreenProcesses);
+
+        Api.SaveBoard = SaveBoard;
+        Api.ConflictCheck = ConflictWatcher.CheckNow;
+        Api.GetBoard = BoardDto;
+        Api.ConflictChoice = ApplyConflictChoice;
+        Api.PreviewConflict = () =>
+        {
+            PreviewConflictRequested?.Invoke();
+            return (true, "已请求弹出预览窗（只在屏幕上显示，不会关闭任何软件）");
+        };
     }
 
     public ConfigStore Config { get; }
@@ -47,6 +63,12 @@ public sealed class AgentRuntime : IDisposable
     public TetheringService Tethering { get; }
     public HotspotGuard Guard { get; }
     public ApiServer Api { get; }
+    public UiRecipe Recipe { get; }
+    public ClassInBoardSaver BoardSaver { get; }
+    public ConflictWatcher ConflictWatcher { get; }
+
+    /// <summary>面板/接口请求预览冲突窗时触发（由托盘层弹到 UI 线程）。</summary>
+    public Action? PreviewConflictRequested { get; set; }
 
     /// <summary>由托盘层注入：退出整个进程。</summary>
     public Action? ExitRequested { get; set; }
@@ -78,6 +100,7 @@ public sealed class AgentRuntime : IDisposable
             Log.Error($"Web 面板启动失败（端口 {Config.Current.Port}）：{ex.Message}");
         }
 
+        ConflictWatcher.Start();
         _ = Task.Run(GuardLoopAsync);
 
         if (Config.Current.Hotspot.AutoStartOnLaunch && !Config.Current.Hotspot.Enabled)
@@ -213,6 +236,83 @@ public sealed class AgentRuntime : IDisposable
                 Log.Warn($"应用热点配置失败：{ex.Message}");
             }
         });
+    }
+
+    /// <summary>面板 / 接口用的板书与冲突状态。</summary>
+    private object BoardDto()
+    {
+        var cfg = Config.Current;
+        var situation = ConflictWatcher.LastSituation;
+        var guard = ConflictWatcher.Guard;
+        return new
+        {
+            classIn = new
+            {
+                running = ClassInBoardSaver.IsClassInRunning(),
+                saveFolder = ClassInBoardSaver.SaveFolder
+            },
+            boardSave = new
+            {
+                enabled = cfg.BoardSave.Enabled,
+                closeAfterSave = cfg.BoardSave.CloseAfterSave,
+                recipeSource = Recipe.Source,
+                recipeProbedAt = Recipe.ProbedAt
+            },
+            conflict = new
+            {
+                enabled = cfg.Conflict.Enabled,
+                cooldownMinutes = cfg.Conflict.CooldownMinutes,
+                situation = situation.Describe(),
+                shouldPrompt = situation.ShouldPrompt,
+                classInFloating = situation.ClassInFloating,
+                seewoFloating = situation.SeewoFloating,
+                classInFullscreen = situation.ClassInFullscreen,
+                seewoFullscreen = situation.SeewoFullscreen,
+                wpsShow = situation.WpsShow,
+                otherFullscreen = situation.OtherFullscreen,
+                lastPromptAt = guard.LastPromptAt,
+                promptCount = guard.PromptCount,
+                lastReason = guard.LastReason
+            }
+        };
+    }
+
+    private static bool TryParseChoice(string text, out ConflictChoice choice)
+    {
+        switch (text.Replace("-", "").Replace("_", "").Trim().ToLowerInvariant())
+        {
+            case "keepboth":
+            case "both":
+            case "都保留": choice = ConflictChoice.KeepBoth; return true;
+            case "keepclassin":
+            case "classin":
+            case "保留classin": choice = ConflictChoice.KeepClassIn; return true;
+            case "keepseewo":
+            case "seewo":
+            case "保留希沃": choice = ConflictChoice.KeepSeewo; return true;
+            case "keepnone":
+            case "none":
+            case "都不保留": choice = ConflictChoice.KeepNone; return true;
+            default: choice = ConflictChoice.KeepBoth; return false;
+        }
+    }
+
+    private (bool Ok, string Message) ApplyConflictChoice(string text)
+    {
+        if (!TryParseChoice(text, out var choice))
+            return (false, $"无法识别的选择：{text}（可用 keep-both / keep-classin / keep-seewo / keep-none）");
+
+        ConflictWatcher.ApplyChoice(choice);
+        return (true, $"已按「{choice}」处理");
+    }
+
+    private (bool Ok, string Message) SaveBoard(bool closeAfterSave)
+    {
+        if (!Config.Current.BoardSave.Enabled)
+            return (false, "「保存 ClassInX 板书」已在配置里关闭");
+
+        var result = BoardSaver.Save(closeAfterSave);
+        return (result.Ok, result.Message);
     }
 
     /// <summary>面板“上行网卡”下拉框的数据：所有候选 + 当前选中 + 选择理由。</summary>

@@ -1,9 +1,11 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using ClassroomKit.Agent.Board;
 using ClassroomKit.Agent.Shell;
 using ClassroomKit.Agent.Tasks;
 using ClassroomKit.Agent.Tethering;
+using ClassroomKit.Core.Board;
 using ClassroomKit.Core.Config;
 using ClassroomKit.Core.Logging;
 
@@ -35,6 +37,10 @@ ClassroomKit.Agent {Version}
   --uninstall-task  删除登录自启计划任务
   --panel           用默认浏览器打开 Web 控制面板（带令牌）
   --uplinks         列出本机网卡并输出上行选择结果（JSON）
+  --save-classin-board  保存 ClassInX 板书（三种格式）并关闭 ClassInX。加 --no-close 只保存不关
+  --probe-classin   重新探测 ClassInX 保存界面（更新 ui-recipe.json）
+  --conflict-check  检查当前是否存在板书软件全屏冲突（JSON）
+  --conflict-preview 预览冲突提示窗（无人值守时可加 --timeout 8）
   --uninstall       卸载本程序（MSI 装走 msiexec /x；绿色版自删目录）。加 --purge-data 连配置日志一起删
   --msi-setup       （MSI 安装包内部使用）安装后配置
   --msi-cleanup     （MSI 安装包内部使用）卸载前清理
@@ -62,6 +68,120 @@ ClassroomKit.Agent {Version}
         }
 
         Console.WriteLine(json);
+        return 0;
+    }
+
+    /// <summary>CLI：保存 ClassInX 板书。</summary>
+    public static int SaveClassInBoardCli(string[] args)
+    {
+        var close = !args.Any(a => a.Equals("--no-close", StringComparison.OrdinalIgnoreCase));
+        var store = new ConfigStore(Paths.ConfigPath);
+        var log = new AppLog(Paths.LogDir);
+        var recipe = UiRecipe.Load(Paths.RecipePath);
+        var saver = new ClassInBoardSaver(log, recipe);
+        var result = saver.Save(close);
+
+        Console.WriteLine(JsonSerializer.Serialize(new
+        {
+            ok = result.Ok,
+            message = result.Message,
+            elapsedMs = result.ElapsedMs,
+            files = result.Files,
+            steps = result.Steps.Select(x => new { step = x.Name, atMs = x.ElapsedMs })
+        }, new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
+
+        _ = store;
+        return result.Ok ? 0 : 1;
+    }
+
+    /// <summary>CLI：重新探测 ClassInX 保存界面。当前若正好开着对话框，会把尺寸写进配方。</summary>
+    public static int ProbeClassInCli()
+    {
+        var recipe = UiRecipe.Load(Paths.RecipePath);
+        var (screenW, screenH) = WindowScanner.ScreenSize();
+        var windows = WindowScanner.Scan();
+
+        var classInWindows = windows
+            .Where(w => w.Visible && w.ProcessName.Equals("ClassIn X", StringComparison.OrdinalIgnoreCase))
+            .Select(w => new { handle = w.Handle, title = w.Title, className = w.ClassName, width = w.Width, height = w.Height, x = w.X, y = w.Y })
+            .ToArray();
+
+        var share = windows.FirstOrDefault(w => w.Visible && w.ProcessName.Equals("ClassIn X", StringComparison.OrdinalIgnoreCase) &&
+                                                (w.Title == "Form" || recipe.MatchesShare(w.Width, w.Height)));
+        var panel = windows.FirstOrDefault(w => w.Visible && w.ProcessName.Equals("ClassIn X", StringComparison.OrdinalIgnoreCase) &&
+                                                 recipe.MatchesPanel(w.Width, w.Height));
+
+        if (share is not null)
+        {
+            recipe.SaveLocal.ShareWidth = share.Width;
+            recipe.SaveLocal.ShareHeight = share.Height;
+        }
+        if (panel is not null)
+        {
+            recipe.SaveLocal.PanelWidth = panel.Width;
+            recipe.SaveLocal.PanelHeight = panel.Height;
+        }
+        recipe.ProbedAt = DateTimeOffset.Now;
+        recipe.Source = "probe";
+        recipe.Save(Paths.RecipePath);
+
+        Console.WriteLine(JsonSerializer.Serialize(new
+        {
+            ok = true,
+            screen = new { width = screenW, height = screenH },
+            classInRunning = ClassInBoardSaver.IsClassInRunning(),
+            saveFolder = ClassInBoardSaver.SaveFolder,
+            recipePath = Paths.RecipePath,
+            recipe = new
+            {
+                share = new { recipe.SaveLocal.ShareWidth, recipe.SaveLocal.ShareHeight },
+                panel = new { recipe.SaveLocal.PanelWidth, recipe.SaveLocal.PanelHeight },
+                probedAt = recipe.ProbedAt
+            },
+            classInWindows,
+            matchedShareDialog = share is not null,
+            matchedSavePanel = panel is not null
+        }, new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
+
+        return 0;
+    }
+
+    /// <summary>CLI：只读地报告当前板书冲突情境（不弹窗，弹窗由托盘/接口负责）。</summary>
+    public static int ConflictCheckCli(string[] args)
+    {
+        var store = new ConfigStore(Paths.ConfigPath);
+        var log = new AppLog(Paths.LogDir);
+        var watcher = new ConflictWatcher(log, () => store.Current.Conflict, () => store.Current.Conflict.ExtraFullscreenProcesses);
+        var situation = watcher.Evaluate();
+
+        Console.WriteLine(JsonSerializer.Serialize(new
+        {
+            ok = true,
+            situation = situation.Describe(),
+            shouldPrompt = situation.ShouldPrompt,
+            classInFloating = situation.ClassInFloating,
+            seewoFloating = situation.SeewoFloating,
+            classInFullscreen = situation.ClassInFullscreen,
+            seewoFullscreen = situation.SeewoFullscreen,
+            wpsShow = situation.WpsShow,
+            otherFullscreen = situation.OtherFullscreen,
+            cooldownMinutes = store.Current.Conflict.CooldownMinutes,
+            enabled = store.Current.Conflict.Enabled
+        }, new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
+
+        _ = args;
+        return situation.ShouldPrompt ? 0 : 8;
+    }
+
+    /// <summary>CLI：只弹一次冲突提示窗，用于现场预览/自检。</summary>
+    public static int ConflictPreviewCli(string[] args)
+    {
+        var timeout = 60;
+        var idx = Array.FindIndex(args, a => a.Equals("--timeout", StringComparison.OrdinalIgnoreCase));
+        if (idx >= 0 && idx + 1 < args.Length && int.TryParse(args[idx + 1], out var t)) timeout = Math.Clamp(t, 3, 300);
+
+        var choice = ConflictDialog.Ask("ClassIn悬浮窗 + 希沃悬浮窗 + WPS放映（预览）", timeout);
+        Console.WriteLine(JsonSerializer.Serialize(new { ok = true, choice = choice.ToString(), timeout }, new JsonSerializerOptions { WriteIndented = true }));
         return 0;
     }
 

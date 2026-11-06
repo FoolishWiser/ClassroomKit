@@ -15,6 +15,9 @@ internal sealed class AgentContext : ApplicationContext
         _runtime.Start();
         _tray = new TrayController(_runtime, ExitThread);
         _runtime.ExitRequested = _tray.RequestExit;
+        // 冲突监控在后台线程判定，弹窗必须回到 UI 线程
+        _runtime.ConflictWatcher.PromptRequested = _tray.ShowConflictDialog;
+        _runtime.PreviewConflictRequested = _tray.ShowConflictPreview;
     }
 
     protected override void ExitThreadCore()

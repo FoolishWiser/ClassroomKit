@@ -8,6 +8,8 @@ public sealed class AppConfig
     public UplinkConfig Uplink { get; set; } = new();
     public BcuConfig Bcu { get; set; } = new();
     public TrayConfig Tray { get; set; } = new();
+    public BoardSaveConfig BoardSave { get; set; } = new();
+    public ConflictConfig Conflict { get; set; } = new();
     public string? InstalledVersion { get; set; }
 }
 
@@ -45,4 +47,22 @@ public sealed class BcuConfig
 public sealed class TrayConfig
 {
     public bool Enabled { get; set; } = true;
+}
+
+/// <summary>托盘「保存 ClassInX 板书并关闭 ClassInX」。</summary>
+public sealed class BoardSaveConfig
+{
+    public bool Enabled { get; set; } = true;
+    /// <summary>保存成功后是否顺带关掉 ClassInX。</summary>
+    public bool CloseAfterSave { get; set; } = true;
+}
+
+/// <summary>多板书软件全屏冲突提示。</summary>
+public sealed class ConflictConfig
+{
+    public bool Enabled { get; set; } = true;
+    /// <summary>两次提示之间的冷却（分钟）。</summary>
+    public int CooldownMinutes { get; set; } = 40;
+    /// <summary>额外当作"全屏应用"的进程名（留空即可，学校可自行补充）。</summary>
+    public List<string> ExtraFullscreenProcesses { get; set; } = new();
 }

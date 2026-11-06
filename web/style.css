@@ -103,6 +103,7 @@ h1 { font-size: 18px; margin: 0; }
 .with-btn { display: flex; gap: 8px; align-items: stretch; }
 .with-btn select { flex: 1; }
 .note { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.5; }
+.note.dirty { color: var(--amber); align-self: center; }
 select {
   background: var(--card-2);
   border: 1px solid var(--line);

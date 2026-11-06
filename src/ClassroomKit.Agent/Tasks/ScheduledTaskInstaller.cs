@@ -84,7 +84,7 @@ public static class ScheduledTaskInstaller
         try
         {
             var sessionId = WTSGetActiveConsoleSessionId();
-            if (sessionId < 0 || sessionId == 0xFFFFFFFF) return null;
+            if (sessionId == uint.MaxValue || sessionId == 0) return null;
             if (!WTSQuerySessionInformationW(IntPtr.Zero, sessionId, WtsUserName, out var buffer, out var bytes))
                 return null;
             try
@@ -106,8 +106,9 @@ public static class ScheduledTaskInstaller
 
     private const int WtsUserName = 5;
 
+    // 失败时返回 0xFFFFFFFF
     [DllImport("kernel32.dll")]
-    private static extern int WTSGetActiveConsoleSessionId();
+    private static extern uint WTSGetActiveConsoleSessionId();
 
     [DllImport("wtsapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     [return: MarshalAs(UnmanagedType.Bool)]

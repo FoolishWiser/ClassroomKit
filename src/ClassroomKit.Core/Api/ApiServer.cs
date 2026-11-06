@@ -52,6 +52,16 @@ public sealed class ApiServer
     public Action? RequestExit { get; set; }
     public Func<object>? GetUplinks { get; set; }
     public Func<bool, (bool Ok, string Message)>? Uninstall { get; set; }
+    /// <summary>保存 ClassInX 板书（参数：保存后是否关闭 ClassInX）。</summary>
+    public Func<bool, (bool Ok, string Message)>? SaveBoard { get; set; }
+    /// <summary>冲突检测（参数：是否强制忽略冷却）。</summary>
+    public Func<bool, (bool Ok, string Message)>? ConflictCheck { get; set; }
+    /// <summary>板书/冲突相关状态。</summary>
+    public Func<object>? GetBoard { get; set; }
+    /// <summary>按用户选择处理冲突（keep-both/keep-classin/keep-seewo/keep-none）。</summary>
+    public Func<string, (bool Ok, string Message)>? ConflictChoice { get; set; }
+    /// <summary>预览冲突提示窗（不执行任何关闭动作）。</summary>
+    public Func<(bool Ok, string Message)>? PreviewConflict { get; set; }
     public Action<UserSettings>? ApplySettings { get; set; }
     public Action<bool>? ApplyPolicy { get; set; }
 
@@ -105,6 +115,12 @@ public sealed class ApiServer
             case "/api/uplinks":
             {
                 var dto = GetUplinks?.Invoke() ?? new { mode = "auto", candidates = Array.Empty<object>() };
+                return HttpResponse.Json(JsonSerializer.Serialize(dto, Json));
+            }
+
+            case "/api/board":
+            {
+                var dto = GetBoard?.Invoke() ?? new { };
                 return HttpResponse.Json(JsonSerializer.Serialize(dto, Json));
             }
 
@@ -242,6 +258,44 @@ public sealed class ApiServer
                 return HttpResponse.Json(JsonSerializer.Serialize(new { ok, action, message }, Json), ok ? 200 : 500);
             }
 
+            case "save-classin-board":
+            {
+                if (SaveBoard is null) return HttpResponse.Text("not supported", 409);
+                var close = _config.Current.BoardSave.CloseAfterSave;
+                if (ReadFields(request).TryGetValue("closeAfterSave", out var c))
+                    close = c is "1" or "true" or "on" or "yes";
+                var (ok, message) = SaveBoard(close);
+                _log.Info($"保存 ClassInX 板书：{message}");
+                return HttpResponse.Json(JsonSerializer.Serialize(new { ok, action, message }, Json), ok ? 200 : 500);
+            }
+
+            case "conflict-check":
+            {
+                if (ConflictCheck is null) return HttpResponse.Text("not supported", 409);
+                var force = false;
+                if (ReadFields(request).TryGetValue("force", out var f)) force = f is "1" or "true" or "on" or "yes";
+                var (ok, message) = ConflictCheck(force);
+                _log.Info($"板书冲突检测：{message}");
+                return HttpResponse.Json(JsonSerializer.Serialize(new { ok, action, message }, Json), ok ? 200 : 409);
+            }
+
+            case "conflict-choice":
+            {
+                if (ConflictChoice is null) return HttpResponse.Text("not supported", 409);
+                if (!ReadFields(request).TryGetValue("choice", out var choice) || string.IsNullOrWhiteSpace(choice))
+                    throw new ApiException("缺少 choice 参数");
+                var (ok, message) = ConflictChoice(choice.Trim());
+                _log.Info($"板书冲突选择：{choice} → {message}");
+                return HttpResponse.Json(JsonSerializer.Serialize(new { ok, action, choice, message }, Json), ok ? 200 : 500);
+            }
+
+            case "conflict-preview":
+            {
+                if (PreviewConflict is null) return HttpResponse.Text("not supported", 409);
+                var (ok, message) = PreviewConflict();
+                return HttpResponse.Json(JsonSerializer.Serialize(new { ok, action, message }, Json), ok ? 200 : 500);
+            }
+
             case "exit":
                 RequestExit?.Invoke();
                 return HttpResponse.Json(JsonSerializer.Serialize(new { ok = true, action }, Json));
@@ -309,7 +363,9 @@ public sealed class ApiServer
             lastSuccess = _guard?.LastSuccess,
             lastError = _guard?.LastError,
             capacityWarning = _guard?.CapabilityWarning,
-            bcu = new { enabled = cfg.Bcu.Enabled, path = cfg.Bcu.Path }
+            bcu = new { enabled = cfg.Bcu.Enabled, path = cfg.Bcu.Path },
+            boardSave = new { enabled = cfg.BoardSave.Enabled, closeAfterSave = cfg.BoardSave.CloseAfterSave },
+            conflict = new { enabled = cfg.Conflict.Enabled, cooldownMinutes = cfg.Conflict.CooldownMinutes }
         };
     }
 

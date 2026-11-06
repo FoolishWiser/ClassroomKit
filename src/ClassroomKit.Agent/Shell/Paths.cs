@@ -19,5 +19,7 @@ public static class Paths
 
     public static string ConfigPath => Path.Combine(DataDir, "config.json");
     public static string LogDir => Path.Combine(DataDir, "logs");
+    /// <summary>ClassInX 板书保存的界面坐标配方。</summary>
+    public static string RecipePath => Path.Combine(DataDir, "ui-recipe.json");
     public static string WebRoot => Path.Combine(ExeDir, "web");
 }

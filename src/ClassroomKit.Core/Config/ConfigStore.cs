@@ -58,6 +58,10 @@ public sealed class ConfigStore
             if (string.IsNullOrWhiteSpace(cfg.Uplink.Mode)) cfg.Uplink.Mode = UplinkSelector.Auto;
             cfg.Bcu ??= new BcuConfig();
             cfg.Tray ??= new TrayConfig();
+            cfg.BoardSave ??= new BoardSaveConfig();
+            cfg.Conflict ??= new ConflictConfig();
+            if (cfg.Conflict.CooldownMinutes is < 1 or > 1440) cfg.Conflict.CooldownMinutes = 40;
+            cfg.Conflict.ExtraFullscreenProcesses ??= new List<string>();
             if (string.IsNullOrWhiteSpace(cfg.Token)) cfg.Token = NewToken();
             if (cfg.Port is < 1024 or > 65535) cfg.Port = 36037;
             if (cfg.Hotspot.GuardIntervalSec < 3) cfg.Hotspot.GuardIntervalSec = 3;

@@ -69,7 +69,11 @@
     <p class="note" id="uplink-note">—</p>
     <label class="check"><input type="checkbox" id="in-fallback"> 所有网卡都没有外网时，仍用局域网网卡开热点（学生只能访问本机）</label>
     <label class="check"><input type="checkbox" id="in-wifi"> 允许用 Wi-Fi 当上行（不推荐）</label>
-    <button class="btn primary" type="submit">保存设置</button>
+    <div class="row">
+      <button class="btn primary" type="submit" id="btn-save">保存设置</button>
+      <button class="btn" type="button" id="btn-discard" style="display:none">放弃修改</button>
+      <span class="note dirty" id="dirty-note" style="display:none">有未保存的修改</span>
+    </div>
   </form>
 </section>
 

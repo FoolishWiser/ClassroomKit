@@ -82,6 +82,41 @@ if (-not $cfg) {
 
     function State() { return Api "/api/state" }
 
+    # 用 curl 拿「状态码 + 正文」：4xx/5xx 也能读到服务端写的 JSON
+    # 注意两件事：① PS 5.1 会吃掉参数里的双引号 → 正文落文件用 @file 传；
+    # ② 直接捕获 curl 的标准输出会按 GBK 解码成乱码 → 正文写文件后按 UTF-8 读。
+    function CurlJson([string]$path, [string]$json) {
+        $reqFile = Join-Path $env:TEMP "ck-request.json"
+        $resFile = Join-Path $env:TEMP "ck-response.json"
+        [IO.File]::WriteAllText($reqFile, $json, (New-Object Text.UTF8Encoding($false)))
+        $code = (& curl.exe -s -m 15 -X POST -H "Content-Type: application/json" -d "@$reqFile" -o $resFile -w "%{http_code}" (Url $path) 2>$null)
+        $status = 0
+        [void][int]::TryParse((($code -join "")).Trim(), [ref]$status)
+        $body = ""
+        if (Test-Path $resFile) { $body = [IO.File]::ReadAllText($resFile, (New-Object Text.UTF8Encoding($false))) }
+        return @{ Status = $status; Body = $body }
+    }
+
+    # 不抛异常的请求：返回 @{ Status; Body }，用来测 4xx/5xx 分支
+    function ApiRaw([string]$path, [string]$method = "GET", $body = $null) {
+        try {
+            $args2 = @{ Uri = (Url $path); Method = $method; TimeoutSec = 10; UseBasicParsing = $true }
+            if ($body) {
+                $args2.ContentType = "application/json"
+                $args2.Body = [Text.Encoding]::UTF8.GetBytes(($body | ConvertTo-Json -Compress -Depth 5))
+            }
+            $r = Invoke-WebRequest @args2
+            return @{ Status = [int]$r.StatusCode; Body = [string]$r.Content }
+        } catch {
+            $resp = $_.Exception.Response
+            if ($resp) {
+                $sr = New-Object IO.StreamReader($resp.GetResponseStream())
+                return @{ Status = [int]$resp.StatusCode; Body = $sr.ReadToEnd() }
+            }
+            return @{ Status = 0; Body = $_.Exception.Message }
+        }
+    }
+
     # 直接调用程序本体并可靠地拿到标准输出（GUI 子系统进程用 & 调用时 PowerShell 不捕获其 stdout）
     function Run-Cli([string]$argLine) {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -299,6 +334,60 @@ if (-not $cfg) {
             $ok = Wait-Until { (State).hotspot.state -eq "On" } 40
             return @($ok, "state=$((State).hotspot.state)")
         }
+    }
+
+    # ---------- 板书保存 / 板书软件冲突 ----------
+    Test-Name "GET /api/board 结构完整" {
+        $b = Api "/api/board"
+        $ok = ($null -ne $b.classIn.saveFolder) -and ($null -ne $b.boardSave.enabled) -and
+              ($null -ne $b.conflict.enabled) -and ($null -ne $b.conflict.cooldownMinutes) -and
+              ($null -ne $b.conflict.situation)
+        return @($ok, ("situation=" + $b.conflict.situation + " 冷却=" + $b.conflict.cooldownMinutes + "分"))
+    }
+
+    Test-Name "冲突冷却默认 40 分钟（1..1440）" {
+        $b = Api "/api/board"
+        $ok = ($b.conflict.cooldownMinutes -ge 1) -and ($b.conflict.cooldownMinutes -le 1440)
+        return @($ok, "cooldownMinutes=$($b.conflict.cooldownMinutes)")
+    }
+
+    Test-Name "冲突判定能识别 ClassIn 全屏/悬浮窗" {
+        if (-not (Api "/api/board").classIn.running) { return @($true, "ClassIn 未运行，跳过（判定逻辑由单测覆盖）") }
+        # 守护刚启动时窗口缓存是空的，给它几秒
+        $ok = Wait-Until { ((Api "/api/board").conflict.situation) -match "ClassIn" } 20
+        return @($ok, (Api "/api/board").conflict.situation)
+    }
+
+    Test-Name "action=conflict-check 结果可解释" {
+        $r = CurlJson "/api/action" '{"action":"conflict-check","force":true}'
+        $ok = ($r.Status -eq 200) -or (($r.Status -eq 409) -and ($r.Body -match '"message"'))
+        return @($ok, ("HTTP " + $r.Status + " " + $r.Body))
+    }
+
+    Test-Name "action=conflict-choice 接受 keep-both" {
+        $r = Api "/api/action" "POST" @{ action = "conflict-choice"; choice = "keep-both" }
+        return @(([bool]$r.ok), $r.message)
+    }
+
+    Test-Name "action=conflict-choice 拒绝非法值" {
+        $r = CurlJson "/api/action" '{"action":"conflict-choice","choice":"nonsense"}'
+        $ok = ($r.Status -eq 500) -and ($r.Body -match 'nonsense')
+        return @($ok, ("HTTP " + $r.Status + " " + $r.Body))
+    }
+
+    Test-Name "save-classin-board 失败也可解释" {
+        $b = Api "/api/board"
+        if ($b.classIn.running) { return @($true, "ClassIn 正在运行，跳过（避免验收时真的存一份板书）") }
+        $r = CurlJson "/api/action" '{"action":"save-classin-board","closeAfterSave":false}'
+        $ok = ($r.Status -eq 500) -and ($r.Body -match "ClassIn")
+        return @($ok, ("HTTP " + $r.Status + " " + $r.Body))
+    }
+
+    Test-Name "菜单命令 --conflict-check 可用（JSON）" {
+        $v = ((Run-Cli "--conflict-check") -join "").Trim()
+        if (-not $v) { return @($true, "当前无冲突（exit 8），跳过") }
+        $ok = $v -match '"situation"'
+        return @($ok, ($v.Substring(0, [Math]::Min(90, $v.Length))))
     }
 
     # ---------- BCU ----------
