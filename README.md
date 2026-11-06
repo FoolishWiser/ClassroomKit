@@ -22,6 +22,15 @@
 
 至于 8 台上限：那是 Windows 移动热点自己的默认值，不是网卡死限。本工具在安装时写 `WifiMaxPeers=16` 并重启 `icssvc`，实测 `MaxClientCount` 从 8 变成 16，**不需要第三方驱动**。
 
+## 下载
+
+预编译安装包在 [Releases](https://github.com/FoolishWiser/ClassroomKit/releases/latest)：
+
+- `ClassroomKit-0.1.1-x64.msi`（约 62 MB，推荐）
+- `ClassroomKit-0.1.1-win-x64.zip`（绿色版）
+
+两者都是自包含单文件，目标机不需要装 .NET。
+
 ## 快速开始
 
 ### 方式一：MSI 安装包（推荐）
