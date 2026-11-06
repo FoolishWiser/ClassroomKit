@@ -85,7 +85,7 @@ public static class ScheduledTaskInstaller
         {
             var sessionId = WTSGetActiveConsoleSessionId();
             if (sessionId == uint.MaxValue || sessionId == 0) return null;
-            if (!WTSQuerySessionInformationW(IntPtr.Zero, sessionId, WtsUserName, out var buffer, out var bytes))
+            if (!WTSQuerySessionInformationW(IntPtr.Zero, (int)sessionId, WtsUserName, out var buffer, out var bytes))
                 return null;
             try
             {

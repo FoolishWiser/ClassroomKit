@@ -36,11 +36,38 @@ if (Test-Path $target) {
     exit 0
 }
 
+
+# 下载一个文件：curl 优先（加 --ssl-no-revoke，有些机器证书吊销检查连不上会直接报 CRYPT_E_NO_REVOCATION_CHECK），
+# 失败再退 Invoke-WebRequest / WebClient。
+function Download-File([string]$Url, [string]$Out, [int]$TimeoutSec = 900, [int]$MinBytes = 1MB) {
+    try {
+        & curl.exe -L --ssl-no-revoke --retry 2 --max-time $TimeoutSec -o $Out $Url 2>$null
+        if ((Test-Path $Out) -and (Get-Item $Out).Length -gt $MinBytes) { return $true }
+    } catch { }
+    try {
+        Invoke-WebRequest -Uri $Url -OutFile $Out -UseBasicParsing -TimeoutSec $TimeoutSec | Out-Null
+        if ((Test-Path $Out) -and (Get-Item $Out).Length -gt $MinBytes) { return $true }
+    } catch {
+        Write-Warn "Invoke-WebRequest 也失败：$($_.Exception.Message)"
+    }
+    try {
+        $wc = New-Object Net.WebClient
+        $wc.DownloadFile($Url, $Out)
+        if ((Test-Path $Out) -and (Get-Item $Out).Length -gt $MinBytes) { return $true }
+    } catch {
+        Write-Warn "WebClient 也失败：$($_.Exception.Message)"
+    }
+    return $false
+}
+
 $work = Join-Path $env:TEMP ("ck-bcu-" + [Guid]::NewGuid().ToString("N").Substring(0, 8))
 New-Item -ItemType Directory -Path $work -Force | Out-Null
 
 $archive = Join-Path $work "bcu.7z"
-$url = "https://github.com/BCUninstaller/Bulk-Crap-Uninstaller/releases/download/v$Version/BCUninstaller_${Version}_portable.7z"
+$file = "BCUninstaller_${Version}_portable.7z"
+# 上游 tag 有时是 v6.3 而不是 v6.3.0，两种都试
+$tags = @("v$Version", ("v" + ($Version -replace '\.0$', ''))) | Select-Object -Unique
+$url = "https://github.com/BCUninstaller/Bulk-Crap-Uninstaller/releases/download/$($tags[0])/$file"
 $mirrors = @(
     "",
     "https://gh-proxy.com/",
@@ -49,19 +76,23 @@ $mirrors = @(
 
 Write-Step "下载 BCUninstaller $Version 便携版（约 100 MB，慢的话耐心等）"
 $ok = $false
-foreach ($m in $mirrors) {
-    $use = $m + $url
-    if ($Mirror -and $m -ne "") { continue }
-    if ($Mirror) { $use = $Mirror.TrimEnd("/") + "/" + $url }
-    try {
-        Write-Host "    来源：$use" -ForegroundColor DarkGray
-        & curl.exe -L --retry 2 --max-time 900 -o $archive $use
-        if ($LASTEXITCODE -eq 0 -and (Test-Path $archive) -and ((Get-Item $archive).Length -gt 50MB)) { $ok = $true; break }
-        Write-Warn "这次没下完整，换下一个来源"
-    } catch {
-        Write-Warn "失败：$($_.Exception.Message)"
+foreach ($tag in $tags) {
+    $base = "https://github.com/BCUninstaller/Bulk-Crap-Uninstaller/releases/download/$tag/$file"
+    $url = $base
+    foreach ($m in $mirrors) {
+        if ($Mirror -and $m -ne "") { continue }
+        $use = $m + $base
+        if ($Mirror) { $use = $Mirror.TrimEnd("/") + "/" + $base }
+        try {
+            Write-Host "    来源：$use" -ForegroundColor DarkGray
+            if ((Download-File $use $archive) -and ((Get-Item $archive).Length -gt 50MB)) { $ok = $true; break }
+            Write-Warn "这次没下完整，换下一个来源"
+        } catch {
+            Write-Warn "失败：$($_.Exception.Message)"
+        }
+        if ($Mirror) { break }
     }
-    if ($Mirror) { break }
+    if ($ok) { break }
 }
 if (-not $ok) {
     throw "下载失败。可以手动下 $url，解压后把 BCUninstaller.exe 放到 $bcuDir"
@@ -81,7 +112,7 @@ if (-not $exe -or -not (Test-Path $exe)) {
 if (-not $exe) {
     $exe = Join-Path $work "7zr.exe"
     Write-Host "    下载 7zr.exe（7-Zip 官方单文件版，约 600 KB）" -ForegroundColor DarkGray
-    & curl.exe -L --retry 2 --max-time 120 -o $exe "https://www.7-zip.org/a/7zr.exe"
+    $null = Download-File "https://www.7-zip.org/a/7zr.exe" $exe 120 100KB
     if (-not (Test-Path $exe) -or (Get-Item $exe).Length -lt 100KB) {
         throw "拿不到 7zr.exe。请先装 7-Zip，或手动解压便携版到 $bcuDir"
     }
