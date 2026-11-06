@@ -181,3 +181,7 @@ powershell -ExecutionPolicy Bypass -File verify.ps1
 - [部署手册](docs/部署手册.md) —— 装、验、还原卡、升级、卸载、排障
 - [ClassIsland 接入](docs/ClassIsland-接入.md) —— 三分钟配完，零代码
 - [原理与限制](docs/原理与限制.md) —— 8 台是怎么破的、为什么不写服务、还剩什么限制
+
+## 许可证
+
+[MIT](LICENSE) 许可。可以自由用于学校、公司或二创，保留版权声明即可。
