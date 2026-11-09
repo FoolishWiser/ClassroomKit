@@ -34,6 +34,10 @@ internal static class Program
         await BoardTests.RunAsync();
 
         Console.WriteLine();
+        Console.WriteLine("[GitHub 升级]");
+        await UpdateTests.RunAsync();
+
+        Console.WriteLine();
         Console.WriteLine("[HotspotGuard 状态机]");
         await GuardTestsAsync();
 

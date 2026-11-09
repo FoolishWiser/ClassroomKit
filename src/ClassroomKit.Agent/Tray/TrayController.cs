@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Drawing;
 using ClassroomKit.Agent.Board;
 using ClassroomKit.Agent.Shell;
+using ClassroomKit.Agent.Update;
 using ClassroomKit.Core.Board;
 using ClassroomKit.Core.Hotspot;
 using ClassroomKit.Core.Model;
@@ -56,6 +57,7 @@ public sealed class TrayController : IDisposable
         menu.Items.Add(new Forms.ToolStripMenuItem("检查板书软件冲突", null, (_, _) => CheckConflict()));
         menu.Items.Add(new Forms.ToolStripMenuItem("复制热点密码", null, (_, _) => CopyPassword()));
         menu.Items.Add(new Forms.ToolStripMenuItem("查看日志", null, (_, _) => OpenFolder(Paths.LogDir)));
+        menu.Items.Add(new Forms.ToolStripMenuItem("检查更新…", null, (_, _) => CheckForUpdates()));
         menu.Items.Add(new Forms.ToolStripMenuItem("强力卸载（BCU）", null, (_, _) => LaunchBcu()));
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add(new Forms.ToolStripMenuItem("退出", null, (_, _) => RequestExit()));
@@ -183,6 +185,11 @@ public sealed class TrayController : IDisposable
         var closeAfter = cfg.CloseAfterSave;
         var launch = cfg.LaunchIfNeeded;
         _runtime.Log.Info($"托盘触发：保存 ClassInX 板书（保存后关闭={closeAfter}，没开则启动={launch}）");
+
+        // 点击立刻给反馈：保存流程可能要拉起/还原 ClassInX、按 Ctrl+S、等对话框，
+        // 十几秒里没有动静的话老师会以为“点了没反应”。
+        ShowBalloon("正在保存板书", launch ? "正在查找板书窗口（没开的话会先启动 ClassInX）…" : "正在查找 ClassInX 板书窗口…", true);
+
         _ = Task.Run(() =>
         {
             BoardSaveResult result;
@@ -265,6 +272,75 @@ public sealed class TrayController : IDisposable
 
         if (_ui is not null) _ui.Post(_ => Show(), null);
         else Show();
+    }
+
+    /// <summary>托盘「检查更新」：检查 → 询问 → 下载 → 提权安装。全程用气泡反馈，避免“点了没反应”。</summary>
+    private void CheckForUpdates()
+    {
+        ShowBalloon("检查更新", "正在向 GitHub 查询新版本…", true);
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var status = await _runtime.Update.CheckAsync(force: true).ConfigureAwait(false);
+
+                if (status.Phase == UpdatePhase.Failed)
+                {
+                    ShowBalloon("检查更新失败", status.Error ?? "未知原因", false);
+                    return;
+                }
+
+                if (!status.HasUpdate)
+                {
+                    ShowBalloon("已是最新版本", $"当前 v{status.Current}，不用升级", true);
+                    return;
+                }
+
+                var notes = (status.Notes ?? "").Trim();
+                if (notes.Length > 600) notes = notes[..600] + "…";
+                var text = $"发现新版本 v{status.Latest}（当前 v{status.Current}）。\n\n{notes}\n\n" +
+                           "现在下载并升级吗？升级时会弹一次管理员授权，程序会短暂退出再自动启动。";
+                if (AskYesNo("ClassroomKit 升级", text) != true) return;
+
+                ShowBalloon("正在下载", $"v{status.Latest} 安装包下载中，请稍候…", true);
+                var after = await _runtime.Update.DownloadAsync().ConfigureAwait(false);
+                if (after.Phase != UpdatePhase.Ready)
+                {
+                    ShowBalloon("升级失败", after.Error ?? after.PhaseText, false);
+                    return;
+                }
+
+                var (ok, message) = _runtime.Update.Install();
+                ShowBalloon(ok ? "开始安装" : "升级未开始", message, ok);
+            }
+            catch (Exception ex)
+            {
+                _runtime.Log.Error($"托盘检查更新异常：{ex.Message}");
+                ShowBalloon("检查更新失败", ex.Message, false);
+            }
+        });
+    }
+
+    private bool? AskYesNo(string title, string text)
+    {
+        bool? answer = null;
+        void Ask()
+        {
+            try
+            {
+                answer = Forms.MessageBox.Show(text, title, Forms.MessageBoxButtons.YesNo,
+                    Forms.MessageBoxIcon.Question) == Forms.DialogResult.Yes;
+            }
+            catch
+            {
+                // 没有交互桌面时当作“不升级”
+            }
+        }
+
+        if (_ui is not null) _ui.Send(_ => Ask(), null);
+        else Ask();
+        return answer;
     }
 
     private void LaunchBcu()

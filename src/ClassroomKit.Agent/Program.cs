@@ -37,6 +37,8 @@ internal static class Program
                 "--msi-setup" => MsiSetup.Install(),
                 "--msi-cleanup" => MsiSetup.Cleanup(),
                 "--uninstall-task" => Commands.UninstallTask(),
+                "--check-update" => Commands.CheckUpdateCli(args),
+                "--update" => Commands.UpdateCli(args),
                 "--version" or "-v" => Commands.PrintVersion(),
                 "--help" or "-h" or "/?" => Commands.Help(),
                 _ => Unknown(command)

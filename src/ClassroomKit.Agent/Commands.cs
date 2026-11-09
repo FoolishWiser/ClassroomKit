@@ -5,6 +5,7 @@ using ClassroomKit.Agent.Board;
 using ClassroomKit.Agent.Shell;
 using ClassroomKit.Agent.Tasks;
 using ClassroomKit.Agent.Tethering;
+using ClassroomKit.Agent.Update;
 using ClassroomKit.Core.Board;
 using ClassroomKit.Core.Config;
 using ClassroomKit.Core.Logging;
@@ -35,6 +36,8 @@ ClassroomKit.Agent {Version}
   --fix-peers       提权写入 WifiMaxPeers 并重启 icssvc（放宽设备数上限）
   --install-task    注册登录自启计划任务
   --uninstall-task  删除登录自启计划任务
+  --check-update    检查 GitHub 上有没有新版本（JSON；--pre 连预发布版一起看）
+  --update          检查 → 下载 → 提权安装新版本（--dry-run 只检查；--yes 不询问）
   --panel           用默认浏览器打开 Web 控制面板（带令牌）
   --uplinks         列出本机网卡并输出上行选择结果（JSON）
   --save-classin-board  保存 ClassInX 板书（三种格式）并关闭 ClassInX；ClassInX 没开时会先自动拉起。
@@ -49,6 +52,80 @@ ClassroomKit.Agent {Version}
 """);
         return 0;
     }
+
+    /// <summary>CLI：只检查更新，输出 JSON。</summary>
+    public static int CheckUpdateCli(string[] args)
+    {
+        var store = new ConfigStore(Paths.ConfigPath);
+        var log = new AppLog(Paths.LogDir);
+        var includePre = args.Any(a => a.Equals("--pre", StringComparison.OrdinalIgnoreCase));
+        // 只影响本次检查，不写回 config.json（避免一次 --pre 之后一直收预发布版）。
+        var originalPre = store.Current.Update.IncludePrerelease;
+        if (includePre) store.Current.Update.IncludePrerelease = true;
+        try
+        {
+
+            var service = new UpdateService(log, () => store.Current, Version, () => { });
+            var status = service.CheckAsync(force: true).GetAwaiter().GetResult();
+            Console.WriteLine(StatusJson(status));
+            return status.Phase == UpdatePhase.Failed ? 2 : 0;
+        }
+        finally
+        {
+            store.Current.Update.IncludePrerelease = originalPre;
+        }
+    }
+
+    /// <summary>CLI：检查 → 下载 → 安装（供管理员远程升级；--dry-run 只检查）。</summary>
+    public static int UpdateCli(string[] args)
+    {
+        var dryRun = args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase));
+        var store = new ConfigStore(Paths.ConfigPath);
+        var log = new AppLog(Paths.LogDir);
+        var service = new UpdateService(log, () => store.Current, Version, () => { });
+
+        var status = service.CheckAsync(force: true).GetAwaiter().GetResult();
+        if (status.Phase == UpdatePhase.Failed)
+        {
+            Console.WriteLine(StatusJson(status));
+            return 2;
+        }
+
+        if (!status.HasUpdate || dryRun)
+        {
+            Console.WriteLine(StatusJson(status));
+            return 0;
+        }
+
+        Console.WriteLine($"发现新版本 v{status.Latest}（当前 v{status.Current}），开始下载…");
+        var downloaded = service.DownloadAsync().GetAwaiter().GetResult();
+        if (downloaded.Phase != UpdatePhase.Ready)
+        {
+            Console.WriteLine(StatusJson(downloaded));
+            return 1;
+        }
+
+        var (ok, message) = service.Install();
+        Console.WriteLine(StatusJson(service.Status));
+        Console.WriteLine(message);
+        return ok ? 0 : 1;
+    }
+
+    private static string StatusJson(UpdateStatus status) => JsonSerializer.Serialize(new
+    {
+        phase = status.Phase.ToString().ToLowerInvariant(),
+        phaseText = status.PhaseText,
+        current = status.Current,
+        latest = status.Latest,
+        notes = status.Notes,
+        htmlUrl = status.HtmlUrl,
+        assetName = status.AssetName,
+        assetSize = status.AssetSize,
+        progress = Math.Round(status.Progress, 1),
+        hasUpdate = status.HasUpdate,
+        error = status.Error,
+        checkedAt = status.CheckedAt
+    }, new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
 
     public static int Status()
     {

@@ -64,6 +64,12 @@ public sealed class ApiServer
     public Func<(bool Ok, string Message)>? PreviewConflict { get; set; }
     public Action<UserSettings>? ApplySettings { get; set; }
     public Action<bool>? ApplyPolicy { get; set; }
+    /// <summary>升级状态快照（GET /api/update）。</summary>
+    public Func<object>? GetUpdate { get; set; }
+    /// <summary>检查 GitHub 更新（参数：是否强制刷新），返回状态快照。</summary>
+    public Func<bool, CancellationToken, Task<object>>? CheckUpdateAsync { get; set; }
+    /// <summary>后台下载并安装新版本，立即返回当前状态。</summary>
+    public Func<object>? StartUpgrade { get; set; }
 
     public sealed record UserSettings(string Ssid, string Passphrase, int TargetClients, bool AllowWifiUplink, string UplinkMode, bool FallbackToLan);
 
@@ -166,11 +172,50 @@ public sealed class ApiServer
                     return new { ok = true };
                 });
 
+            case "/api/update":
+                return await HandleUpdateAsync(request, ct);
+
             case "/api/action":
                 return await HandleActionAsync(request, ct);
 
             default:
                 return HttpResponse.NotFound();
+        }
+    }
+
+    /// <summary>GET 取状态；POST action=check 检查更新，action=upgrade 后台下载并安装。</summary>
+    private async Task<HttpResponse> HandleUpdateAsync(HttpRequest request, CancellationToken ct)
+    {
+        if (request.Method == "GET")
+        {
+            return HttpResponse.Json(JsonSerializer.Serialize(GetUpdate?.Invoke() ?? new { phase = "unsupported" }, Json));
+        }
+
+        if (request.Method != "POST") return HttpResponse.Text("method not allowed", 405);
+
+        var fields = ReadFields(request);
+        var action = fields.TryGetValue("action", out var a) ? a.Trim().ToLowerInvariant() : "check";
+        var force = !fields.TryGetValue("force", out var f) || f is "1" or "true" or "on" or "yes";
+
+        switch (action)
+        {
+            case "check":
+            {
+                if (CheckUpdateAsync is null) return HttpResponse.Text("not supported", 409);
+                var status = await CheckUpdateAsync(force, ct);
+                return HttpResponse.Json(JsonSerializer.Serialize(status, Json));
+            }
+
+            case "upgrade":
+            {
+                if (StartUpgrade is null) return HttpResponse.Text("not supported", 409);
+                _log.Info("面板请求升级：开始后台下载并安装");
+                var status = StartUpgrade();
+                return HttpResponse.Json(JsonSerializer.Serialize(status, Json));
+            }
+
+            default:
+                return HttpResponse.Text("unknown update action", 400);
         }
     }
 

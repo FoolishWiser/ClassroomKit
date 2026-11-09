@@ -160,3 +160,32 @@ footer {
   padding: 4px 2px;
 }
 footer a { color: var(--muted); }
+
+.progress {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  overflow: hidden;
+  margin: 8px 0 10px;
+}
+.progress span {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--blue);
+  transition: width .25s ease;
+}
+.notes {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  max-height: 180px;
+  overflow: auto;
+  border-radius: 10px;
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

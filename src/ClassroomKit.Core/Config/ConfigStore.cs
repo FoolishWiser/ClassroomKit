@@ -57,6 +57,7 @@ public sealed class ConfigStore
             cfg.Uplink ??= new UplinkConfig();
             if (string.IsNullOrWhiteSpace(cfg.Uplink.Mode)) cfg.Uplink.Mode = UplinkSelector.Auto;
             cfg.Bcu ??= new BcuConfig();
+            cfg.Update ??= new UpdateConfig();
             cfg.Tray ??= new TrayConfig();
             cfg.BoardSave ??= new BoardSaveConfig();
             if (cfg.BoardSave.LaunchTimeoutSec is < 5 or > 600) cfg.BoardSave.LaunchTimeoutSec = 60;

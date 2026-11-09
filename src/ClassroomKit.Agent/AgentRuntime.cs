@@ -2,6 +2,7 @@ using ClassroomKit.Agent.Board;
 using ClassroomKit.Agent.Bcu;
 using ClassroomKit.Agent.Shell;
 using ClassroomKit.Agent.Tethering;
+using ClassroomKit.Agent.Update;
 using ClassroomKit.Core.Api;
 using ClassroomKit.Core.Board;
 using ClassroomKit.Core.Config;
@@ -39,6 +40,15 @@ public sealed class AgentRuntime : IDisposable
         Api.FixPeersAsync = (ct) => Task.FromResult(Commands.FixPeersCore(Log));
         Api.LaunchBcuAsync = (ct) => Task.FromResult(BcuLauncher.Launch(Config.Current.Bcu));
         Api.GetUplinks = UplinksDto;
+
+        Update = new UpdateService(Log, () => Config.Current, version, () => ExitRequested?.Invoke());
+        Api.GetUpdate = UpdateDto;
+        Api.CheckUpdateAsync = async (force, ct) =>
+        {
+            var status = await Update.CheckAsync(force, ct).ConfigureAwait(false);
+            return UpdateDto(status);
+        };
+        Api.StartUpgrade = StartUpgrade;
         Api.Uninstall = Uninstall;
         Api.RequestExit = () => ExitRequested?.Invoke();
 
@@ -66,6 +76,7 @@ public sealed class AgentRuntime : IDisposable
     public UiRecipe Recipe { get; }
     public ClassInBoardSaver BoardSaver { get; }
     public ConflictWatcher ConflictWatcher { get; }
+    public UpdateService Update { get; }
 
     /// <summary>面板/接口请求预览冲突窗时触发（由托盘层弹到 UI 线程）。</summary>
     public Action? PreviewConflictRequested { get; set; }
@@ -358,6 +369,59 @@ public sealed class AgentRuntime : IDisposable
                 chosen = string.Equals(c.Id, chosenId, StringComparison.OrdinalIgnoreCase)
             }).ToArray()
         };
+    }
+
+    /// <summary>升级状态 DTO（字段名给面板直接用）。</summary>
+    private object UpdateDto() => UpdateDto(Update.Status);
+
+    private object UpdateDto(UpdateStatus status) => new
+    {
+        phase = status.Phase.ToString().ToLowerInvariant(),
+        phaseText = status.PhaseText,
+        current = status.Current,
+        latest = status.Latest,
+        notes = status.Notes,
+        htmlUrl = status.HtmlUrl,
+        assetName = status.AssetName,
+        assetSize = status.AssetSize,
+        progress = Math.Round(status.Progress, 1),
+        hasUpdate = status.HasUpdate,
+        error = status.Error,
+        checkedAt = status.CheckedAt
+    };
+
+    /// <summary>面板点「升级」：后台下载 → 校验 → 调起安装器；立刻把当前状态返回给页面。</summary>
+    private object StartUpgrade()
+    {
+        var status = Update.Status;
+        if (status.Phase is UpdatePhase.Installing or UpdatePhase.Downloading) return UpdateDto(status);
+        if (!status.HasUpdate)
+        {
+            Log.Warn("升级请求被忽略：当前没有可安装的新版本");
+            return UpdateDto(status);
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var after = await Update.DownloadAsync().ConfigureAwait(false);
+                if (after.Phase != UpdatePhase.Ready)
+                {
+                    Log.Warn($"升级中止：{after.Error ?? after.PhaseText}");
+                    return;
+                }
+
+                var (ok, message) = Update.Install();
+                Log.Info(ok ? $"升级已启动：{message}" : $"升级未启动：{message}");
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"后台升级异常：{ex.Message}");
+            }
+        });
+
+        return UpdateDto();
     }
 
     private (bool Ok, string Message) Uninstall(bool keepData)

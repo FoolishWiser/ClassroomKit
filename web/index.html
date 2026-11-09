@@ -77,6 +77,19 @@
   </form>
 </section>
 
+<section class="card" id="update-card">
+  <h2>版本与升级 <small id="update-current"></small></h2>
+  <p class="note" id="update-status">读取中…</p>
+  <div class="progress hidden" id="update-progress"><span id="update-progress-bar"></span></div>
+  <pre class="notes hidden" id="update-notes"></pre>
+  <div class="row">
+    <button class="btn" id="btn-update-check">检查更新</button>
+    <button class="btn primary hidden" id="btn-update-run">下载并升级</button>
+    <a class="btn ghost hidden" id="btn-update-page" target="_blank" rel="noreferrer">打开发布页</a>
+  </div>
+  <p class="note">升级从 GitHub Releases 下载，安装时会弹一次管理员授权（UAC），程序随后自动重启；热点会中断几秒。</p>
+</section>
+
 <section class="card">
   <h2>维护</h2>
   <p class="note">卸载会先关热点，再删除登录自启、还原注册表放宽项并移除程序；需要点一次管理员授权（UAC）。</p>

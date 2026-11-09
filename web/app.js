@@ -144,6 +144,86 @@ function escapeHtml(text) {
   return String(text).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 }
 
+// ---- 版本与升级 ----
+let updateBusy = false;
+let lastUpdateState = null;
+
+function renderUpdate(u) {
+  if (!u) return;
+  lastUpdateState = u;
+  if (u.phase === 'installing') setBadge('升级中…', 'warn');
+  $('update-current').textContent = 'v' + (u.current || '?');
+  $('btn-update-page').href = u.htmlUrl || '#';
+  $('btn-update-page').classList.toggle('hidden', !u.htmlUrl);
+
+  const bar = $('update-progress');
+  const fill = $('update-progress-bar');
+  const notes = $('update-notes');
+  const runBtn = $('btn-update-run');
+
+  const downloading = u.phase === 'downloading';
+  bar.classList.toggle('hidden', !downloading);
+  fill.style.width = (downloading ? Math.max(2, u.progress || 0) : 0) + '%';
+
+  if (u.notes && (u.phase === 'available' || u.phase === 'ready' || u.phase === 'downloading')) {
+    notes.textContent = u.notes;
+    notes.classList.remove('hidden');
+  } else {
+    notes.classList.add('hidden');
+  }
+
+  runBtn.classList.toggle('hidden', !(u.hasUpdate && u.phase !== 'installing'));
+  runBtn.disabled = updateBusy || downloading;
+  runBtn.textContent = downloading
+    ? '下载中 ' + Math.round(u.progress || 0) + '%'
+    : (u.phase === 'ready' ? '安装新版本' : '下载并升级');
+
+  let text = u.phaseText || '未知状态';
+  if (u.phase === 'downloading') text += '（' + Math.round(u.progress || 0) + '%）';
+  if (u.latest && u.phase !== 'up_to_date' && u.phase !== 'idle') text += ' → v' + u.latest;
+  if (u.error) text += '：' + u.error;
+  const el = $('update-status');
+  el.textContent = text;
+  el.style.color = u.phase === 'failed' ? 'var(--red)' : (u.hasUpdate ? 'var(--amber)' : 'var(--muted)');
+}
+
+async function refreshUpdate() {
+  try { renderUpdate(await api('/api/update')); } catch { }
+}
+
+$('btn-update-check').onclick = async () => {
+  const btn = $('btn-update-check');
+  btn.disabled = true;
+  btn.textContent = '检查中…';
+  try {
+    renderUpdate(await api('/api/update', { method: 'POST', body: JSON.stringify({ action: 'check' }) }));
+  } catch (e) {
+    toast(e.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '检查更新';
+  }
+};
+
+$('btn-update-run').onclick = async () => {
+  const u = lastUpdateState;
+  if (u && u.phase === 'ready') {
+    toast('安装会由后台立刻开始：请在随后弹出的窗口里允许管理员授权');
+    return;
+  }
+  const tips = '将从 GitHub 下载 v' + ((u && u.latest) || '?') + ' 的安装包，然后弹一次管理员授权安装。\n\n' +
+    '安装时 ClassroomKit 会退出并自动重启，热点会中断几秒。继续吗？';
+  if (!confirm(tips)) return;
+  updateBusy = true;
+  try {
+    renderUpdate(await api('/api/update', { method: 'POST', body: JSON.stringify({ action: 'upgrade' }) }));
+  } catch (e) {
+    toast(e.message, true);
+  } finally {
+    updateBusy = false;
+  }
+};
+
 async function refreshState() {
   try {
     renderState(await api('/api/state'));
@@ -269,6 +349,7 @@ async function uninstall() {
 $('btn-uninstall').onclick = uninstall;
 
 refreshState();
+refreshUpdate();
 refreshUplinks(true);
 refreshClients();
 refreshLogs();
@@ -276,3 +357,4 @@ setInterval(refreshState, 2000);
 setInterval(() => refreshUplinks(false), 15000);
 setInterval(refreshClients, 5000);
 setInterval(refreshLogs, 15000);
+setInterval(refreshUpdate, 3000);

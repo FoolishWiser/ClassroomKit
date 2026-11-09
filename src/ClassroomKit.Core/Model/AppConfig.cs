@@ -10,6 +10,7 @@ public sealed class AppConfig
     public TrayConfig Tray { get; set; } = new();
     public BoardSaveConfig BoardSave { get; set; } = new();
     public ConflictConfig Conflict { get; set; } = new();
+    public UpdateConfig Update { get; set; } = new();
     public string? InstalledVersion { get; set; }
 }
 
@@ -71,4 +72,14 @@ public sealed class ConflictConfig
     public int CooldownMinutes { get; set; } = 40;
     /// <summary>额外当作"全屏应用"的进程名（留空即可，学校可自行补充）。</summary>
     public List<string> ExtraFullscreenProcesses { get; set; } = new();
+}
+
+/// <summary>从 GitHub Releases 检查/下载新版本。</summary>
+public sealed class UpdateConfig
+{
+    public bool Enabled { get; set; } = true;
+    /// <summary>GitHub 仓库（owner/name）。</summary>
+    public string Repo { get; set; } = "FoolishWiser/ClassroomKit";
+    /// <summary>是否把预发布版也当成可升级版本。</summary>
+    public bool IncludePrerelease { get; set; }
 }

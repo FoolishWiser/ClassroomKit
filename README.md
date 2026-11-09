@@ -26,8 +26,8 @@
 
 预编译安装包在 [Releases](https://github.com/FoolishWiser/ClassroomKit/releases/latest)：
 
-- `ClassroomKit-0.2.1-x64.msi`（约 62 MB，推荐）
-- `ClassroomKit-0.2.1-win-x64.zip`（绿色版）
+- `ClassroomKit-0.2.2-x64.msi`（约 62 MB，推荐）
+- `ClassroomKit-0.2.2-win-x64.zip`（绿色版）
 
 两者都是自包含单文件，目标机不需要装 .NET。
 
@@ -36,14 +36,14 @@
 ### 方式一：MSI 安装包（推荐）
 
 ```text
-双击 ClassroomKit-0.2.1-x64.msi
+双击 ClassroomKit-0.2.2-x64.msi
 # 或者命令行静默安装：
-msiexec /i ClassroomKit-0.2.1-x64.msi /qn
+msiexec /i ClassroomKit-0.2.2-x64.msi /qn
 ```
 
 装完自动：落地到 `C:\Program Files\ClassroomKit` → 建 `C:\ProgramData\ClassroomKit` 并授权普通用户可写 → 放宽设备上限（`WifiMaxPeers=16`）→ 注册登录自启任务 → 立刻拉起守护。开始菜单会多一项「ClassroomKit 控制面板」，点了直接带令牌打开面板（等价于 `ClassroomKit.Agent.exe --panel`）。
 
-卸载走「应用和功能」，或 `msiexec /x ClassroomKit-0.2.1-x64.msi`：会关热点 → 删计划任务 → 把 `WifiMaxPeers` 恢复成系统默认 → 清掉 BCU 目录，**保留** `C:\ProgramData\ClassroomKit`（配置与日志；重装后密码和面板令牌不变）。
+卸载走「应用和功能」，或 `msiexec /x ClassroomKit-0.2.2-x64.msi`：会关热点 → 删计划任务 → 把 `WifiMaxPeers` 恢复成系统默认 → 清掉 BCU 目录，**保留** `C:\ProgramData\ClassroomKit`（配置与日志；重装后密码和面板令牌不变）。
 
 ### 方式二：绿色目录（没有安装包时）
 
@@ -68,6 +68,21 @@ powershell -ExecutionPolicy Bypass -File get-bcu.ps1
 
 它会把便携版解到 `C:\Program Files\ClassroomKit\BCU\`（也可手动放；或在 `config.json` 里写 `bcu.path`）。不放的话热点功能完全不受影响，只是点按钮会提示没找到。
 
+## 升级
+
+不用重装、不用换包：软件自己从 GitHub Releases 查新版并安装（只在你点的时候查，开机时不联网）。
+
+| 入口 | 操作 |
+| --- | --- |
+| 面板「升级」卡片 | 点「检查更新」→ 有新版本时点「下载并升级」 |
+| 托盘右键 | 「检查更新…」→ 一路确认 |
+| 命令行 | `ClassroomKit.Agent.exe --check-update`（只看，不装）；`--update` 下载并安装 |
+
+安装是标准 MSI 升级：会弹一次 UAC（点「是」），热点会中断几秒，其余配置、令牌、日志都保留。
+学校网络屏蔽 GitHub 时，检查更新会直接告诉你「连不上 GitHub」，这时手动下载 MSI 双击装即可。
+
+升级失败会写 `C:\ProgramData\ClassroomKit\logs\update.log`（msiexec 退出码也在里面）。
+
 ## 命令行
 
 ```text
@@ -88,6 +103,8 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
 --conflict-check                 检查板书软件是否全屏冲突（JSON；无冲突退出码 8）
 --conflict-preview               在屏幕上预览一次冲突提示窗
 --probe-classin                  重新探测 ClassInX 保存对话框的坐标并写入 ui-recipe.json
+--check-update                   检查 GitHub 上有没有新版本（只查不装；--pre 连预发布一起看）
+--update                         下载并安装新版（--dry-run 只检查不安装）
 --version
 ```
 
@@ -152,7 +169,7 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
 
 ## 卸载
 
-- **MSI 装的**：控制面板「应用」里卸载，或 `msiexec /x ClassroomKit-0.2.1-x64.msi`；面板「维护 → 卸载本软件」也会调起同样的流程。
+- **MSI 装的**：控制面板「应用」里卸载，或 `msiexec /x ClassroomKit-0.2.2-x64.msi`；面板「维护 → 卸载本软件」也会调起同样的流程。
 - **绿色版**：面板「维护 → 卸载本软件」，或 `ClassroomKit.Agent.exe --uninstall`。
 - 卸载会停进程、删自启任务、把 `WifiMaxPeers` 改回原值并重启共享服务、删安装目录（含 BCU）；**默认保留** `C:\ProgramData\ClassroomKit`（配置和日志，方便重装后沿用 SSID/密码）。想连配置日志一起删：面板勾「同时删除配置与日志」再点卸载，或 `ClassroomKit.Agent.exe --uninstall --purge-data`（这两种方式都会先调 `msiexec /x` 再删目录；直接 `msiexec /x` 卸载则一定保留配置）。
 - 需要管理员权限：没提权会弹一次 UAC，点「是」即可。
@@ -189,6 +206,11 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
     "enabled": true,
     "cooldownMinutes": 40,
     "extraFullscreenProcesses": []
+  },
+  "update": {
+    "enabled": true,
+    "repo": "FoolishWiser/ClassroomKit",
+    "includePrerelease": false
   },
   "bcu": { "enabled": true, "path": "" },
   "tray": { "enabled": true }
@@ -228,7 +250,7 @@ installer/                MSI 定义（product.wxs；文件清单 files.wxs 由 
 dotnet run --project tests/ClassroomKit.Tests -c Release
 ```
 
-55 项，覆盖配置规范化与落盘、上行网卡选择、守护状态机九条分支（无上行 / 上行是 Wi-Fi / 策略关 / 正常开 / 退避 / 容量告警 / 自动关超时 / SSID 漂移 / 读状态失败）、窗口分类与冲突冷却、UI 配方匹配、HTTP 端到端（鉴权、表单与 JSON、静态文件）。
+63 项，覆盖配置规范化与落盘、上行网卡选择、守护状态机九条分支（无上行 / 上行是 Wi-Fi / 策略关 / 正常开 / 退避 / 容量告警 / 自动关超时 / SSID 漂移 / 读状态失败）、窗口分类与冲突冷却、UI 配方匹配、GitHub Release 解析与版本比较、HTTP 端到端（鉴权、表单与 JSON、静态文件）。
 
 装到目标机之后，再跑一遍**整机验收**（45 项，含注册表、系统上限、策略开关、计划任务、改设置落盘、异常输入、网卡判别、板书/冲突接口、BCU 按钮）：
 
