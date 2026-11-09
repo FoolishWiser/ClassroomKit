@@ -85,6 +85,39 @@ public static class Input
         return (sum / (width * height), peak, green, bright);
     }
 
+    /// <summary>
+    /// 在给定矩形里找绿色按钮的质心（ClassInX 的「确定 / 保存」都是绿色胶囊按钮）。
+    /// 返回 null 表示这块区域没有明显的绿色按钮。
+    /// </summary>
+    public static (int X, int Y)? FindGreenButton(int x, int y, int width, int height)
+    {
+        if (width <= 0 || height <= 0) return null;
+        using var bmp = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+        using (var g = Graphics.FromImage(bmp))
+        {
+            g.CopyFromScreen(x, y, 0, 0, new Size(width, height));
+        }
+
+        long sx = 0, sy = 0;
+        var count = 0;
+        for (var py = 0; py < height; py += 2)
+        {
+            for (var px = 0; px < width; px += 2)
+            {
+                var c = bmp.GetPixel(px, py);
+                if (c.G > 110 && c.G - c.R > 40 && c.G - c.B > 25)
+                {
+                    sx += px;
+                    sy += py;
+                    count++;
+                }
+            }
+        }
+
+        if (count < 20) return null;
+        return (x + (int)(sx / count), y + (int)(sy / count));
+    }
+
     /// <summary>勾选框判定：绿色填充或高亮像素足够多即视为已勾选。</summary>
     public static bool IsChecked(int x, int y, int size = 11)
     {

@@ -179,14 +179,16 @@ public sealed class TrayController : IDisposable
     /// <summary>托盘菜单：保存 ClassInX 板书（后台线程跑，避免卡住托盘）。</summary>
     private void SaveClassInBoard()
     {
-        var closeAfter = _runtime.Config.Current.BoardSave.CloseAfterSave;
-        _runtime.Log.Info($"托盘触发：保存 ClassInX 板书（保存后关闭={closeAfter}）");
+        var cfg = _runtime.Config.Current.BoardSave;
+        var closeAfter = cfg.CloseAfterSave;
+        var launch = cfg.LaunchIfNeeded;
+        _runtime.Log.Info($"托盘触发：保存 ClassInX 板书（保存后关闭={closeAfter}，没开则启动={launch}）");
         _ = Task.Run(() =>
         {
             BoardSaveResult result;
             try
             {
-                result = _runtime.BoardSaver.Save(closeAfter);
+                result = _runtime.BoardSaver.Save(closeAfter, launch);
             }
             catch (Exception ex)
             {

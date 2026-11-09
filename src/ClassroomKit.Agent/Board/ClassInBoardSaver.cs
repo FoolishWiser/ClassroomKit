@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using ClassroomKit.Core.Board;
 using ClassroomKit.Core.Logging;
+using ClassroomKit.Core.Model;
 
 namespace ClassroomKit.Agent.Board;
 
@@ -11,7 +12,11 @@ public sealed record BoardSaveResult(
     string Message,
     int ElapsedMs,
     IReadOnlyList<string> Files,
-    IReadOnlyList<BoardSaveStep> Steps);
+    IReadOnlyList<BoardSaveStep> Steps)
+{
+    /// <summary>这次是否顺手把 ClassInX 拉起来了。</summary>
+    public bool Launched { get; init; }
+}
 
 /// <summary>
 /// 一键保存 ClassInX 板书：Ctrl+S → 保存至本地 → 三种格式全勾 → 保存（自动确认覆盖）→ 关闭 ClassInX。
@@ -23,11 +28,13 @@ public sealed class ClassInBoardSaver
 
     private readonly AppLog _log;
     private readonly UiRecipe _recipe;
+    private readonly Func<BoardSaveConfig>? _config;
 
-    public ClassInBoardSaver(AppLog log, UiRecipe recipe)
+    public ClassInBoardSaver(AppLog log, UiRecipe recipe, Func<BoardSaveConfig>? config = null)
     {
         _log = log;
         _recipe = recipe;
+        _config = config;
     }
 
     public UiRecipe Recipe => _recipe;
@@ -36,7 +43,10 @@ public sealed class ClassInBoardSaver
     public static string SaveFolder => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "ClassIn X Files");
 
-    public BoardSaveResult Save(bool closeAfterSave)
+    public BoardSaveResult Save(bool closeAfterSave) => Save(closeAfterSave, null);
+
+    /// <param name="launchIfNeeded">null = 用配置里的 boardSave.launchIfNeeded。</param>
+    public BoardSaveResult Save(bool closeAfterSave, bool? launchIfNeeded)
     {
         var total = Stopwatch.StartNew();
         var steps = new List<BoardSaveStep>();
@@ -51,11 +61,45 @@ public sealed class ClassInBoardSaver
         var (screenW, screenH) = WindowScanner.ScreenSize();
 
         var board = FindBoardWindow(screenW, screenH);
+        var launched = false;
         if (board is null)
         {
-            return Fail("没有找到 ClassInX 板书窗口：请先在 ClassInX 里打开板书再点这个菜单", total, steps);
+            var cfg = _config?.Invoke() ?? new BoardSaveConfig();
+            if (!(launchIfNeeded ?? cfg.LaunchIfNeeded))
+            {
+                return Fail("没有找到 ClassInX 板书窗口：请先在 ClassInX 里打开板书再点这个菜单", total, steps);
+            }
+
+            if (!ClassInLauncher.IsRunning())
+            {
+                var (ok, message, path) = ClassInLauncher.Start(cfg.ClassInPath, _log);
+                if (!ok) return Fail(message, total, steps);
+                launched = true;
+                Step(path is null ? "启动 ClassInX" : "启动 ClassInX：" + Path.GetFileName(path));
+            }
+            else
+            {
+                Step("ClassInX 已在运行");
+            }
+
+            var timeoutSec = cfg.LaunchTimeoutSec <= 0 ? 60 : cfg.LaunchTimeoutSec;
+            board = WaitFor(() => FindBoardWindow(screenW, screenH), timeoutSec * 1000);
+            if (board is null)
+            {
+                var head = launched
+                    ? $"已启动 ClassInX，但 {timeoutSec} 秒内没等到板书窗口"
+                    : $"ClassInX 正在运行，但 {timeoutSec} 秒内没等到板书窗口";
+                BringClassInToFront();
+                return Fail(head + "：请先在 ClassInX 里进入课堂并打开板书（窗口标题是 Classroom_…），"
+                    + "再点这个菜单；学校网络慢时可把 config.json 的 boardSave.launchTimeoutSec 调大",
+                    total, steps, launched);
+            }
+            Step("板书窗口已就绪");
         }
         Step("找到板书窗口");
+
+        // 上一次失败可能留下 ClassInX 的模态小提示框，模态框会让主窗口拒绝被激活 → 先清掉。
+        CleanupStrayDialogs(screenW, screenH);
 
         if (!Input.ForceForeground(board.Handle))
         {
@@ -63,11 +107,33 @@ public sealed class ClassInBoardSaver
         }
         Step("聚焦板书窗口");
 
-        Input.SendCtrlS();
-        var share = WaitFor(() => FindShareDialog(screenW, screenH), 4000);
+        // 冷启动的 ClassInX 有时第一下 Ctrl+S 还在初始化里，按两次并给足等待时间。
+        var share = CtrlSAndWait(screenW, screenH, 6000, out var notice);
+        if (share is null && notice is null)
+        {
+            Thread.Sleep(400);
+            share = CtrlSAndWait(screenW, screenH, 4000, out notice);
+        }
+
+        if (share is null && notice is not null)
+        {
+            // 空板书（或别的拒存原因）时 ClassInX 只弹一个小「提示」框，Ctrl+S 就不会再有后续对话框。
+            var green = Input.FindGreenButton(notice.X, notice.Y, notice.Width, notice.Height);
+            if (green is not null) Input.Click(green.Value.X, green.Value.Y);
+            Step("关闭 ClassInX 提示框");
+            return Fail("ClassInX 弹了提示「" + notice.Title + "」（常见原因是板书内容为空）："
+                + "请先在板书上写点内容，再点这个菜单", total, steps, launched);
+        }
+
         if (share is null)
         {
-            return Fail("Ctrl+S 没有弹出「保存和分享板书」窗口（当前可能不在板书界面）", total, steps);
+            // 常见情形：ClassInX 刚被拉起来，停在「启动台 / 主界面」，此时 Ctrl+S 什么也不会发生。
+            var inClassroom = board.Title.StartsWith("Classroom", StringComparison.OrdinalIgnoreCase);
+            var hint = inClassroom
+                ? "Ctrl+S 没有弹出「保存和分享板书」窗口：请点一下板书区域让 ClassInX 拿到键盘焦点后再试"
+                : "ClassInX 已经打开并切到前台，但当前停在「启动台 / 主界面」，没有课堂板书可保存："
+                  + "请先在 ClassInX 里进入课堂、打开板书（窗口标题是 Classroom_…）再点这个菜单";
+            return Fail(hint, total, steps, launched);
         }
         Step("弹出保存对话框");
 
@@ -155,18 +221,37 @@ public sealed class ClassInBoardSaver
             Step(killed ? "已关闭 ClassInX" : "关闭 ClassInX 失败（请手动关）");
             if (!killed)
             {
-                return new BoardSaveResult(true, $"板书已保存（{files.Count} 个文件），但没能关闭 ClassInX", (int)total.ElapsedMilliseconds, files, steps);
+                return new BoardSaveResult(true, $"板书已保存（{files.Count} 个文件），但没能关闭 ClassInX", (int)total.ElapsedMilliseconds, files, steps)
+                {
+                    Launched = launched
+                };
             }
         }
 
         _log.Info($"板书已保存：{string.Join("、", files.Select(Path.GetFileName))}，耗时 {total.ElapsedMilliseconds} ms");
-        return new BoardSaveResult(true, $"板书已保存（{files.Count} 个文件，耗时 {total.ElapsedMilliseconds} ms）", (int)total.ElapsedMilliseconds, files, steps);
+        return new BoardSaveResult(true, $"板书已保存（{files.Count} 个文件，耗时 {total.ElapsedMilliseconds} ms）", (int)total.ElapsedMilliseconds, files, steps)
+        {
+            Launched = launched
+        };
     }
 
-    private BoardSaveResult Fail(string message, Stopwatch total, List<BoardSaveStep> steps)
+    private BoardSaveResult Fail(string message, Stopwatch total, List<BoardSaveStep> steps, bool launched = false)
     {
         _log.Warn($"保存板书失败：{message}");
-        return new BoardSaveResult(false, message, (int)total.ElapsedMilliseconds, Array.Empty<string>(), steps);
+        return new BoardSaveResult(false, message, (int)total.ElapsedMilliseconds, Array.Empty<string>(), steps)
+        {
+            Launched = launched
+        };
+    }
+
+    /// <summary>没等到板书时，把 ClassInX 的窗口（通常停在启动台）切到前台，省得老师找窗口。</summary>
+    private static void BringClassInToFront()
+    {
+        var biggest = WindowScanner.Scan()
+            .Where(w => w.Visible && w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(w => (long)w.Width * w.Height)
+            .FirstOrDefault();
+        if (biggest is not null) Input.ForceForeground(biggest.Handle);
     }
 
     private static WindowInfo? FindBoardWindow(int screenW, int screenH)
@@ -178,6 +263,60 @@ public sealed class ClassInBoardSaver
             .OrderByDescending(w => w.ClassName.Contains("Qt", StringComparison.OrdinalIgnoreCase))
             .ThenByDescending(w => w.Title.StartsWith("Classroom", StringComparison.OrdinalIgnoreCase))
             .FirstOrDefault();
+    }
+
+    /// <summary>按一次 Ctrl+S，然后等「保存和分享板书」对话框或小提示框出现。</summary>
+    private WindowInfo? CtrlSAndWait(int screenW, int screenH, int waitMs, out WindowInfo? notice)
+    {
+        Input.SendCtrlS();
+        notice = null;
+        var deadline = Environment.TickCount64 + waitMs;
+        while (Environment.TickCount64 < deadline)
+        {
+            var share = FindShareDialog(screenW, screenH);
+            if (share is not null) return share;
+            notice = FindNoticeDialog();
+            if (notice is not null) return null;
+            Thread.Sleep(30);
+        }
+        return null;
+    }
+
+    /// <summary>清掉 ClassInX 遗留的模态小提示框 / 保存对话框，避免主窗口被拒绝激活。</summary>
+    private void CleanupStrayDialogs(int screenW, int screenH)
+    {
+        for (var i = 0; i < 3; i++)
+        {
+            var notice = FindNoticeDialog();
+            if (notice is not null)
+            {
+                var green = Input.FindGreenButton(notice.X, notice.Y, notice.Width, notice.Height);
+                if (green is not null) Input.Click(green.Value.X, green.Value.Y);
+                else Input.SendEscape();
+                _log.Info("清掉了 ClassInX 遗留的提示框");
+                Thread.Sleep(150);
+                continue;
+            }
+
+            var share = FindShareDialog(screenW, screenH);
+            if (share is not null)
+            {
+                Input.SendEscape();
+                _log.Info("清掉了 ClassInX 遗留的保存对话框");
+                Thread.Sleep(200);
+                continue;
+            }
+
+            break;
+        }
+    }
+
+    /// <summary>ClassInX 的小提示框（例如「黑板内容为空」）：宽 200–520、高 100–320 的可见小窗。</summary>
+    private static WindowInfo? FindNoticeDialog()
+    {
+        return WindowScanner.Scan().FirstOrDefault(w =>
+            w.Visible && w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase) &&
+            w.Width is >= 200 and <= 520 && w.Height is >= 100 and <= 320);
     }
 
     private WindowInfo? FindShareDialog(int screenW, int screenH)

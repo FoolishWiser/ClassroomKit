@@ -55,6 +55,12 @@ public sealed class BoardSaveConfig
     public bool Enabled { get; set; } = true;
     /// <summary>保存成功后是否顺带关掉 ClassInX。</summary>
     public bool CloseAfterSave { get; set; } = true;
+    /// <summary>ClassInX 没在运行时，自动把它拉起来再保存（学校一体机上经常没开）。</summary>
+    public bool LaunchIfNeeded { get; set; } = true;
+    /// <summary>拉起 ClassInX 之后，等板书窗口出现的最长秒数。</summary>
+    public int LaunchTimeoutSec { get; set; } = 60;
+    /// <summary>手工指定 ClassIn X.exe 的完整路径；留空则自动查找。</summary>
+    public string? ClassInPath { get; set; }
 }
 
 /// <summary>多板书软件全屏冲突提示。</summary>

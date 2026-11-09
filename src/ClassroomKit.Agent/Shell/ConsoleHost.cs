@@ -18,6 +18,20 @@ internal static class ConsoleHost
             // 并把 Console.Out 改指 CONOUT$，调用方只会捕获到空串。
             var outRedirected = Console.IsOutputRedirected;
             var errRedirected = Console.IsErrorRedirected;
+
+            // 被重定向时默认按系统 ANSI 代码页（简中机器是 GBK）写，脚本按 UTF-8 读就会乱码。
+            // 统一改成 UTF-8，JSON 里的中文才能被 PowerShell / ClassIsland 等正确读到。
+            var redirectUtf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+            if (outRedirected || errRedirected)
+            {
+                try
+                {
+                    if (outRedirected) Console.SetOut(new StreamWriter(Console.OpenStandardOutput(), redirectUtf8) { AutoFlush = true });
+                    if (errRedirected) Console.SetError(new StreamWriter(Console.OpenStandardError(), redirectUtf8) { AutoFlush = true });
+                }
+                catch { /* 改不了就用默认 */ }
+            }
+
             if (outRedirected && errRedirected) return;
 
             if (!AttachConsole(-1)) return;

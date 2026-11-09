@@ -43,7 +43,7 @@ public sealed class AgentRuntime : IDisposable
         Api.RequestExit = () => ExitRequested?.Invoke();
 
         Recipe = UiRecipe.Load(Paths.RecipePath);
-        BoardSaver = new ClassInBoardSaver(Log, Recipe);
+        BoardSaver = new ClassInBoardSaver(Log, Recipe, () => Config.Current.BoardSave);
         ConflictWatcher = new ConflictWatcher(Log, () => Config.Current.Conflict, () => Config.Current.Conflict.ExtraFullscreenProcesses);
 
         Api.SaveBoard = SaveBoard;
@@ -255,6 +255,9 @@ public sealed class AgentRuntime : IDisposable
             {
                 enabled = cfg.BoardSave.Enabled,
                 closeAfterSave = cfg.BoardSave.CloseAfterSave,
+                launchIfNeeded = cfg.BoardSave.LaunchIfNeeded,
+                launchTimeoutSec = cfg.BoardSave.LaunchTimeoutSec,
+                classInPath = cfg.BoardSave.ClassInPath,
                 recipeSource = Recipe.Source,
                 recipeProbedAt = Recipe.ProbedAt
             },
@@ -306,12 +309,12 @@ public sealed class AgentRuntime : IDisposable
         return (true, $"已按「{choice}」处理");
     }
 
-    private (bool Ok, string Message) SaveBoard(bool closeAfterSave)
+    private (bool Ok, string Message) SaveBoard(bool closeAfterSave, bool launchIfNeeded)
     {
         if (!Config.Current.BoardSave.Enabled)
             return (false, "「保存 ClassInX 板书」已在配置里关闭");
 
-        var result = BoardSaver.Save(closeAfterSave);
+        var result = BoardSaver.Save(closeAfterSave, launchIfNeeded);
         return (result.Ok, result.Message);
     }
 

@@ -53,7 +53,7 @@ public sealed class ApiServer
     public Func<object>? GetUplinks { get; set; }
     public Func<bool, (bool Ok, string Message)>? Uninstall { get; set; }
     /// <summary>保存 ClassInX 板书（参数：保存后是否关闭 ClassInX）。</summary>
-    public Func<bool, (bool Ok, string Message)>? SaveBoard { get; set; }
+    public Func<bool, bool, (bool Ok, string Message)>? SaveBoard { get; set; }
     /// <summary>冲突检测（参数：是否强制忽略冷却）。</summary>
     public Func<bool, (bool Ok, string Message)>? ConflictCheck { get; set; }
     /// <summary>板书/冲突相关状态。</summary>
@@ -262,9 +262,13 @@ public sealed class ApiServer
             {
                 if (SaveBoard is null) return HttpResponse.Text("not supported", 409);
                 var close = _config.Current.BoardSave.CloseAfterSave;
-                if (ReadFields(request).TryGetValue("closeAfterSave", out var c))
+                var fields = ReadFields(request);
+                if (fields.TryGetValue("closeAfterSave", out var c))
                     close = c is "1" or "true" or "on" or "yes";
-                var (ok, message) = SaveBoard(close);
+                var launch = _config.Current.BoardSave.LaunchIfNeeded;
+                if (fields.TryGetValue("launchIfNeeded", out var l))
+                    launch = l is "1" or "true" or "on" or "yes";
+                var (ok, message) = SaveBoard(close, launch);
                 _log.Info($"保存 ClassInX 板书：{message}");
                 return HttpResponse.Json(JsonSerializer.Serialize(new { ok, action, message }, Json), ok ? 200 : 500);
             }

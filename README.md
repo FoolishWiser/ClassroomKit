@@ -82,8 +82,9 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
 --uninstall                      卸载自己（MSI 装的走 msiexec /x；绿色版自己删目录）
 --uninstall --purge-data         连 C:\ProgramData\ClassroomKit（配置/日志）一起删
 --panel                          用默认浏览器打开面板
---save-classin-board            保存 ClassInX 板书（三种格式）并关闭 ClassInX
+--save-classin-board            保存 ClassInX 板书（三种格式）并关闭 ClassInX；ClassInX 没开时先自动拉起
 --save-classin-board --no-close 只保存，不关 ClassInX
+--save-classin-board --no-launch 不自动启动 ClassInX（没开就直接报错）
 --conflict-check                 检查板书软件是否全屏冲突（JSON；无冲突退出码 8）
 --conflict-preview               在屏幕上预览一次冲突提示窗
 --probe-classin                  重新探测 ClassInX 保存对话框的坐标并写入 ui-recipe.json
@@ -126,7 +127,8 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
 - 文件落在 ClassInX 的默认保存位置：`文档\ClassIn X Files\黑板_<日期>_<时间>.{edb,png,pdf}`，保存完成后气泡会告诉你存了哪几个；
 - 同名文件已存在时 ClassInX 会逐个弹「是否替换」，程序自动点「是」，不需要人盯着；
 - 想只存不关（比如接着讲）：命令行加 `--no-close`，配置文件里把 `boardSave.closeAfterSave` 设成 `false`；
-- ClassInX 没开、或界面上没有板书窗口时会直接告诉你「没找到板书窗口」，不会乱点；
+- **ClassInX 没开也能用**：程序会自己找到 `ClassIn X.exe` 并启动它，等板书窗口出现（默认最多 60 秒，`boardSave.launchTimeoutSec` 可调 5–600），然后接着走保存流程；装到别的盘也没关系（配置路径 → 运行中进程 → 卸载注册表 → 常见目录，依次找）；不想要这个行为就设 `boardSave.launchIfNeeded = false` 或命令行加 `--no-launch`；
+- 板书是空的（或 ClassInX 刚打开停在启动台）时，它只会弹「黑板内容为空」——程序会把提示框关掉并告诉你「请先在板书上写点内容」，不会假装成功；
 - 换了 ClassInX 版本、按钮位置变了怎么办：托盘菜单或 `ClassroomKit.Agent.exe --probe-classin` 重新探测一次，坐标写进 `C:\ProgramData\ClassroomKit\ui-recipe.json`。探测失败时改这个 JSON 也能手工修。
 
 ## 板书软件冲突提示
@@ -176,7 +178,13 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
     "mode": "auto",
     "fallbackToLan": true
   },
-  "boardSave": { "enabled": true, "closeAfterSave": true },
+  "boardSave": {
+    "enabled": true,
+    "closeAfterSave": true,
+    "launchIfNeeded": true,
+    "launchTimeoutSec": 60,
+    "classInPath": null
+  },
   "conflict": {
     "enabled": true,
     "cooldownMinutes": 40,

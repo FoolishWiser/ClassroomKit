@@ -85,11 +85,11 @@ if (-not $cfg) {
     # 用 curl 拿「状态码 + 正文」：4xx/5xx 也能读到服务端写的 JSON
     # 注意两件事：① PS 5.1 会吃掉参数里的双引号 → 正文落文件用 @file 传；
     # ② 直接捕获 curl 的标准输出会按 GBK 解码成乱码 → 正文写文件后按 UTF-8 读。
-    function CurlJson([string]$path, [string]$json) {
+    function CurlJson([string]$path, [string]$json, [int]$timeoutSec = 15) {
         $reqFile = Join-Path $env:TEMP "ck-request.json"
         $resFile = Join-Path $env:TEMP "ck-response.json"
         [IO.File]::WriteAllText($reqFile, $json, (New-Object Text.UTF8Encoding($false)))
-        $code = (& curl.exe -s -m 15 -X POST -H "Content-Type: application/json" -d "@$reqFile" -o $resFile -w "%{http_code}" (Url $path) 2>$null)
+        $code = (& curl.exe -s -m $timeoutSec -X POST -H "Content-Type: application/json" -d "@$reqFile" -o $resFile -w "%{http_code}" (Url $path) 2>$null)
         $status = 0
         [void][int]::TryParse((($code -join "")).Trim(), [ref]$status)
         $body = ""
@@ -341,7 +341,8 @@ if (-not $cfg) {
         $b = Api "/api/board"
         $ok = ($null -ne $b.classIn.saveFolder) -and ($null -ne $b.boardSave.enabled) -and
               ($null -ne $b.conflict.enabled) -and ($null -ne $b.conflict.cooldownMinutes) -and
-              ($null -ne $b.conflict.situation)
+              ($null -ne $b.conflict.situation) -and ($null -ne $b.boardSave.launchIfNeeded) -and
+              ($null -ne $b.boardSave.launchTimeoutSec)
         return @($ok, ("situation=" + $b.conflict.situation + " 冷却=" + $b.conflict.cooldownMinutes + "分"))
     }
 
@@ -375,12 +376,31 @@ if (-not $cfg) {
         return @($ok, ("HTTP " + $r.Status + " " + $r.Body))
     }
 
-    Test-Name "save-classin-board 失败也可解释" {
+    Test-Name "save-classin-board 结果可解释（不静默失败）" {
         $b = Api "/api/board"
         if ($b.classIn.running) { return @($true, "ClassIn 正在运行，跳过（避免验收时真的存一份板书）") }
-        $r = CurlJson "/api/action" '{"action":"save-classin-board","closeAfterSave":false}'
+        # 没跑 ClassIn 时默认会自动拉起：给足等待时间（拉起 + 等板书窗口的上限就是 launchTimeoutSec）
+        $r = CurlJson "/api/action" '{"action":"save-classin-board","closeAfterSave":false}' 180
         $ok = ($r.Status -eq 500) -and ($r.Body -match "ClassIn")
         return @($ok, ("HTTP " + $r.Status + " " + $r.Body))
+    }
+
+    Test-Name "板书保存默认会自动拉起 ClassInX" {
+        $b = Api "/api/board"
+        $ok = ($b.boardSave.launchIfNeeded -eq $true)
+        return @($ok, ("launchIfNeeded=" + $b.boardSave.launchIfNeeded + " 等 " + $b.boardSave.launchTimeoutSec + " 秒"))
+    }
+
+    Test-Name "板书等待超时在 5..600 秒之间" {
+        $b = Api "/api/board"
+        $t = [int]$b.boardSave.launchTimeoutSec
+        return @(($t -ge 5) -and ($t -le 600), "launchTimeoutSec=$t")
+    }
+
+    Test-Name "命令行帮助里有 --no-launch / auto-launch 说明" {
+        $h = ((Run-Cli "--help") -join "`n")
+        $ok = ($h -match "no-launch") -and ($h -match "自动拉起")
+        return @($ok, "帮助含自动拉起说明")
     }
 
     Test-Name "菜单命令 --conflict-check 可用（JSON）" {

@@ -37,7 +37,8 @@ ClassroomKit.Agent {Version}
   --uninstall-task  删除登录自启计划任务
   --panel           用默认浏览器打开 Web 控制面板（带令牌）
   --uplinks         列出本机网卡并输出上行选择结果（JSON）
-  --save-classin-board  保存 ClassInX 板书（三种格式）并关闭 ClassInX。加 --no-close 只保存不关
+  --save-classin-board  保存 ClassInX 板书（三种格式）并关闭 ClassInX；ClassInX 没开时会先自动拉起。
+                         --no-close 只保存不关；--no-launch 不自动启动 ClassInX
   --probe-classin   重新探测 ClassInX 保存界面（更新 ui-recipe.json）
   --conflict-check  检查当前是否存在板书软件全屏冲突（JSON）
   --conflict-preview 预览冲突提示窗（无人值守时可加 --timeout 8）
@@ -75,15 +76,17 @@ ClassroomKit.Agent {Version}
     public static int SaveClassInBoardCli(string[] args)
     {
         var close = !args.Any(a => a.Equals("--no-close", StringComparison.OrdinalIgnoreCase));
+        var launch = !args.Any(a => a.Equals("--no-launch", StringComparison.OrdinalIgnoreCase));
         var store = new ConfigStore(Paths.ConfigPath);
         var log = new AppLog(Paths.LogDir);
         var recipe = UiRecipe.Load(Paths.RecipePath);
-        var saver = new ClassInBoardSaver(log, recipe);
-        var result = saver.Save(close);
+        var saver = new ClassInBoardSaver(log, recipe, () => store.Current.BoardSave);
+        var result = saver.Save(close, launch);
 
         Console.WriteLine(JsonSerializer.Serialize(new
         {
             ok = result.Ok,
+            launched = result.Launched,
             message = result.Message,
             elapsedMs = result.ElapsedMs,
             files = result.Files,

@@ -104,6 +104,32 @@ internal static class Program
             Eq(32, cfg.Token.Length, "空令牌应重新生成");
         });
 
+        await Run("板书保存默认会自动拉起 ClassInX", () =>
+        {
+            var cfg = ConfigStore.CreateDefault();
+            True(cfg.BoardSave.Enabled, "默认启用板书保存");
+            True(cfg.BoardSave.CloseAfterSave, "默认保存后关闭 ClassInX");
+            True(cfg.BoardSave.LaunchIfNeeded, "默认没开就自动拉起");
+            Eq(60, cfg.BoardSave.LaunchTimeoutSec, "默认等板书窗口 60 秒");
+            Eq<string?>(null, cfg.BoardSave.ClassInPath, "默认自动查找路径");
+        });
+
+        await Run("板书等待超时被钳到 5..600 秒", () =>
+        {
+            var path = TempFile("config.json");
+
+            File.WriteAllText(path, "{ \"boardSave\": { \"launchTimeoutSec\": 1 } }");
+            Eq(60, ConfigStore.Load(path)!.BoardSave.LaunchTimeoutSec, "过小回落到 60 秒");
+
+            File.WriteAllText(path, "{ \"boardSave\": { \"launchTimeoutSec\": 9999 } }");
+            Eq(60, ConfigStore.Load(path)!.BoardSave.LaunchTimeoutSec, "过大回落到 60 秒");
+
+            File.WriteAllText(path, "{ \"boardSave\": { \"launchTimeoutSec\": 180, \"classInPath\": \"D:\\\\\\\\Apps\\\\\\\\ClassIn X\\\\\\\\ClassIn X.exe\" } }");
+            var cfg = ConfigStore.Load(path)!;
+            Eq(180, cfg.BoardSave.LaunchTimeoutSec, "合法值保留");
+            Contains(cfg.BoardSave.ClassInPath ?? "", "ClassIn X.exe", "手工路径保留");
+        });
+
         await Run("坏 JSON 回退默认且能恢复", () =>
         {
             var path = TempFile("config.json");

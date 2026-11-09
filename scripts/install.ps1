@@ -115,7 +115,13 @@ Write-Step "注册登录自启任务"
 
 if (-not $NoStart) {
     Write-Step "启动守护"
-    Start-Process -FilePath $agent -WindowStyle Hidden
+    # 优先用计划任务启动：它带交互令牌，能把守护送进当前登录用户的桌面会话（托盘才看得见）。
+    & schtasks.exe /Run /TN "ClassroomKit-Agent" 2>$null | Out-Null
+    Start-Sleep -Seconds 3
+    if (-not (Get-Process -Name "ClassroomKit.Agent" -ErrorAction SilentlyContinue)) {
+        Write-Warn "计划任务没把守护拉起来，改为直接启动（可能是没有已登录的桌面用户）"
+        Start-Process -FilePath $agent -WindowStyle Hidden
+    }
     Start-Sleep -Seconds 3
     & $agent --status
 }

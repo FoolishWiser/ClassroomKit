@@ -59,6 +59,7 @@ public sealed class ConfigStore
             cfg.Bcu ??= new BcuConfig();
             cfg.Tray ??= new TrayConfig();
             cfg.BoardSave ??= new BoardSaveConfig();
+            if (cfg.BoardSave.LaunchTimeoutSec is < 5 or > 600) cfg.BoardSave.LaunchTimeoutSec = 60;
             cfg.Conflict ??= new ConflictConfig();
             if (cfg.Conflict.CooldownMinutes is < 1 or > 1440) cfg.Conflict.CooldownMinutes = 40;
             cfg.Conflict.ExtraFullscreenProcesses ??= new List<string>();

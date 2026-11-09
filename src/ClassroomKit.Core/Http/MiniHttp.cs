@@ -121,16 +121,25 @@ public sealed class MiniHttpServer : IAsyncDisposable
         {
             client.NoDelay = true;
             using var stream = client.GetStream();
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(TimeSpan.FromSeconds(15));
+            // 读请求要快（15 秒），但处理请求可能很久：保存板书要先拉起 ClassInX 再等板书窗口，
+            // 最长可见 boardSave.launchTimeoutSec（默认 60 秒），所以处理与回写单独给 5 分钟预算。
+            using var readTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            readTimeout.CancelAfter(TimeSpan.FromSeconds(15));
 
-            var request = await ReadRequestAsync(stream, timeout.Token);
+            var request = await ReadRequestAsync(stream, readTimeout.Token);
             if (request is null) return;
+
+            using var workTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            workTimeout.CancelAfter(TimeSpan.FromMinutes(5));
 
             HttpResponse response;
             try
             {
-                response = await _handler(request, timeout.Token);
+                response = await _handler(request, workTimeout.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                response = HttpResponse.Text("处理超时", 504);
             }
             catch (Exception ex)
             {
@@ -138,7 +147,7 @@ public sealed class MiniHttpServer : IAsyncDisposable
                 response = HttpResponse.Text("internal error", 500);
             }
 
-            await WriteResponseAsync(stream, response, request.Method == "HEAD", timeout.Token);
+            await WriteResponseAsync(stream, response, request.Method == "HEAD", workTimeout.Token);
         }
         catch (OperationCanceledException) { }
         catch (IOException) { }
