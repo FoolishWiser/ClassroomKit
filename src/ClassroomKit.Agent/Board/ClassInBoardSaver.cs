@@ -64,11 +64,26 @@ public sealed class ClassInBoardSaver
         var launched = false;
         if (board is null)
         {
+            // ClassInX 只是被最小化（没关闭）时，GetWindowRect 返回 (-32000,-32000)，
+            // CoversScreen 判定永远不成立 —— 这里先把它还原，再重新找板书窗口。
+            var restored = RestoreMinimizedClassIn();
+            if (restored > 0)
+            {
+                Step($"还原最小化的 ClassInX（{restored} 个窗口）");
+                board = WaitFor(() => FindBoardWindow(screenW, screenH), 4000);
+                if (board is not null) Step("板书窗口已还原");
+            }
+        }
+
+        if (board is null)
+        {
             var cfg = _config?.Invoke() ?? new BoardSaveConfig();
             if (!(launchIfNeeded ?? cfg.LaunchIfNeeded))
             {
                 return Fail("没有找到 ClassInX 板书窗口：请先在 ClassInX 里打开板书再点这个菜单", total, steps);
             }
+
+            var timeoutSec = cfg.LaunchTimeoutSec <= 0 ? 60 : cfg.LaunchTimeoutSec;
 
             if (!ClassInLauncher.IsRunning())
             {
@@ -76,14 +91,27 @@ public sealed class ClassInBoardSaver
                 if (!ok) return Fail(message, total, steps);
                 launched = true;
                 Step(path is null ? "启动 ClassInX" : "启动 ClassInX：" + Path.GetFileName(path));
+                board = WaitFor(() => FindBoardWindow(screenW, screenH), timeoutSec * 1000);
             }
             else
             {
                 Step("ClassInX 已在运行");
+
+                // 有可见窗口却没有板书：多半停在启动台（或者板书窗藏在后面/最小化）——
+                // 先给 8 秒缓冲，仍找不到就立刻给出可操作的提示，不再让老师干等一分钟。
+                board = WaitFor(() => FindBoardWindow(screenW, screenH), Math.Min(8, timeoutSec) * 1000);
+                if (board is null && HasVisibleClassInWindows())
+                {
+                    BringClassInToFront();
+                    return Fail("ClassInX 已经在运行，但没找到板书窗口（可能停在「启动台 / 主界面」，"
+                        + "或板书窗口还最小化着）：请先在 ClassInX 里进入课堂、打开板书（窗口标题是 Classroom_…）"
+                        + "再点这个菜单。如果板书已经打开，点一下托盘菜单会自动把它还原到前台。",
+                        total, steps, launched);
+                }
+
+                if (board is null) board = WaitFor(() => FindBoardWindow(screenW, screenH), timeoutSec * 1000);
             }
 
-            var timeoutSec = cfg.LaunchTimeoutSec <= 0 ? 60 : cfg.LaunchTimeoutSec;
-            board = WaitFor(() => FindBoardWindow(screenW, screenH), timeoutSec * 1000);
             if (board is null)
             {
                 var head = launched
@@ -244,9 +272,33 @@ public sealed class ClassInBoardSaver
         };
     }
 
+    /// <summary>把最小化的 ClassInX 窗口还原（SwRestore），返回还原了几个。</summary>
+    private static int RestoreMinimizedClassIn()
+    {
+        var restored = 0;
+        foreach (var window in WindowScanner.Scan().Where(w =>
+                     w.Visible && w.Minimized && w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase)))
+        {
+            if (Native.ShowWindow(new IntPtr(window.Handle), Native.SwRestore)) restored++;
+        }
+        return restored;
+    }
+
+    /// <summary>ClassInX 是否有可见的顶层窗口（用来区分“还在启动/全隐藏”和“停在启动台”）。</summary>
+    private static bool HasVisibleClassInWindows() => WindowScanner.Scan().Any(w =>
+        w.Visible && w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase));
+
     /// <summary>没等到板书时，把 ClassInX 的窗口（通常停在启动台）切到前台，省得老师找窗口。</summary>
     private static void BringClassInToFront()
     {
+        // 最小化窗口的尺寸不可信，先还原再挑最大的那个。
+        foreach (var minimized in WindowScanner.Scan().Where(w =>
+                     w.Visible && w.Minimized && w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase)))
+        {
+            Native.ShowWindow(new IntPtr(minimized.Handle), Native.SwRestore);
+            Thread.Sleep(120);
+        }
+
         var biggest = WindowScanner.Scan()
             .Where(w => w.Visible && w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(w => (long)w.Width * w.Height)

@@ -15,6 +15,8 @@ public sealed record WindowInfo
     public int Height { get; init; }
     public uint ExStyle { get; init; }
     public bool Visible { get; init; } = true;
+    /// <summary>是否处于最小化状态（最小化窗口的矩形是 (-32000,-32000)，不能按尺寸判断）。</summary>
+    public bool Minimized { get; init; }
 
     public const uint WsExTopmost = 0x00000008;
     public const uint WsExTransparent = 0x00000020;

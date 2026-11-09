@@ -54,6 +54,9 @@ internal static class Native
     public static extern bool IsWindowVisible(IntPtr hWnd);
 
     [DllImport("user32.dll")]
+    public static extern bool IsIconic(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
     public static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int index);
 
     [DllImport("user32.dll")]

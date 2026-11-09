@@ -14,6 +14,15 @@ public static class Input
     public static bool ForceForeground(long handle)
     {
         var h = new IntPtr(handle);
+
+        // 最小化的窗口 SetForegroundWindow 不会还原它，必须先 SW_RESTORE，
+        // 否则老师点了「保存板书」只会看到“没反应”。
+        if (Native.IsIconic(h))
+        {
+            Native.ShowWindow(h, Native.SwRestore);
+            Thread.Sleep(220);
+        }
+
         for (var attempt = 0; attempt < 3; attempt++)
         {
             Native.keybd_event(Native.VkMenu, 0, 0, UIntPtr.Zero);

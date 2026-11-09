@@ -59,7 +59,8 @@ public static class WindowScanner
                     Width = rect.Width,
                     Height = rect.Height,
                     ExStyle = (uint)Native.GetWindowLongPtr(hWnd, Native.GwlExStyle).ToInt64(),
-                    Visible = true
+                    Visible = true,
+                    Minimized = Native.IsIconic(hWnd)
                 });
             }
             catch
