@@ -242,12 +242,18 @@ public sealed class UpdateService
             // 先直连；国内不少学校/运营商到 objects.githubusercontent.com 会 504 或超时，
             // 再依次走配置里的镜像前缀。镜像只负责搬运字节，落地后一律按 GitHub API
             // 给的 sha256 校验，校验不过就换下一个源。
-            var urls = UpdateUrls.Candidates(asset.Url, _config().Update.Mirrors);
+            // api.github.com 的资产接口能 302 到可用的对象存储，比 releases/download 稳；
+            // 用它打头，再直连，最后才是镜像。
+            var apiUrl = asset.Id > 0
+                ? $"https://api.github.com/repos/{_config().Update.Repo}/releases/assets/{asset.Id}"
+                : null;
+            var urls = UpdateUrls.Candidates(asset.Url, _config().Update.Mirrors, apiUrl);
+            var directIndex = apiUrl is null ? 0 : 1;
             Exception? lastError = null;
             for (var i = 0; i < urls.Count; i++)
             {
                 var url = urls[i];
-                var via = i == 0 ? "直连" : "镜像 " + UriHost(url);
+                var via = i == directIndex ? "直连" : (apiUrl is not null && i == 0 ? "GitHub API" : "镜像 " + UriHost(url));
                 for (var attempt = 1; attempt <= 2; attempt++)
                 {
                     try
@@ -406,6 +412,8 @@ public sealed class UpdateService
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.UserAgent.ParseAdd($"ClassroomKit-Agent/{_current}");
+        // 走 api.github.com 资产接口时，必须带这个头才会返回二进制而不是 JSON。
+        request.Headers.Accept.ParseAdd("application/octet-stream");
         using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 

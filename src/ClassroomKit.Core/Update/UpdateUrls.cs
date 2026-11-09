@@ -1,13 +1,15 @@
 namespace ClassroomKit.Core.Update;
 
-/// <summary>升级包下载地址的候选列表：直连在前，镜像前缀在后。</summary>
+/// <summary>升级包下载地址的候选列表：GitHub API 资产接口 → 直连 → 镜像前缀。</summary>
 public static class UpdateUrls
 {
     /// <summary>
-    /// 生成候选下载地址。镜像只是拼在原始地址前面（ghproxy 风格），
+    /// 生成候选下载地址。GitHub 的 releases/download 在部分网络会 504，
+    /// 而 api.github.com 的资产接口（Accept: application/octet-stream）能 302 到可用的对象存储，
+    /// 所以 API 接口排第一。镜像只是拼在原始地址前面（ghproxy 风格），
     /// 落地后仍按 GitHub API 提供的 sha256 校验，镜像无法篡改安装包。
     /// </summary>
-    public static IReadOnlyList<string> Candidates(string directUrl, IEnumerable<string>? mirrors)
+    public static IReadOnlyList<string> Candidates(string directUrl, IEnumerable<string>? mirrors, string? apiUrl = null)
     {
         var urls = new List<string>();
         void Add(string? url)
@@ -17,6 +19,7 @@ public static class UpdateUrls
             if (!urls.Contains(trimmed, StringComparer.OrdinalIgnoreCase)) urls.Add(trimmed);
         }
 
+        Add(apiUrl);
         Add(directUrl);
         if (mirrors is not null)
         {

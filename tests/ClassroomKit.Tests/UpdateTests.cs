@@ -123,6 +123,17 @@ internal static class UpdateTests
             Eq("https://gh.example.com/prefix/" + direct, urls[2], "保留镜像自带的路径前缀");
         });
 
+        await Run("下载地址：GitHub API 资产接口排第一，其次直连，最后镜像", () =>
+        {
+            const string direct = "https://github.com/o/r/releases/download/v1/a.msi";
+            const string api = "https://api.github.com/repos/o/r/releases/assets/42";
+            var urls = UpdateUrls.Candidates(direct, new[] { "https://ghproxy.net/" }, api);
+            Eq(3, urls.Count, "三个源");
+            Eq(api, urls[0], "API 接口排第一");
+            Eq(direct, urls[1], "直连第二");
+            Eq("https://ghproxy.net/" + direct, urls[2], "镜像第三");
+        });
+
         await Run("非法 JSON / 缺 tag 时返回 null，不抛异常", () =>
         {
             Eq<GitHubRelease?>(null, ReleaseFeed.ParseOne("<html>blocked</html>"), "非 JSON 应返回 null");

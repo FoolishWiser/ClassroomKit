@@ -5,6 +5,7 @@ namespace ClassroomKit.Core.Update;
 /// <summary>GitHub Release 里一个可下载的资产。</summary>
 public sealed record ReleaseAsset
 {
+    public long Id { get; init; }
     public string Name { get; init; } = "";
     public long Size { get; init; }
     public string Url { get; init; } = "";
@@ -148,6 +149,9 @@ public static class ReleaseFeed
                 if (string.IsNullOrWhiteSpace(name)) continue;
                 assets.Add(new ReleaseAsset
                 {
+                    Id = asset.TryGetProperty("id", out var aid) && aid.ValueKind == JsonValueKind.Number
+                        ? aid.GetInt64()
+                        : 0,
                     Name = name,
                     Size = asset.TryGetProperty("size", out var size) && size.ValueKind == JsonValueKind.Number
                         ? size.GetInt64()
