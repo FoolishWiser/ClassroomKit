@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using ClassroomKit.Agent.Shell;
 using ClassroomKit.Core.Board;
 using ClassroomKit.Core.Logging;
 using ClassroomKit.Core.Model;
@@ -165,11 +166,21 @@ public sealed class ClassInBoardSaver
         }
         Step("弹出保存对话框");
 
+        // 对话框可能只是弹出来但没拿到焦点，先切到前台，免得第一下点击被吞掉。
+        Input.ForceForeground(share.Handle);
+        Thread.Sleep(150);
         Input.Click(share.X + _recipe.SaveLocal.SaveLocalX, share.Y + _recipe.SaveLocal.SaveLocalY);
-        var panel = WaitFor(() => FindSavePanel(), 3000);
+        var panel = WaitForSavePanel(share);
         if (panel is null)
         {
-            return Fail("没有弹出「保存至本地」面板", total, steps);
+            // 把现场留下来：窗口清单 + 对话框截图，下次看日志就能判断是慢、点偏了还是界面变了。
+            var diag = DiagnosticName();
+            _log.Info("板书保存诊断：ClassInX 可见窗口 " + DescribeWindows());
+            if (Input.CaptureRegion(share.X, share.Y, share.Width, share.Height, diag))
+                _log.Info("板书保存诊断：保存对话框截图 " + diag);
+            Input.SendEscape();
+            return Fail("没有弹出「保存至本地」面板（已等 10 秒）：可能是 ClassInX 反应慢，"
+                + "或对话框布局变了。稍等再点一次；仍不行请把 logs 里的 board-diag 截图发出来", total, steps);
         }
         Step("弹出保存面板");
 
@@ -386,6 +397,53 @@ public sealed class ClassInBoardSaver
             w.Visible && w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase) &&
             (w.Title == "Form" || _recipe.MatchesShare(w.Width, w.Height)));
     }
+
+    /// <summary>
+    /// 点完「保存至本地」后等面板出现。学校一体机比测试机慢，这里最多等 10 秒；
+    /// 2.5 秒还没出现就补点一次（第一次点击可能只是把对话框激活）。
+    /// 面板还没出现时，用尺寸比例（DPI 缩放）再宽容地兜一次。
+    /// </summary>
+    private WindowInfo? WaitForSavePanel(WindowInfo share)
+    {
+        var startedAt = Environment.TickCount64;
+        var reclicked = false;
+        while (Environment.TickCount64 - startedAt < 10000)
+        {
+            var panel = FindSavePanel();
+            if (panel is not null) return panel;
+
+            if (!reclicked && Environment.TickCount64 - startedAt >= 2500)
+            {
+                reclicked = true;
+                Input.Click(share.X + _recipe.SaveLocal.SaveLocalX, share.Y + _recipe.SaveLocal.SaveLocalY);
+            }
+            Thread.Sleep(120);
+        }
+
+        // 最后兜底：按比例放宽尺寸匹配（例如 125% / 150% 缩放下 340×278 会变成 425×348 / 510×417）。
+        var fallback = WindowScanner.Scan().FirstOrDefault(w =>
+            w.Visible && w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase) &&
+            w.Width is >= 240 and <= 700 && w.Height is >= 180 and <= 600 &&
+            !w.Title.StartsWith("Classroom", StringComparison.OrdinalIgnoreCase) &&
+            !(w.X == share.X && w.Y == share.Y && w.Width == share.Width && w.Height == share.Height));
+        if (fallback is not null)
+        {
+            _log.Warn($"保存面板尺寸和配方不一致（实际 {fallback.Width}×{fallback.Height}，配方 "
+                + $"{_recipe.SaveLocal.PanelWidth}×{_recipe.SaveLocal.PanelHeight}），按比例兜底");
+        }
+        return fallback;
+    }
+
+    private static string DescribeWindows() =>
+        string.Join("；", WindowScanner.Scan()
+            .Where(w => w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(w => (long)w.Width * w.Height)
+            .Take(8)
+            .Select(w => $"{(string.IsNullOrEmpty(w.Title) ? "(无标题)" : w.Title)} {w.Width}×{w.Height}"
+                + (w.Minimized ? "(最小化)" : "")));
+
+    private static string DiagnosticName() =>
+        Path.Combine(Paths.LogDir, $"board-diag-{DateTime.Now:yyyyMMdd-HHmmss}.png");
 
     private WindowInfo? FindSavePanel()
     {

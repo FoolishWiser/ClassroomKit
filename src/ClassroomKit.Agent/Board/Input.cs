@@ -66,6 +66,27 @@ public static class Input
         Native.keybd_event(Native.VkEscape, 0, Native.KeyEventKeyUp, UIntPtr.Zero);
     }
 
+    /// <summary>把屏幕上一块区域存成 PNG（排查「保存至本地」面板没弹出来时用）。</summary>
+    public static bool CaptureRegion(int x, int y, int width, int height, string path)
+    {
+        if (width <= 0 || height <= 0) return false;
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            using var bmp = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.CopyFromScreen(x, y, 0, 0, new Size(width, height));
+            }
+            bmp.Save(path, ImageFormat.Png);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     /// <summary>截取屏幕上一块区域，取平均亮度与"绿色像素"数量（勾选框判定用）。</summary>
     public static (double Mean, double Peak, int Green, int Bright) Sample(int x, int y, int width, int height)
     {
