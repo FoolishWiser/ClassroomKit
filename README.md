@@ -79,7 +79,7 @@ powershell -ExecutionPolicy Bypass -File get-bcu.ps1
 | 命令行 | `ClassroomKit.Agent.exe --check-update`（只看，不装）；`--update` 下载并安装 |
 
 安装是标准 MSI 升级：会弹一次 UAC（点「是」），热点会中断几秒，其余配置、令牌、日志都保留。
-学校网络屏蔽 GitHub 时，检查更新会直接告诉你「连不上 GitHub」，这时手动下载 MSI 双击装即可。下载本身会先直连、失败再自动走 `update.mirrors` 里的镜像（默认 `https://ghproxy.net/`），落地后仍按 GitHub 给的 sha256 校验，镜像改不了包。
+学校网络屏蔽 GitHub 时，检查更新会直接告诉你「连不上 GitHub」，这时手动下载 MSI 双击装即可。下载顺序是：GitHub API 资产接口（`api.github.com`，能绕开 `releases/download` 常见的 504）→ 直连 → `update.mirrors` 里的镜像（默认 `https://ghproxy.net/`）。不管从哪条路下，落地后都按 GitHub 给的 sha256 校验，镜像改不了包。
 
 升级失败会写 `C:\ProgramData\ClassroomKit\logs\update.log`（msiexec 退出码也在里面）。
 
@@ -251,7 +251,7 @@ installer/                MSI 定义（product.wxs；文件清单 files.wxs 由 
 dotnet run --project tests/ClassroomKit.Tests -c Release
 ```
 
-64 项，覆盖配置规范化与落盘、上行网卡选择、守护状态机九条分支（无上行 / 上行是 Wi-Fi / 策略关 / 正常开 / 退避 / 容量告警 / 自动关超时 / SSID 漂移 / 读状态失败）、窗口分类与冲突冷却、UI 配方匹配、GitHub Release 解析、版本比较与下载镜像拼接、HTTP 端到端（鉴权、表单与 JSON、静态文件）。
+65 项，覆盖配置规范化与落盘、上行网卡选择、守护状态机九条分支（无上行 / 上行是 Wi-Fi / 策略关 / 正常开 / 退避 / 容量告警 / 自动关超时 / SSID 漂移 / 读状态失败）、窗口分类与冲突冷却、UI 配方匹配、GitHub Release 解析、版本比较与下载源顺序、HTTP 端到端（鉴权、表单与 JSON、静态文件）。
 
 装到目标机之后，再跑一遍**整机验收**（43 项，含注册表、系统上限、策略开关、计划任务、改设置落盘、异常输入、网卡判别、板书/冲突接口、BCU 按钮）：
 
