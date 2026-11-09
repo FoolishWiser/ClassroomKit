@@ -251,9 +251,9 @@ installer/                MSI 定义（product.wxs；文件清单 files.wxs 由 
 dotnet run --project tests/ClassroomKit.Tests -c Release
 ```
 
-63 项，覆盖配置规范化与落盘、上行网卡选择、守护状态机九条分支（无上行 / 上行是 Wi-Fi / 策略关 / 正常开 / 退避 / 容量告警 / 自动关超时 / SSID 漂移 / 读状态失败）、窗口分类与冲突冷却、UI 配方匹配、GitHub Release 解析与版本比较、HTTP 端到端（鉴权、表单与 JSON、静态文件）。
+64 项，覆盖配置规范化与落盘、上行网卡选择、守护状态机九条分支（无上行 / 上行是 Wi-Fi / 策略关 / 正常开 / 退避 / 容量告警 / 自动关超时 / SSID 漂移 / 读状态失败）、窗口分类与冲突冷却、UI 配方匹配、GitHub Release 解析、版本比较与下载镜像拼接、HTTP 端到端（鉴权、表单与 JSON、静态文件）。
 
-装到目标机之后，再跑一遍**整机验收**（45 项，含注册表、系统上限、策略开关、计划任务、改设置落盘、异常输入、网卡判别、板书/冲突接口、BCU 按钮）：
+装到目标机之后，再跑一遍**整机验收**（43 项，含注册表、系统上限、策略开关、计划任务、改设置落盘、异常输入、网卡判别、板书/冲突接口、BCU 按钮）：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File verify.ps1

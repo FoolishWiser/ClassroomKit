@@ -324,7 +324,7 @@ public sealed class UpdateService
                 "timeout /t 2 /nobreak >nul\r\n" +
                 $"echo [%date% %time%] 开始安装 {Path.GetFileName(path)}>>\"{logPath}\"\r\n" +
                 $"msiexec /i \"{path}\" /qb /norestart\r\n" +
-                $"echo [%date% %time%] msiexec 退出码=%ERRORLEVEL%>>\"{logPath}\"\r\n" +
+                $"echo [%date% %time%] msiexec 退出码=%ERRORLEVEL% >>\"{logPath}\"\r\n" +
                 "timeout /t 3 /nobreak >nul\r\n" +
                 "set \"EXE=%ProgramFiles%\\ClassroomKit\\ClassroomKit.Agent.exe\"\r\n" +
                 "if exist \"%EXE%\" (\r\n" +
