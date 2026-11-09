@@ -109,6 +109,20 @@ internal static class UpdateTests
             Eq("0.2.3-beta1", withPre?.Version, "允许预发布时应取 beta（比 0.2.2 新）");
         });
 
+        await Run("下载地址：直连优先，镜像按前缀拼接且去重", () =>
+        {
+            const string direct = "https://github.com/o/r/releases/download/v1/a.msi";
+            var noMirror = UpdateUrls.Candidates(direct, null);
+            Eq(1, noMirror.Count, "没有镜像时只有直连");
+            Eq(direct, noMirror[0], "直连排第一");
+
+            var urls = UpdateUrls.Candidates(direct, new[] { "https://ghproxy.net/", "https://ghproxy.net", "  ", "https://gh.example.com/prefix/" });
+            Eq(3, urls.Count, "重复/空白镜像应去掉");
+            Eq(direct, urls[0], "直连仍排第一");
+            Eq("https://ghproxy.net/" + direct, urls[1], "镜像前缀拼接（去掉多余的斜杠）");
+            Eq("https://gh.example.com/prefix/" + direct, urls[2], "保留镜像自带的路径前缀");
+        });
+
         await Run("非法 JSON / 缺 tag 时返回 null，不抛异常", () =>
         {
             Eq<GitHubRelease?>(null, ReleaseFeed.ParseOne("<html>blocked</html>"), "非 JSON 应返回 null");

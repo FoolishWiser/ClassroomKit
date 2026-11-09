@@ -239,49 +239,50 @@ public sealed class UpdateService
 
             _log.Info($"下载安装包：{asset.Name}（{asset.Size / 1024 / 1024.0:F1} MB）");
 
-            using var request = new HttpRequestMessage(HttpMethod.Get, asset.Url);
-            request.Headers.UserAgent.ParseAdd($"ClassroomKit-Agent/{_current}");
-            using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
-
-            var total = response.Content.Headers.ContentLength ?? asset.Size;
-            await using (var source = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false))
-            await using (var sink = new FileStream(target + ".part", FileMode.Create, FileAccess.Write, FileShare.None, 81920, true))
+            // 先直连；国内不少学校/运营商到 objects.githubusercontent.com 会 504 或超时，
+            // 再依次走配置里的镜像前缀。镜像只负责搬运字节，落地后一律按 GitHub API
+            // 给的 sha256 校验，校验不过就换下一个源。
+            var urls = UpdateUrls.Candidates(asset.Url, _config().Update.Mirrors);
+            Exception? lastError = null;
+            for (var i = 0; i < urls.Count; i++)
             {
-                var buffer = new byte[81920];
-                long received = 0;
-                var lastReport = Environment.TickCount64;
-                int read;
-                while ((read = await source.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
+                var url = urls[i];
+                var via = i == 0 ? "直连" : "镜像 " + UriHost(url);
+                for (var attempt = 1; attempt <= 2; attempt++)
                 {
-                    await sink.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
-                    received += read;
-
-                    var now = Environment.TickCount64;
-                    if (now - lastReport >= 400)
+                    try
                     {
-                        lastReport = now;
-                        var pct = total > 0 ? Math.Min(99, received * 100.0 / total) : 0;
-                        Set(Status with { Progress = pct });
+                        await DownloadToFileAsync(url, asset, target, ct).ConfigureAwait(false);
+
+                        var info = new FileInfo(target);
+                        if (asset.Size > 0 && info.Length != asset.Size)
+                            throw new InvalidDataException($"下载不完整（{info.Length}/{asset.Size} 字节）");
+                        if (asset.Digest is not null)
+                        {
+                            var (digestOk, message) = VerifyDigest(target, asset.Digest);
+                            if (!digestOk) throw new InvalidDataException("安装包校验不通过：" + message);
+                        }
+
+                        _log.Info($"安装包下载完成（{via}）：{target}（{info.Length} 字节）");
+                        return Set(Ready());
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        lastError = ex;
+                        _log.Warn($"下载失败（{via}，第 {attempt} 次）：{ex.Message}");
+                        TryDelete(target + ".part");
+                        if (attempt < 2) await Task.Delay(800, ct).ConfigureAwait(false);
                     }
                 }
             }
 
-            File.Move(target + ".part", target, overwrite: true);
-
-            var info = new FileInfo(target);
-            if (asset.Size > 0 && info.Length != asset.Size)
-            {
-                return Fail($"下载不完整（{info.Length}/{asset.Size} 字节），请重试");
-            }
-            if (asset.Digest is not null)
-            {
-                var (ok, message) = VerifyDigest(target, asset.Digest);
-                if (!ok) return Fail("安装包校验不通过：" + message);
-            }
-
-            _log.Info($"安装包下载完成：{target}（{info.Length} 字节）");
-            return Set(Ready());
+            var hint = lastError is null ? "" : "：" + lastError.Message;
+            return Fail("下载安装包失败（直连和镜像都不通，学校网络可能屏蔽了 GitHub）："
+                + "可以用浏览器手动下载安装包再双击安装" + hint);
         }
         catch (OperationCanceledException)
         {
@@ -391,6 +392,47 @@ public sealed class UpdateService
     {
         lock (_lock) _status = status;
         return status;
+    }
+
+    private static string UriHost(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.Host : url;
+
+    private static void TryDelete(string path)
+    {
+        try { if (File.Exists(path)) File.Delete(path); } catch { /* 下次覆盖 */ }
+    }
+
+    private async Task DownloadToFileAsync(string url, ReleaseAsset asset, string target, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.UserAgent.ParseAdd($"ClassroomKit-Agent/{_current}");
+        using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+
+        var total = response.Content.Headers.ContentLength ?? asset.Size;
+        await using (var source = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false))
+        await using (var sink = new FileStream(target + ".part", FileMode.Create, FileAccess.Write, FileShare.None, 81920, true))
+        {
+            var buffer = new byte[81920];
+            long received = 0;
+            var lastReport = Environment.TickCount64;
+            int read;
+            while ((read = await source.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
+            {
+                await sink.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
+                received += read;
+
+                var now = Environment.TickCount64;
+                if (now - lastReport >= 400)
+                {
+                    lastReport = now;
+                    var pct = total > 0 ? Math.Min(99, received * 100.0 / total) : 0;
+                    Set(Status with { Progress = pct });
+                }
+            }
+        }
+
+        File.Move(target + ".part", target, overwrite: true);
     }
 
     private static (bool Ok, string Message) VerifyDigest(string filePath, string digest)

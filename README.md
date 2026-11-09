@@ -79,7 +79,7 @@ powershell -ExecutionPolicy Bypass -File get-bcu.ps1
 | 命令行 | `ClassroomKit.Agent.exe --check-update`（只看，不装）；`--update` 下载并安装 |
 
 安装是标准 MSI 升级：会弹一次 UAC（点「是」），热点会中断几秒，其余配置、令牌、日志都保留。
-学校网络屏蔽 GitHub 时，检查更新会直接告诉你「连不上 GitHub」，这时手动下载 MSI 双击装即可。
+学校网络屏蔽 GitHub 时，检查更新会直接告诉你「连不上 GitHub」，这时手动下载 MSI 双击装即可。下载本身会先直连、失败再自动走 `update.mirrors` 里的镜像（默认 `https://ghproxy.net/`），落地后仍按 GitHub 给的 sha256 校验，镜像改不了包。
 
 升级失败会写 `C:\ProgramData\ClassroomKit\logs\update.log`（msiexec 退出码也在里面）。
 
@@ -210,7 +210,8 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
   "update": {
     "enabled": true,
     "repo": "FoolishWiser/ClassroomKit",
-    "includePrerelease": false
+    "includePrerelease": false,
+    "mirrors": ["https://ghproxy.net/"]
   },
   "bcu": { "enabled": true, "path": "" },
   "tray": { "enabled": true }

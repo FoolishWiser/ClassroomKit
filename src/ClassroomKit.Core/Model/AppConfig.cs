@@ -82,4 +82,7 @@ public sealed class UpdateConfig
     public string Repo { get; set; } = "FoolishWiser/ClassroomKit";
     /// <summary>是否把预发布版也当成可升级版本。</summary>
     public bool IncludePrerelease { get; set; }
+
+    /// <summary>GitHub 下载被墙/504 时依次尝试的镜像前缀（拼在原始下载地址前面）。</summary>
+    public string[] Mirrors { get; set; } = { "https://ghproxy.net/" };
 }
