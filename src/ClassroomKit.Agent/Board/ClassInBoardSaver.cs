@@ -306,16 +306,24 @@ public sealed class ClassInBoardSaver
         if (biggest is not null) Input.ForceForeground(biggest.Handle);
     }
 
+    /// <summary>
+    /// 板书窗口的标题形如 Classroom_0_0；ClassInX 的启动台 / 全屏壳窗口标题只有「ClassIn X」。
+    /// 只按「铺满屏幕」挑会把最小化时冒出来的全屏壳当成板书窗口（然后 Ctrl+S 毫无反应），
+    /// 所以标题必须以 Classroom 开头，再用是否铺满屏幕、面积大小排序。
+    /// </summary>
     private static WindowInfo? FindBoardWindow(int screenW, int screenH)
     {
         var windows = WindowScanner.Scan();
         return windows
             .Where(w => w.Visible && w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase))
-            .Where(w => w.CoversScreen(screenW, screenH))
-            .OrderByDescending(w => w.ClassName.Contains("Qt", StringComparison.OrdinalIgnoreCase))
-            .ThenByDescending(w => w.Title.StartsWith("Classroom", StringComparison.OrdinalIgnoreCase))
+            .Where(w => IsBoardTitle(w.Title))
+            .OrderByDescending(w => w.CoversScreen(screenW, screenH))
+            .ThenByDescending(w => (long)w.Width * w.Height)
             .FirstOrDefault();
     }
+
+    private static bool IsBoardTitle(string title) =>
+        title.StartsWith("Classroom", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>按一次 Ctrl+S，然后等「保存和分享板书」对话框或小提示框出现。</summary>
     private WindowInfo? CtrlSAndWait(int screenW, int screenH, int waitMs, out WindowInfo? notice)
