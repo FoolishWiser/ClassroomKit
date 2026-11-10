@@ -32,6 +32,7 @@ internal static class Program
         Console.WriteLine();
         Console.WriteLine("[板书冲突与配方]");
         await BoardTests.RunAsync();
+        await RecipeTests.RunAsync();
 
         Console.WriteLine();
         Console.WriteLine("[GitHub 升级]");

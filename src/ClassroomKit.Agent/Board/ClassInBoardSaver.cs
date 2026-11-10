@@ -127,8 +127,13 @@ public sealed class ClassInBoardSaver
         }
         Step("找到板书窗口");
 
+        // 学校一体机可能是 150% 缩放（DPI 144）：窗口矩形是物理像素，配方是 96 DPI 下量的，
+        // 所有配方坐标都要按实际尺寸折算。
+        var uiScale = Native.GetDpiForWindow(new IntPtr(board.Handle)) / 96.0;
+        if (uiScale < 0.5 || uiScale > 3) uiScale = 1;
+
         // 上一次失败可能留下 ClassInX 的模态小提示框，模态框会让主窗口拒绝被激活 → 先清掉。
-        CleanupStrayDialogs(screenW, screenH);
+        CleanupStrayDialogs(screenW, screenH, uiScale);
 
         if (!Input.ForceForeground(board.Handle))
         {
@@ -137,11 +142,11 @@ public sealed class ClassInBoardSaver
         Step("聚焦板书窗口");
 
         // 冷启动的 ClassInX 有时第一下 Ctrl+S 还在初始化里，按两次并给足等待时间。
-        var share = CtrlSAndWait(screenW, screenH, 6000, out var notice);
+        var share = CtrlSAndWait(screenW, screenH, 6000, uiScale, out var notice);
         if (share is null && notice is null)
         {
             Thread.Sleep(400);
-            share = CtrlSAndWait(screenW, screenH, 4000, out notice);
+            share = CtrlSAndWait(screenW, screenH, 4000, uiScale, out notice);
         }
 
         if (share is null && notice is not null)
@@ -174,11 +179,25 @@ public sealed class ClassInBoardSaver
                 + $" DPI={Native.GetDpiForWindow(new IntPtr(share.Handle))}，截图 {shareShot}");
         }
 
+        // 150% 缩放下对话框是 1230×672，配方是 96 DPI 下的 820×448，差 1.5 倍。
+        // 相对对话框的坐标必须按实际尺寸折算，否则会点到预览区/登录卡片上（面板当然不出现）。
+        var (shareScaleX, shareScaleY) = _recipe.ScaleFor(share.Width, share.Height);
+        int Rx(int v) => (int)Math.Round(v * shareScaleX);
+        int Ry(int v) => (int)Math.Round(v * shareScaleY);
+        _log.Info($"板书保存诊断：坐标比例 {shareScaleX:F2}×{shareScaleY:F2}"
+            + $"（对话框 {share.Width}×{share.Height}，配方 {_recipe.SaveLocal.ShareWidth}×{_recipe.SaveLocal.ShareHeight}）");
+
         // 对话框可能只是弹出来但没拿到焦点，先切到前台，免得第一下点击被吞掉。
         Input.ForceForeground(share.Handle);
         Thread.Sleep(150);
-        Input.Click(share.X + _recipe.SaveLocal.SaveLocalX, share.Y + _recipe.SaveLocal.SaveLocalY);
-        var panel = WaitForSavePanel(share);
+
+        // 记下点击前的窗口，点完只认“新冒出来的”那个，避免再把登录卡片/弹层当面板。
+        var beforeWindows = WindowScanner.Scan()
+            .Where(w => w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase))
+            .Select(w => w.Handle)
+            .ToHashSet();
+        Input.Click(share.X + Rx(_recipe.SaveLocal.SaveLocalX), share.Y + Ry(_recipe.SaveLocal.SaveLocalY));
+        var panel = WaitForSavePanel(share, shareScaleX, shareScaleY, beforeWindows);
         if (panel is null)
         {
             // 把现场留下来：窗口清单 + 对话框截图，下次看日志就能判断是慢、点偏了还是界面变了。
@@ -192,12 +211,15 @@ public sealed class ClassInBoardSaver
         }
         Step("弹出保存面板");
 
-        // 不同机器/缩放下面板尺寸不一样（学校一体机实测 504×504，配方是 340×278），
+        // 不同机器/缩放下面板尺寸不一样（150% 缩放下配方 340×278 会变成 510×417），
         // 面板内坐标按宽高比例折算，不能直接用配方像素。
         var sx = panel.Width / (double)_recipe.SaveLocal.PanelWidth;
         var sy = panel.Height / (double)_recipe.SaveLocal.PanelHeight;
         int Px(int v) => (int)Math.Round(v * sx);
         int Py(int v) => (int)Math.Round(v * sy);
+
+        _log.Info($"板书保存诊断：保存面板 {panel.Width}×{panel.Height} [{panel.ClassName}] @ {panel.X},{panel.Y}，"
+            + $"按 {sx:F2}×{sy:F2} 折算坐标");
 
         if (Math.Abs(sx - 1) > 0.03 || Math.Abs(sy - 1) > 0.03)
         {
@@ -208,7 +230,7 @@ public sealed class ClassInBoardSaver
         }
 
         // 刚出现时像素还没画好，先等采样稳定（连续两次一致）
-        WaitStable(panel, 400);
+        WaitStable(panel, 400, sx, sy);
 
         var boxes = new (string Name, int X, int Y)[]
         {
@@ -254,10 +276,11 @@ public sealed class ClassInBoardSaver
         var deadline = DateTime.Now.AddSeconds(8);
         while (DateTime.Now < deadline)
         {
-            var prompt = FindOverwriteDialog(screenW, screenH);
+            var prompt = FindOverwriteDialog(shareScaleX, shareScaleY);
             if (prompt is not null)
             {
-                Input.Click(prompt.X + _recipe.Overwrite.YesX, prompt.Y + _recipe.Overwrite.YesY);
+                Input.Click(prompt.X + (int)Math.Round(_recipe.Overwrite.YesX * shareScaleX),
+                    prompt.Y + (int)Math.Round(_recipe.Overwrite.YesY * shareScaleY));
                 confirmed++;
                 Thread.Sleep(40);
                 continue;
@@ -363,7 +386,7 @@ public sealed class ClassInBoardSaver
         title.StartsWith("Classroom", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>按一次 Ctrl+S，然后等「保存和分享板书」对话框或小提示框出现。</summary>
-    private WindowInfo? CtrlSAndWait(int screenW, int screenH, int waitMs, out WindowInfo? notice)
+    private WindowInfo? CtrlSAndWait(int screenW, int screenH, int waitMs, double uiScale, out WindowInfo? notice)
     {
         Input.SendCtrlS();
         notice = null;
@@ -372,7 +395,7 @@ public sealed class ClassInBoardSaver
         {
             var share = FindShareDialog(screenW, screenH);
             if (share is not null) return share;
-            notice = FindNoticeDialog();
+            notice = FindNoticeDialog(uiScale);
             if (notice is not null) return null;
             Thread.Sleep(30);
         }
@@ -380,11 +403,11 @@ public sealed class ClassInBoardSaver
     }
 
     /// <summary>清掉 ClassInX 遗留的模态小提示框 / 保存对话框，避免主窗口被拒绝激活。</summary>
-    private void CleanupStrayDialogs(int screenW, int screenH)
+    private void CleanupStrayDialogs(int screenW, int screenH, double uiScale)
     {
         for (var i = 0; i < 3; i++)
         {
-            var notice = FindNoticeDialog();
+            var notice = FindNoticeDialog(uiScale);
             if (notice is not null)
             {
                 var green = Input.FindGreenButton(notice.X, notice.Y, notice.Width, notice.Height);
@@ -409,11 +432,15 @@ public sealed class ClassInBoardSaver
     }
 
     /// <summary>ClassInX 的小提示框（例如「黑板内容为空」）：宽 200–520、高 100–320 的可见小窗。</summary>
-    private static WindowInfo? FindNoticeDialog()
+    private static WindowInfo? FindNoticeDialog(double uiScale)
     {
+        var minW = (int)Math.Round(200 * uiScale);
+        var maxW = (int)Math.Round(520 * uiScale);
+        var minH = (int)Math.Round(100 * uiScale);
+        var maxH = (int)Math.Round(320 * uiScale);
         return WindowScanner.Scan().FirstOrDefault(w =>
             w.Visible && w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase) &&
-            w.Width is >= 200 and <= 520 && w.Height is >= 100 and <= 320);
+            w.Width >= minW && w.Width <= maxW && w.Height >= minH && w.Height <= maxH);
     }
 
     private WindowInfo? FindShareDialog(int screenW, int screenH)
@@ -427,15 +454,19 @@ public sealed class ClassInBoardSaver
     /// <summary>
     /// 点完「保存至本地」后等面板出现。学校一体机比测试机慢，这里最多等 10 秒；
     /// 2.5 秒还没出现就补点一次（第一次点击可能只是把对话框激活）。
-    /// 面板还没出现时，用尺寸比例（DPI 缩放）再宽容地兜一次。
+    /// 面板尺寸按对话框的缩放比例推算；优先认“点完之后新出现”的窗口。
     /// </summary>
-    private WindowInfo? WaitForSavePanel(WindowInfo share)
+    private WindowInfo? WaitForSavePanel(WindowInfo share, double scaleX, double scaleY, HashSet<long> before)
     {
+        var (expectedW, expectedH) = _recipe.ExpectedPanel(share.Width, share.Height);
+        int Rx(int v) => (int)Math.Round(v * scaleX);
+        int Ry(int v) => (int)Math.Round(v * scaleY);
+
         var startedAt = Environment.TickCount64;
         var reclicked = false;
         while (Environment.TickCount64 - startedAt < 10000)
         {
-            var panel = FindSavePanel();
+            var panel = FindSavePanel(expectedW, expectedH, before);
             if (panel is not null) return panel;
 
             if (!reclicked && Environment.TickCount64 - startedAt >= 2500)
@@ -444,22 +475,25 @@ public sealed class ClassInBoardSaver
                 var (sw, sh) = WindowScanner.ScreenSize();
                 var shot = DiagnosticPath("share-after-click");
                 Input.CaptureRegion(0, 0, sw, sh, shot);
-                _log.Info($"板书保存诊断：点「保存至本地」后 2.5 秒还没面板，先拍一张 {shot} 再补点一次");
-                Input.Click(share.X + _recipe.SaveLocal.SaveLocalX, share.Y + _recipe.SaveLocal.SaveLocalY);
+                _log.Info($"板书保存诊断：点「保存至本地」后 2.5 秒还没面板（预期 {expectedW}×{expectedH}），"
+                    + $"先拍一张 {shot} 再补点一次");
+                Input.Click(share.X + Rx(_recipe.SaveLocal.SaveLocalX), share.Y + Ry(_recipe.SaveLocal.SaveLocalY));
             }
             Thread.Sleep(120);
         }
 
-        // 最后兜底：按比例放宽尺寸匹配（例如 125% / 150% 缩放下 340×278 会变成 425×348 / 510×417）。
-        var fallback = WindowScanner.Scan().FirstOrDefault(w =>
-            w.Visible && w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase) &&
-            w.Width is >= 240 and <= 700 && w.Height is >= 180 and <= 600 &&
-            !w.Title.StartsWith("Classroom", StringComparison.OrdinalIgnoreCase) &&
-            !(w.X == share.X && w.Y == share.Y && w.Width == share.Width && w.Height == share.Height));
+        // 最后兜底：挑尺寸最接近预期的一个，不再随便抓第一个（那样会抓成登录卡片/弹层）。
+        var fallback = WindowScanner.Scan()
+            .Where(w => w.Visible && w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase))
+            .Where(w => w.Width is >= 200 and <= 1200 && w.Height is >= 150 and <= 1000)
+            .Where(w => !w.Title.StartsWith("Classroom", StringComparison.OrdinalIgnoreCase))
+            .Where(w => !(w.X == share.X && w.Y == share.Y && w.Width == share.Width && w.Height == share.Height))
+            .OrderBy(w => Math.Abs(w.Width - expectedW) / (double)expectedW + Math.Abs(w.Height - expectedH) / (double)expectedH)
+            .FirstOrDefault();
         if (fallback is not null)
         {
-            _log.Warn($"保存面板尺寸和配方不一致（实际 {fallback.Width}×{fallback.Height}，配方 "
-                + $"{_recipe.SaveLocal.PanelWidth}×{_recipe.SaveLocal.PanelHeight}），按比例兜底");
+            _log.Warn($"保存面板尺寸和配方不一致（实际 {fallback.Width}×{fallback.Height}，预期 {expectedW}×{expectedH}，"
+                + $"配方 {_recipe.SaveLocal.PanelWidth}×{_recipe.SaveLocal.PanelHeight}），按比例兜底");
         }
         return fallback;
     }
@@ -485,26 +519,37 @@ public sealed class ClassInBoardSaver
         _log.Info($"板书保存诊断：截图 {panelShot}、{screenShot}；窗口 " + DescribeWindows());
     }
 
-    private WindowInfo? FindSavePanel()
+    private WindowInfo? FindSavePanel(int expectedW, int expectedH, HashSet<long>? before)
     {
-        var windows = WindowScanner.Scan();
-        return windows.FirstOrDefault(w =>
-            w.Visible && w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase) &&
-            _recipe.MatchesPanel(w.Width, w.Height));
+        var windows = WindowScanner.Scan()
+            .Where(w => w.Visible && w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        // 点完之后新出现的窗口优先（登录卡片/启动台这些老窗口不会被误选）。
+        var fresh = before is null ? null : windows.Where(w => !before.Contains(w.Handle)).ToList();
+        var match = fresh?.FirstOrDefault(w => NearSize(w.Width, expectedW) && NearSize(w.Height, expectedH));
+        if (match is not null) return match;
+
+        return windows.FirstOrDefault(w => _recipe.MatchesPanel(w.Width, w.Height))
+               ?? windows.FirstOrDefault(w => NearSize(w.Width, expectedW) && NearSize(w.Height, expectedH));
     }
 
-    private WindowInfo? FindOverwriteDialog(int screenW, int screenH)
+    private static bool NearSize(int actual, int expected) =>
+        Math.Abs(actual - expected) <= Math.Max(12, (int)Math.Round(expected * 0.18));
+
+    private WindowInfo? FindOverwriteDialog(double scaleX, double scaleY)
     {
-        var windows = WindowScanner.Scan();
-        return windows.FirstOrDefault(w =>
+        var expectedW = (int)Math.Round(_recipe.Overwrite.Width * scaleX);
+        var expectedH = (int)Math.Round(_recipe.Overwrite.Height * scaleY);
+        return WindowScanner.Scan().FirstOrDefault(w =>
             w.Visible && w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase) &&
-            _recipe.MatchesOverwrite(w.Width, w.Height));
+            NearSize(w.Width, expectedW) && NearSize(w.Height, expectedH));
     }
 
-    private static void WaitStable(WindowInfo panel, int maxMs)
+    private static void WaitStable(WindowInfo panel, int maxMs, double sx, double sy)
     {
         var deadline = DateTime.Now.AddMilliseconds(maxMs);
-        var (x, y) = (panel.X + 25, panel.Y + 211);
+        var (x, y) = (panel.X + (int)Math.Round(25 * sx), panel.Y + (int)Math.Round(211 * sy));
         var previous = Input.Sample(x, y, 11, 11);
         while (DateTime.Now < deadline)
         {

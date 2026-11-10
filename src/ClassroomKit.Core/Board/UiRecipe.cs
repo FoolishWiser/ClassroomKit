@@ -54,6 +54,27 @@ public sealed class UiRecipe
     public bool MatchesShare(int width, int height) =>
         Near(SaveLocal.ShareWidth, width) && Near(SaveLocal.ShareHeight, height);
 
+    /// <summary>
+    /// 按实测对话框尺寸算坐标缩放比。配方是 96 DPI 下量的；学校一体机 150% 缩放时
+    /// 对话框是 1230×672（配方 820×448），缩放比正好 1.5，所有相对坐标都要乘上它。
+    /// </summary>
+    public (double X, double Y) ScaleFor(int shareWidth, int shareHeight) =>
+        (Scale(SaveLocal.ShareWidth, shareWidth), Scale(SaveLocal.ShareHeight, shareHeight));
+
+    /// <summary>按缩放比推算「保存至本地」面板应有的尺寸（96 DPI 下是 340×278）。</summary>
+    public (int Width, int Height) ExpectedPanel(int shareWidth, int shareHeight)
+    {
+        var (sx, sy) = ScaleFor(shareWidth, shareHeight);
+        return ((int)Math.Round(SaveLocal.PanelWidth * sx), (int)Math.Round(SaveLocal.PanelHeight * sy));
+    }
+
+    private static double Scale(int expected, int actual)
+    {
+        if (expected <= 0 || actual <= 0) return 1;
+        var scale = actual / (double)expected;
+        return scale is < 0.5 or > 3 ? 1 : scale;
+    }
+
     public bool MatchesPanel(int width, int height) =>
         Near(SaveLocal.PanelWidth, width) && Near(SaveLocal.PanelHeight, height);
 
