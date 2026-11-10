@@ -1,0 +1,77 @@
+name: build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "版本号（留空则用 csproj 里的 Version）"
+        required: false
+        default: ""
+  push:
+    tags: ["v*"]
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: 版本号
+        id: ver
+        shell: pwsh
+        run: |
+          $v = "${{ github.event.inputs.version }}"
+          if (-not $v -and "${{ github.ref_type }}" -eq "tag") { $v = "${{ github.ref_name }}".TrimStart("v") }
+          if (-not $v) {
+            [xml]$p = Get-Content src/ClassroomKit.Agent/ClassroomKit.Agent.csproj
+            $v = $p.Project.PropertyGroup.Version | Select-Object -First 1
+          }
+          if (-not $v) { throw "拿不到版本号" }
+          "version=$v" >> $env:GITHUB_OUTPUT
+          Write-Host "版本：$v"
+
+      - name: 单元测试
+        run: dotnet run --project tests/ClassroomKit.Tests/ClassroomKit.Tests.csproj -c Release
+
+      - name: 安装 WiX
+        run: dotnet tool install --global wix --version 5.0.2
+
+      - name: 单文件发布
+        shell: pwsh
+        run: ./scripts/build.ps1 -Output dist
+
+      - name: 打 zip
+        shell: pwsh
+        run: |
+          $v = "${{ steps.ver.outputs.version }}"
+          Compress-Archive -Path "dist\*" -DestinationPath "dist\ClassroomKit-$v-win-x64.zip" -Force
+          Get-ChildItem dist\ClassroomKit-*.zip | ForEach-Object { "{0}  {1:N0} 字节" -f $_.Name, $_.Length }
+
+      - name: 打 MSI
+        shell: pwsh
+        run: ./scripts/build-msi.ps1 -Version "${{ steps.ver.outputs.version }}" -Dist dist
+
+      - name: 校验产物
+        shell: pwsh
+        run: |
+          $v = "${{ steps.ver.outputs.version }}"
+          $msi = "dist\ClassroomKit-$v-x64.msi"
+          $zip = "dist\ClassroomKit-$v-win-x64.zip"
+          foreach ($f in @($msi, $zip)) {
+            if (-not (Test-Path $f)) { throw "缺少产物 $f" }
+            $i = Get-Item $f
+            "{0}  {1:N0} 字节  sha256={2}" -f $i.Name, $i.Length, (Get-FileHash $f -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($i.Length -lt 50MB) { throw "$f 太小，构建可能没成功" }
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClassroomKit-${{ steps.ver.outputs.version }}
+          path: |
+            dist/ClassroomKit-*-x64.msi
+            dist/ClassroomKit-*-win-x64.zip
+          if-no-files-found: error
