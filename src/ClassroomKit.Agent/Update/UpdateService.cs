@@ -86,6 +86,55 @@ public sealed class UpdateService
         _current = UpdateVersion.Normalize(currentVersion);
         _requestExit = requestExit;
         _status = new UpdateStatus { Current = _current };
+        CleanupOldPackages();
+    }
+
+    /// <summary>
+    /// 清掉升级残留：已经装上的版本（目录名 == 当前版本）安装包没用了；
+    /// 另外只保留最新一个待安装目录，避免每次升级都在 ProgramData 里留一份 65 MB。
+    /// </summary>
+    private void CleanupOldPackages()
+    {
+        try
+        {
+            if (!Directory.Exists(UpdateRoot)) return;
+
+            var dirs = Directory.GetDirectories(UpdateRoot)
+                .Select(p => (Path: p, Version: UpdateVersion.Normalize(Path.GetFileName(p))))
+                .Where(d => d.Version.Length > 0)
+                .OrderByDescending(d => d.Version, Comparer<string>.Create(UpdateVersion.Compare))
+                .ToList();
+
+            var kept = 0;
+            foreach (var dir in dirs)
+            {
+                if (dir.Version == _current)
+                {
+                    Directory.Delete(dir.Path, true);
+                    _log.Info($"清理升级残留：{Path.GetFileName(dir.Path)}（已安装到当前版本）");
+                    continue;
+                }
+
+                if (kept == 0)
+                {
+                    kept++;
+                    continue;
+                }
+
+                Directory.Delete(dir.Path, true);
+                _log.Info($"清理升级残留：{Path.GetFileName(dir.Path)}（只保留最新待安装包）");
+            }
+
+            foreach (var part in Directory.EnumerateFiles(UpdateRoot, "*.part", SearchOption.AllDirectories).ToList())
+            {
+                File.Delete(part);
+                _log.Info("清理升级残留：" + Path.GetFileName(part));
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.Warn("清理升级残留失败：" + ex.Message);
+        }
     }
 
     public string CurrentVersion => _current;

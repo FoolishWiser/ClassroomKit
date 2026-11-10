@@ -166,6 +166,14 @@ public sealed class ClassInBoardSaver
         }
         Step("弹出保存对话框");
 
+        // 每台机器的 ClassInX 版本/缩放可能不一样，先把对话框拍下来，坐标点偏了能一眼看出来。
+        var shareShot = DiagnosticPath("share");
+        if (Input.CaptureRegion(share.X, share.Y, share.Width, share.Height, shareShot))
+        {
+            _log.Info($"板书保存诊断：保存对话框 {share.Width}×{share.Height} @ {share.X},{share.Y}"
+                + $" DPI={Native.GetDpiForWindow(new IntPtr(share.Handle))}，截图 {shareShot}");
+        }
+
         // 对话框可能只是弹出来但没拿到焦点，先切到前台，免得第一下点击被吞掉。
         Input.ForceForeground(share.Handle);
         Thread.Sleep(150);
@@ -174,24 +182,39 @@ public sealed class ClassInBoardSaver
         if (panel is null)
         {
             // 把现场留下来：窗口清单 + 对话框截图，下次看日志就能判断是慢、点偏了还是界面变了。
-            var diag = DiagnosticName();
-            _log.Info("板书保存诊断：ClassInX 可见窗口 " + DescribeWindows());
-            if (Input.CaptureRegion(share.X, share.Y, share.Width, share.Height, diag))
-                _log.Info("板书保存诊断：保存对话框截图 " + diag);
+            var screenShot = DiagnosticPath("nopanel");
+            Input.CaptureRegion(0, 0, screenW, screenH, screenShot);
+            _log.Info("板书保存诊断：10 秒内没等到保存面板；全屏截图 " + screenShot
+                + "；ClassInX 可见窗口 " + DescribeWindows());
             Input.SendEscape();
             return Fail("没有弹出「保存至本地」面板（已等 10 秒）：可能是 ClassInX 反应慢，"
                 + "或对话框布局变了。稍等再点一次；仍不行请把 logs 里的 board-diag 截图发出来", total, steps);
         }
         Step("弹出保存面板");
 
+        // 不同机器/缩放下面板尺寸不一样（学校一体机实测 504×504，配方是 340×278），
+        // 面板内坐标按宽高比例折算，不能直接用配方像素。
+        var sx = panel.Width / (double)_recipe.SaveLocal.PanelWidth;
+        var sy = panel.Height / (double)_recipe.SaveLocal.PanelHeight;
+        int Px(int v) => (int)Math.Round(v * sx);
+        int Py(int v) => (int)Math.Round(v * sy);
+
+        if (Math.Abs(sx - 1) > 0.03 || Math.Abs(sy - 1) > 0.03)
+        {
+            var panelShot = DiagnosticPath("panel");
+            Input.CaptureRegion(panel.X, panel.Y, panel.Width, panel.Height, panelShot);
+            _log.Warn($"保存面板和配方不一致：{panel.Width}×{panel.Height} [{panel.ClassName}]，"
+                + $"按 {sx:F2}×{sy:F2} 折算坐标，截图 {panelShot}");
+        }
+
         // 刚出现时像素还没画好，先等采样稳定（连续两次一致）
         WaitStable(panel, 400);
 
         var boxes = new (string Name, int X, int Y)[]
         {
-            (".edb", _recipe.SaveLocal.EdbX, _recipe.SaveLocal.CheckboxY),
-            (".png", _recipe.SaveLocal.PngX, _recipe.SaveLocal.CheckboxY),
-            (".pdf", _recipe.SaveLocal.PdfX, _recipe.SaveLocal.CheckboxY)
+            (".edb", Px(_recipe.SaveLocal.EdbX), Py(_recipe.SaveLocal.CheckboxY)),
+            (".png", Px(_recipe.SaveLocal.PngX), Py(_recipe.SaveLocal.CheckboxY)),
+            (".pdf", Px(_recipe.SaveLocal.PdfX), Py(_recipe.SaveLocal.CheckboxY))
         };
 
         var clicked = 0;
@@ -213,14 +236,17 @@ public sealed class ClassInBoardSaver
 
             if (!ok)
             {
+                CaptureFailure(panel, screenW, screenH, "checkbox");
                 ClosePanels(panel, share);
-                return Fail($"勾选框状态不对（{box.Name} 未能勾上），界面可能变了，请用「重新探测」后再试", total, steps);
+                return Fail($"勾选框状态不对（{box.Name} 未能勾上），界面可能变了，请用「重新探测」后再试。"
+                    + $"诊断截图已存到 {Paths.LogDir}（board-checkbox-*.png），发给我们能直接看出界面差在哪",
+                    total, steps);
             }
         }
         if (clicked > 0) Step($"补勾 {clicked} 个格式");
         Step("三种格式已确认");
 
-        Input.Click(panel.X + _recipe.SaveLocal.SaveButtonX, panel.Y + _recipe.SaveLocal.SaveButtonY);
+        Input.Click(panel.X + Px(_recipe.SaveLocal.SaveButtonX), panel.Y + Py(_recipe.SaveLocal.SaveButtonY));
 
         // 覆盖确认：每个已存在的文件弹一次「…已经存在，是否替换它？」
         var confirmed = 0;
@@ -415,6 +441,10 @@ public sealed class ClassInBoardSaver
             if (!reclicked && Environment.TickCount64 - startedAt >= 2500)
             {
                 reclicked = true;
+                var (sw, sh) = WindowScanner.ScreenSize();
+                var shot = DiagnosticPath("share-after-click");
+                Input.CaptureRegion(0, 0, sw, sh, shot);
+                _log.Info($"板书保存诊断：点「保存至本地」后 2.5 秒还没面板，先拍一张 {shot} 再补点一次");
                 Input.Click(share.X + _recipe.SaveLocal.SaveLocalX, share.Y + _recipe.SaveLocal.SaveLocalY);
             }
             Thread.Sleep(120);
@@ -440,10 +470,20 @@ public sealed class ClassInBoardSaver
             .OrderByDescending(w => (long)w.Width * w.Height)
             .Take(8)
             .Select(w => $"{(string.IsNullOrEmpty(w.Title) ? "(无标题)" : w.Title)} {w.Width}×{w.Height}"
-                + (w.Minimized ? "(最小化)" : "")));
+                + $" [{w.ClassName}]" + (w.Minimized ? "(最小化)" : "")));
 
-    private static string DiagnosticName() =>
-        Path.Combine(Paths.LogDir, $"board-diag-{DateTime.Now:yyyyMMdd-HHmmss}.png");
+    private static string DiagnosticPath(string tag) =>
+        Path.Combine(Paths.LogDir, $"board-{tag}-{DateTime.Now:yyyyMMdd-HHmmss}.png");
+
+    /// <summary>失败时把面板和整屏都拍下来（老师只要把 logs 里最新的 board-*.png 发过来）。</summary>
+    private void CaptureFailure(WindowInfo panel, int screenW, int screenH, string tag)
+    {
+        var screenShot = DiagnosticPath(tag + "-screen");
+        var panelShot = DiagnosticPath(tag + "-panel");
+        Input.CaptureRegion(0, 0, screenW, screenH, screenShot);
+        Input.CaptureRegion(panel.X, panel.Y, panel.Width, panel.Height, panelShot);
+        _log.Info($"板书保存诊断：截图 {panelShot}、{screenShot}；窗口 " + DescribeWindows());
+    }
 
     private WindowInfo? FindSavePanel()
     {
