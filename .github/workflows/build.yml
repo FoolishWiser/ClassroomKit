@@ -50,16 +50,17 @@ jobs:
         shell: pwsh
         run: ./scripts/build.ps1 -Output dist
 
+      - name: 打 MSI
+        shell: pwsh
+        run: ./scripts/build-msi.ps1 -Version "${{ steps.ver.outputs.version }}" -Dist dist
+
       - name: 打 zip
         shell: pwsh
         run: |
           $v = "${{ steps.ver.outputs.version }}"
-          Compress-Archive -Path "dist\*" -DestinationPath "dist\ClassroomKit-$v-win-x64.zip" -Force
+          $items = Get-ChildItem dist\* | Where-Object { $_.Extension -notin @('.msi', '.wixpdb') }
+          Compress-Archive -Path $items -DestinationPath "dist\ClassroomKit-$v-win-x64.zip" -Force
           Get-ChildItem dist\ClassroomKit-*.zip | ForEach-Object { "{0}  {1:N0} 字节" -f $_.Name, $_.Length }
-
-      - name: 打 MSI
-        shell: pwsh
-        run: ./scripts/build-msi.ps1 -Version "${{ steps.ver.outputs.version }}" -Dist dist
 
       - name: 校验产物
         shell: pwsh

@@ -52,7 +52,7 @@ function Get-SafeId([string]$text) {
 
 Write-Host "==> 扫描 $Dist" -ForegroundColor Cyan
 $files = Get-ChildItem -Path $Dist -Recurse -File |
-    Where-Object { $_.Extension -notin @('.msi', '.wixpdb') } |
+    Where-Object { $_.Extension -notin @('.msi', '.wixpdb', '.zip') } |
     Sort-Object FullName
 Write-Host ("    共 {0} 个文件" -f $files.Count)
 
