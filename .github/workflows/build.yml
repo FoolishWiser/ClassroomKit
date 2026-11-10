@@ -7,12 +7,18 @@ on:
         description: "版本号（留空则用 csproj 里的 Version）"
         required: false
         default: ""
+      publish:
+        description: "构建完直接发布到 Releases（true/false）"
+        required: false
+        default: "false"
   push:
     tags: ["v*"]
 
 jobs:
   windows:
     runs-on: windows-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -75,3 +81,30 @@ jobs:
             dist/ClassroomKit-*-x64.msi
             dist/ClassroomKit-*-win-x64.zip
           if-no-files-found: error
+
+  release:
+    needs: windows
+    if: github.event_name == 'push' || github.event.inputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ClassroomKit-${{ needs.windows.outputs.version }}
+
+      - name: 列出产物
+        run: ls -lh
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.windows.outputs.version }}
+          name: ClassroomKit ${{ needs.windows.outputs.version }}
+          body_path: docs/release-notes.md
+          files: |
+            ClassroomKit-*-x64.msi
+            ClassroomKit-*-win-x64.zip
+          draft: false
+          prerelease: false
