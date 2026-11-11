@@ -191,6 +191,11 @@ public sealed class ClassInBoardSaver
         Input.ForceForeground(share.Handle);
         Thread.Sleep(150);
 
+        // ClassInX 会把「保存至本地」面板贴着鼠标/对话框往下弹。150% 缩放下对话框
+        // 本身就有 672 高、底边已经超出屏幕，“保存”按钮和勾选框会贴到任务栏上，
+        // 也容易被右下角通知盖住。先把对话框整体往上拖，面板跟着上来。
+        share = EnsureDialogOnScreen(share, screenW, screenH);
+
         // 记下点击前的窗口，点完只认“新冒出来的”那个，避免再把登录卡片/弹层当面板。
         var beforeWindows = WindowScanner.Scan()
             .Where(w => w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase))
@@ -198,6 +203,11 @@ public sealed class ClassInBoardSaver
             .ToHashSet();
         var tile = FindSaveLocalTile(share)
                    ?? (share.X + Rx(_recipe.SaveLocal.SaveLocalX), share.Y + Ry(_recipe.SaveLocal.SaveLocalY));
+
+        // 面板会按鼠标位置决定弹出方向：先移到对话框上方停一下再点图标，
+        // 让面板尽量往上弹，避开任务栏和通知区。
+        Input.MoveTo(share.X + share.Width / 2, share.Y + 28);
+        Thread.Sleep(300);
         Input.Click(tile.X, tile.Y);
         var panel = WaitForSavePanel(share, beforeWindows, tile);
         if (panel is null)
@@ -560,6 +570,32 @@ public sealed class ClassInBoardSaver
         catch
         {
             return null;
+        }
+    }
+
+    /// <summary>
+    /// 对话框底边超出屏幕时，抓住标题栏把它往上拖到完整可见，
+    /// 这样贴着它下方弹出的「保存至本地」面板也会整体上移。
+    /// </summary>
+    private WindowInfo EnsureDialogOnScreen(WindowInfo share, int screenW, int screenH)
+    {
+        var overflow = share.Y + share.Height - (screenH - 12);
+        if (overflow <= 8) return share;
+
+        var newY = Math.Max(8, share.Y - overflow - 16);
+        var grabX = share.X + Math.Min(240, Math.Max(80, share.Width / 3));
+        var grabY = share.Y + 22;
+        _log.Info($"板书保存诊断：对话框底边超出屏幕 {overflow}px，先拖到 y={newY}（保存面板随之上升）");
+        try
+        {
+            Input.DragTo(grabX, grabY, grabX, newY + 22);
+            Thread.Sleep(300);
+            return FindShareDialog(screenW, screenH) ?? share with { Y = newY };
+        }
+        catch (Exception ex)
+        {
+            _log.Warn($"上移对话框失败（{ex.Message}），继续用原位");
+            return share;
         }
     }
 

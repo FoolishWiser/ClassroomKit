@@ -39,6 +39,26 @@ public static class Input
 
     public static bool IsForeground(long handle) => Native.GetForegroundWindow() == new IntPtr(handle);
 
+    public static void MoveTo(int x, int y) => Native.SetCursorPos(x, y);
+
+    /// <summary>按住左键从一点拖到另一点（用来把 ClassInX 的对话框往上挪）。</summary>
+    public static void DragTo(int fromX, int fromY, int toX, int toY)
+    {
+        Native.SetCursorPos(fromX, fromY);
+        Thread.Sleep(120);
+        Native.mouse_event(Native.MouseLeftDown, 0, 0, 0, UIntPtr.Zero);
+        Thread.Sleep(120);
+        const int steps = 12;
+        for (var i = 1; i <= steps; i++)
+        {
+            Native.SetCursorPos(fromX + (toX - fromX) * i / steps, fromY + (toY - fromY) * i / steps);
+            Thread.Sleep(15);
+        }
+        Thread.Sleep(120);
+        Native.mouse_event(Native.MouseLeftUp, 0, 0, 0, UIntPtr.Zero);
+        Thread.Sleep(220);
+    }
+
     public static void Click(int x, int y)
     {
         Native.SetCursorPos(x, y);

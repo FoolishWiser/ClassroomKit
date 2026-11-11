@@ -26,8 +26,8 @@
 
 预编译安装包在 [Releases](https://github.com/FoolishWiser/ClassroomKit/releases/latest)：
 
-- `ClassroomKit-0.2.8-x64.msi`（约 62 MB，推荐）
-- `ClassroomKit-0.2.8-win-x64.zip`（绿色版）
+- `ClassroomKit-0.2.9-x64.msi`（约 62 MB，推荐）
+- `ClassroomKit-0.2.9-win-x64.zip`（绿色版）
 
 两者都是自包含单文件，目标机不需要装 .NET。
 
@@ -36,14 +36,14 @@
 ### 方式一：MSI 安装包（推荐）
 
 ```text
-双击 ClassroomKit-0.2.8-x64.msi
+双击 ClassroomKit-0.2.9-x64.msi
 # 或者命令行静默安装：
-msiexec /i ClassroomKit-0.2.8-x64.msi /qn
+msiexec /i ClassroomKit-0.2.9-x64.msi /qn
 ```
 
 装完自动：落地到 `C:\Program Files\ClassroomKit` → 建 `C:\ProgramData\ClassroomKit` 并授权普通用户可写 → 放宽设备上限（`WifiMaxPeers=16`）→ 注册登录自启任务 → 立刻拉起守护。开始菜单会多一项「ClassroomKit 控制面板」，点了直接带令牌打开面板（等价于 `ClassroomKit.Agent.exe --panel`）。
 
-卸载走「应用和功能」，或 `msiexec /x ClassroomKit-0.2.8-x64.msi`：会关热点 → 删计划任务 → 把 `WifiMaxPeers` 恢复成系统默认 → 清掉 BCU 目录，**保留** `C:\ProgramData\ClassroomKit`（配置与日志；重装后密码和面板令牌不变）。
+卸载走「应用和功能」，或 `msiexec /x ClassroomKit-0.2.9-x64.msi`：会关热点 → 删计划任务 → 把 `WifiMaxPeers` 恢复成系统默认 → 清掉 BCU 目录，**保留** `C:\ProgramData\ClassroomKit`（配置与日志；重装后密码和面板令牌不变）。
 
 ### 方式二：绿色目录（没有安装包时）
 
@@ -171,7 +171,7 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
 
 ## 卸载
 
-- **MSI 装的**：控制面板「应用」里卸载，或 `msiexec /x ClassroomKit-0.2.8-x64.msi`；面板「维护 → 卸载本软件」也会调起同样的流程。
+- **MSI 装的**：控制面板「应用」里卸载，或 `msiexec /x ClassroomKit-0.2.9-x64.msi`；面板「维护 → 卸载本软件」也会调起同样的流程。
 - **绿色版**：面板「维护 → 卸载本软件」，或 `ClassroomKit.Agent.exe --uninstall`。
 - 卸载会停进程、删自启任务、把 `WifiMaxPeers` 改回原值并重启共享服务、删安装目录（含 BCU）；**默认保留** `C:\ProgramData\ClassroomKit`（配置和日志，方便重装后沿用 SSID/密码）。想连配置日志一起删：面板勾「同时删除配置与日志」再点卸载，或 `ClassroomKit.Agent.exe --uninstall --purge-data`（这两种方式都会先调 `msiexec /x` 再删目录；直接 `msiexec /x` 卸载则一定保留配置）。
 - 需要管理员权限：没提权会弹一次 UAC，点「是」即可。
