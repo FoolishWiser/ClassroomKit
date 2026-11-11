@@ -1,4 +1,4 @@
-using System.Drawing;
+﻿using System.Drawing;
 using System.Drawing.Imaging;
 
 namespace ClassroomKit.Agent.Board;
@@ -149,6 +149,22 @@ public static class Input
     }
 
     /// <summary>勾选框判定：绿色填充或高亮像素足够多即视为已勾选。</summary>
+    public static Bitmap? CaptureBitmap(int x, int y, int width, int height)
+    {
+        if (width <= 0 || height <= 0) return null;
+        try
+        {
+            var bmp = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+            using var g = Graphics.FromImage(bmp);
+            g.CopyFromScreen(x, y, 0, 0, new Size(width, height));
+            return bmp;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public static bool IsChecked(int x, int y, int size = 11)
     {
         var (_, _, green, bright) = Sample(x, y, size, size);

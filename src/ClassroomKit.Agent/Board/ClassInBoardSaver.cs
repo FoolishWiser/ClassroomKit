@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using ClassroomKit.Agent.Shell;
 using ClassroomKit.Core.Board;
 using ClassroomKit.Core.Logging;
@@ -196,8 +196,10 @@ public sealed class ClassInBoardSaver
             .Where(w => w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase))
             .Select(w => w.Handle)
             .ToHashSet();
-        Input.Click(share.X + Rx(_recipe.SaveLocal.SaveLocalX), share.Y + Ry(_recipe.SaveLocal.SaveLocalY));
-        var panel = WaitForSavePanel(share, shareScaleX, shareScaleY, beforeWindows);
+        var tile = FindSaveLocalTile(share)
+                   ?? (share.X + Rx(_recipe.SaveLocal.SaveLocalX), share.Y + Ry(_recipe.SaveLocal.SaveLocalY));
+        Input.Click(tile.X, tile.Y);
+        var panel = WaitForSavePanel(share, beforeWindows, tile);
         if (panel is null)
         {
             // 把现场留下来：窗口清单 + 对话框截图，下次看日志就能判断是慢、点偏了还是界面变了。
@@ -232,43 +234,60 @@ public sealed class ClassInBoardSaver
         // 刚出现时像素还没画好，先等采样稳定（连续两次一致）
         WaitStable(panel, 400, sx, sy);
 
-        var boxes = new (string Name, int X, int Y)[]
-        {
-            (".edb", Px(_recipe.SaveLocal.EdbX), Py(_recipe.SaveLocal.CheckboxY)),
-            (".png", Px(_recipe.SaveLocal.PngX), Py(_recipe.SaveLocal.CheckboxY)),
-            (".pdf", Px(_recipe.SaveLocal.PdfX), Py(_recipe.SaveLocal.CheckboxY))
-        };
-
+        // 面板里优先按像素找勾选框行和绿色保存按钮：ClassInX 的面板高宽比和配方对不上
+        // （150% 下 510×519，按比例推出来是 510×417），直接折算式点不准。
         var clicked = 0;
-        foreach (var box in boxes)
+        var located = TryLocatePanelControls(panel, ref clicked, out var saveButton);
+        if (located)
         {
-            var (x, y) = (panel.X + box.X, panel.Y + box.Y);
-            if (Input.IsChecked(x, y)) continue;
-
-            Input.Click(x, y);
-            clicked++;
-
-            // 点完等界面重绘：最多 600ms 内读到勾选就算成功
-            var ok = false;
-            for (var i = 0; i < 12; i++)
+            _log.Info($"板书保存诊断：视觉定位成功，保存按钮 @ {saveButton.X},{saveButton.Y}");
+        }
+        else
+        {
+            // 兜底：老版本界面/颜色变了时，仍按配方折算点击
+            var boxes = new (string Name, int X, int Y)[]
             {
-                Thread.Sleep(50);
-                if (Input.IsChecked(x, y)) { ok = true; break; }
-            }
+                (".edb", Px(_recipe.SaveLocal.EdbX), Py(_recipe.SaveLocal.CheckboxY)),
+                (".png", Px(_recipe.SaveLocal.PngX), Py(_recipe.SaveLocal.CheckboxY)),
+                (".pdf", Px(_recipe.SaveLocal.PdfX), Py(_recipe.SaveLocal.CheckboxY))
+            };
 
-            if (!ok)
+            foreach (var box in boxes)
             {
-                CaptureFailure(panel, screenW, screenH, "checkbox");
-                ClosePanels(panel, share);
-                return Fail($"勾选框状态不对（{box.Name} 未能勾上），界面可能变了，请用「重新探测」后再试。"
-                    + $"诊断截图已存到 {Paths.LogDir}（board-checkbox-*.png），发给我们能直接看出界面差在哪",
-                    total, steps);
+                var (x, y) = (panel.X + box.X, panel.Y + box.Y);
+                if (Input.IsChecked(x, y)) continue;
+
+                Input.Click(x, y);
+                clicked++;
+
+                // 点完等界面重绘：最多 600ms 内读到勾选就算成功
+                var ok = false;
+                for (var i = 0; i < 12; i++)
+                {
+                    Thread.Sleep(50);
+                    if (Input.IsChecked(x, y)) { ok = true; break; }
+                }
+
+                if (!ok)
+                {
+                    CaptureFailure(panel, screenW, screenH, "checkbox");
+                    ClosePanels(panel, share);
+                    return Fail($"勾选框状态不对（{box.Name} 未能勾上），界面可能变了，请用「重新探测」后再试。"
+                        + $"诊断截图已存到 {Paths.LogDir}（board-checkbox-*.png），发给我们能直接看出界面差在哪",
+                        total, steps);
+                }
             }
         }
+
         if (clicked > 0) Step($"补勾 {clicked} 个格式");
         Step("三种格式已确认");
 
-        Input.Click(panel.X + Px(_recipe.SaveLocal.SaveButtonX), panel.Y + Py(_recipe.SaveLocal.SaveButtonY));
+        Input.Click(located
+            ? saveButton.X
+            : panel.X + Px(_recipe.SaveLocal.SaveButtonX),
+            located
+            ? saveButton.Y
+            : panel.Y + Py(_recipe.SaveLocal.SaveButtonY));
 
         // 覆盖确认：每个已存在的文件弹一次「…已经存在，是否替换它？」
         var confirmed = 0;
@@ -456,17 +475,15 @@ public sealed class ClassInBoardSaver
     /// 2.5 秒还没出现就补点一次（第一次点击可能只是把对话框激活）。
     /// 面板尺寸按对话框的缩放比例推算；优先认“点完之后新出现”的窗口。
     /// </summary>
-    private WindowInfo? WaitForSavePanel(WindowInfo share, double scaleX, double scaleY, HashSet<long> before)
+    private WindowInfo? WaitForSavePanel(WindowInfo share, HashSet<long> before, (int X, int Y) tile)
     {
         var (expectedW, expectedH) = _recipe.ExpectedPanel(share.Width, share.Height);
-        int Rx(int v) => (int)Math.Round(v * scaleX);
-        int Ry(int v) => (int)Math.Round(v * scaleY);
 
         var startedAt = Environment.TickCount64;
         var reclicked = false;
         while (Environment.TickCount64 - startedAt < 10000)
         {
-            var panel = FindSavePanel(expectedW, expectedH, before);
+            var panel = FindSavePanel(expectedW, expectedH, before, share);
             if (panel is not null) return panel;
 
             if (!reclicked && Environment.TickCount64 - startedAt >= 2500)
@@ -477,7 +494,7 @@ public sealed class ClassInBoardSaver
                 Input.CaptureRegion(0, 0, sw, sh, shot);
                 _log.Info($"板书保存诊断：点「保存至本地」后 2.5 秒还没面板（预期 {expectedW}×{expectedH}），"
                     + $"先拍一张 {shot} 再补点一次");
-                Input.Click(share.X + Rx(_recipe.SaveLocal.SaveLocalX), share.Y + Ry(_recipe.SaveLocal.SaveLocalY));
+                Input.Click(tile.X, tile.Y);
             }
             Thread.Sleep(120);
         }
@@ -488,6 +505,7 @@ public sealed class ClassInBoardSaver
             .Where(w => w.Width is >= 200 and <= 1200 && w.Height is >= 150 and <= 1000)
             .Where(w => !w.Title.StartsWith("Classroom", StringComparison.OrdinalIgnoreCase))
             .Where(w => !(w.X == share.X && w.Y == share.Y && w.Width == share.Width && w.Height == share.Height))
+            .Where(w => OverlapsShare(w, share))
             .OrderBy(w => Math.Abs(w.Width - expectedW) / (double)expectedW + Math.Abs(w.Height - expectedH) / (double)expectedH)
             .FirstOrDefault();
         if (fallback is not null)
@@ -519,19 +537,127 @@ public sealed class ClassInBoardSaver
         _log.Info($"板书保存诊断：截图 {panelShot}、{screenShot}；窗口 " + DescribeWindows());
     }
 
-    private WindowInfo? FindSavePanel(int expectedW, int expectedH, HashSet<long>? before)
+    /// <summary>在保存对话框截图里找「保存至本地」的黄橙色圆图标，返回屏幕坐标；找不到返回 null 由调用方用配方坐标。</summary>
+    private (int X, int Y)? FindSaveLocalTile(WindowInfo share)
+    {
+        try
+        {
+            using var bmp = Input.CaptureBitmap(share.X, share.Y, share.Width, share.Height);
+            if (bmp is null) return null;
+
+            var blobs = ScreenVision.FindBlobs(bmp, ScreenVision.IsYellow, 300)
+                .Where(b => b.Width is >= 14 and <= 90 && b.Height is >= 14 and <= 90)
+                .Where(b => b.CenterX > bmp.Width * 0.55 && b.CenterY < bmp.Height * 0.6)
+                .OrderByDescending(b => b.Area)
+                .ToList();
+            if (blobs.Count == 0) return null;
+
+            var tile = blobs[0];
+            _log.Info($"板书保存诊断：视觉定位「保存至本地」图标 @ 对话框内 {tile.CenterX},{tile.CenterY}"
+                + $"（{tile.Width}×{tile.Height}，{tile.Area} px），配方值 {_recipe.SaveLocal.SaveLocalX},{_recipe.SaveLocal.SaveLocalY}");
+            return (share.X + tile.CenterX, share.Y + tile.CenterY);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 在面板截图里找勾选框那一行和绿色「保存」按钮。找到就把没勾的格式（一般是 .pdf）点掉，
+    /// 保存按钮坐标通过 saveButton 返回；找不到返回 false，调用方退回配方坐标。
+    /// </summary>
+    private bool TryLocatePanelControls(WindowInfo panel, ref int clicked, out (int X, int Y) saveButton)
+    {
+        saveButton = default;
+        try
+        {
+            using var bmp = Input.CaptureBitmap(panel.X, panel.Y, panel.Width, panel.Height);
+            if (bmp is null) return false;
+
+            var blobs = ScreenVision.FindBlobs(bmp, ScreenVision.IsGreen, 40);
+            var buttons = blobs
+                .Where(b => b.Width >= 50 && b.Height >= 18 && b.Area >= 600)
+                .OrderByDescending(b => b.Area)
+                .ToList();
+            if (buttons.Count == 0) return false;
+
+            var save = buttons[0];
+            saveButton = (panel.X + save.CenterX, panel.Y + save.CenterY);
+
+            // 勾选框：保存按钮上方、同一水平线上的小绿块
+            var marks = blobs
+                .Where(b => b.Area is >= 40 and <= 1500 && b.Width <= 45 && b.Height <= 45)
+                .Where(b => b.CenterY < save.MinY)
+                .ToList();
+            if (marks.Count < 2) return true;
+
+            var row = marks
+                .GroupBy(m => m.CenterY / 10)
+                .OrderByDescending(g => g.Count())
+                .First()
+                .OrderBy(m => m.CenterX)
+                .ToList();
+            if (row.Count < 2) return true;
+
+            var step = row.Count >= 3
+                ? (row[^1].CenterX - row[0].CenterX) / (row.Count - 1)
+                : row[1].CenterX - row[0].CenterX;
+            if (step <= 0 || step > bmp.Width / 2) return true;
+
+            // 第三个框（.pdf）默认不勾：按前两个的间距推位置，点一下
+            var pdfX = row[^1].CenterX + step;
+            var pdfY = row[0].CenterY;
+            if (pdfX < bmp.Width - 8 && !Input.IsChecked(panel.X + pdfX, panel.Y + pdfY))
+            {
+                Input.Click(panel.X + pdfX, panel.Y + pdfY);
+                clicked++;
+                Thread.Sleep(150);
+            }
+
+            _log.Info($"板书保存诊断：视觉定位勾选框 y={pdfY}（x={string.Join("/", row.Select(m => m.CenterX))}，间距 {step}），"
+                + $"保存按钮 {save.Width}×{save.Height} @ 面板内 {save.CenterX},{save.CenterY}");
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private WindowInfo? FindSavePanel(int expectedW, int expectedH, HashSet<long>? before, WindowInfo share)
     {
         var windows = WindowScanner.Scan()
             .Where(w => w.Visible && w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase))
+            .Where(w => IsLikelyPanel(w, expectedW, expectedH) && OverlapsShare(w, share))
             .ToList();
 
         // 点完之后新出现的窗口优先（登录卡片/启动台这些老窗口不会被误选）。
         var fresh = before is null ? null : windows.Where(w => !before.Contains(w.Handle)).ToList();
-        var match = fresh?.FirstOrDefault(w => NearSize(w.Width, expectedW) && NearSize(w.Height, expectedH));
+        var match = fresh?.FirstOrDefault();
         if (match is not null) return match;
 
-        return windows.FirstOrDefault(w => _recipe.MatchesPanel(w.Width, w.Height))
-               ?? windows.FirstOrDefault(w => NearSize(w.Width, expectedW) && NearSize(w.Height, expectedH));
+        return windows.OrderBy(w => Math.Abs(w.Width - expectedW) + Math.Abs(w.Height - expectedH)).FirstOrDefault();
+    }
+
+    /// <summary>
+    /// 面板尺寸容差放宽：ClassInX 的面板高度会随路径/文字行数变（150% 下实测 510×519，按 1.5 推算只有 417），
+    /// 所以宽度卡紧、高度只要求落在合理区间。
+    /// </summary>
+    private static bool IsLikelyPanel(WindowInfo w, int expectedW, int expectedH) =>
+        w.Width >= expectedW * 0.8 && w.Width <= expectedW * 1.3 &&
+        w.Height >= expectedH * 0.85 && w.Height <= expectedH * 2.0;
+
+    /// <summary>面板是保存对话框里的子窗口，必须和对话框有足够的重叠（避免把别处的登录卡片当面板）。</summary>
+    private static bool OverlapsShare(WindowInfo w, WindowInfo share)
+    {
+        var x1 = Math.Max(w.X, share.X);
+        var y1 = Math.Max(w.Y, share.Y);
+        var x2 = Math.Min(w.X + w.Width, share.X + share.Width);
+        var y2 = Math.Min(w.Y + w.Height, share.Y + share.Height);
+        if (x2 <= x1 || y2 <= y1) return false;
+        var overlap = (long)(x2 - x1) * (y2 - y1);
+        return overlap * 10 >= (long)w.Width * w.Height * 6;
     }
 
     private static bool NearSize(int actual, int expected) =>
