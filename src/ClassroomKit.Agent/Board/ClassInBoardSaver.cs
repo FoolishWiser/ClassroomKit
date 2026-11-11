@@ -417,6 +417,11 @@ public sealed class ClassInBoardSaver
     /// <summary>按一次 Ctrl+S，然后等「保存和分享板书」对话框或小提示框出现。</summary>
     private WindowInfo? CtrlSAndWait(int screenW, int screenH, int waitMs, double uiScale, out WindowInfo? notice)
     {
+        // ClassInX 的面板位置跟着“按 Ctrl+S 时鼠标在哪”走。老师是从右下角托盘点的保存，
+        // 指针停在屏幕底部，弹出的「保存和分享板书」对话框和「保存至本地」面板就一路贴到
+        // 任务栏上，勾选框和保存按钮会被挡住。先把虚拟指针挪到屏幕上方，再按 Ctrl+S。
+        Input.MoveTo(screenW / 2, Math.Max(72, screenH / 6));
+        Thread.Sleep(180);
         Input.SendCtrlS();
         notice = null;
         var deadline = Environment.TickCount64 + waitMs;
