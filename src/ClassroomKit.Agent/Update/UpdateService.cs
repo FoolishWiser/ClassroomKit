@@ -307,7 +307,10 @@ public sealed class UpdateService
                 {
                     try
                     {
-                        await DownloadToFileAsync(url, asset, target, ct).ConfigureAwait(false);
+                        // 学校网络到 GitHub 的单连接经常只有几十 KB/s，先试分段并发下载；
+                        // 服务器不支持 Range（或分片失败）时自动回退单连接，不影响可靠性。
+                        if (!await TryParallelDownloadAsync(url, asset, target, ct).ConfigureAwait(false))
+                            await DownloadToFileAsync(url, asset, target, ct).ConfigureAwait(false);
 
                         var info = new FileInfo(target);
                         if (asset.Size > 0 && info.Length != asset.Size)
@@ -355,7 +358,7 @@ public sealed class UpdateService
     }
 
     /// <summary>
-    /// 启动安装器：写一个独立 cmd（等本进程退出 → msiexec /qb → 兜底拉起新版本），
+    /// 启动安装器：写一个独立 cmd（等本进程退出 → msiexec /qn 静默安装 → 兜底拉起新版本），
     /// 以管理员身份运行它，然后请求本进程退出。返回的 message 直接给面板/托盘显示。
     /// </summary>
     public (bool Ok, string Message) Install()
@@ -378,7 +381,7 @@ public sealed class UpdateService
                 "setlocal\r\n" +
                 "timeout /t 2 /nobreak >nul\r\n" +
                 $"echo [%date% %time%] 开始安装 {Path.GetFileName(path)}>>\"{logPath}\"\r\n" +
-                $"msiexec /i \"{path}\" /qb /norestart\r\n" +
+                $"msiexec /i \"{path}\" /qn /norestart REBOOT=ReallySuppress\r\n" +
                 $"echo [%date% %time%] msiexec 退出码=%ERRORLEVEL% >>\"{logPath}\"\r\n" +
                 "timeout /t 3 /nobreak >nul\r\n" +
                 "set \"EXE=%ProgramFiles%\\ClassroomKit\\ClassroomKit.Agent.exe\"\r\n" +
@@ -409,7 +412,7 @@ public sealed class UpdateService
                 try { _requestExit(); } catch { /* 退出路径由上层决定 */ }
             });
 
-            return (true, "正在安装新版本：会弹一次管理员授权，程序随后自动重启（面板会断开几秒）");
+            return (true, "正在静默安装新版本：会弹一次管理员授权，安装过程没有进度窗口，完成后程序自动重启（面板会断开几秒）");
         }
         catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
         {
@@ -490,6 +493,109 @@ public sealed class UpdateService
         }
 
         File.Move(target + ".part", target, overwrite: true);
+    }
+
+    /// <summary>
+    /// 分段并发下载：把文件按 8 MB 切片、最多 6 路同时拉，最后顺序合并。
+    /// 每条连接的吞吐被限速时，多连接能成倍提速（用户机器上单连接约 50–70 KB/s）。
+    /// 返回 false 表示「这个源不支持分段」，调用方回退单连接；其它异常也回退，不中断升级。
+    /// </summary>
+    private async Task<bool> TryParallelDownloadAsync(string url, ReleaseAsset asset, string target, CancellationToken ct)
+    {
+        if (asset.Size <= 0) return false;
+
+        const long chunkSize = 8L * 1024 * 1024;
+        var parts = (int)Math.Min(8, Math.Max(1, (asset.Size + chunkSize - 1) / chunkSize));
+        if (parts < 2) return false;
+
+        var tempPaths = new string[parts];
+        var lengths = new long[parts];
+        var received = 0L;
+        var lastReport = Environment.TickCount64;
+        using var limit = new SemaphoreSlim(6);
+
+        _log.Info($"分段下载：{parts} 片 × 8 MB，6 路并发");
+        try
+        {
+            var tasks = new Task[parts];
+            for (var i = 0; i < parts; i++)
+            {
+                var index = i;
+                var start = index * chunkSize;
+                var end = Math.Min(asset.Size, start + chunkSize) - 1;
+                tempPaths[index] = $"{target}.part{index}";
+                tasks[index] = Task.Run(async () =>
+                {
+                    await limit.WaitAsync(ct).ConfigureAwait(false);
+                    try
+                    {
+                        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                        request.Headers.UserAgent.ParseAdd($"ClassroomKit-Agent/{_current}");
+                        request.Headers.Accept.ParseAdd("application/octet-stream");
+                        request.Headers.Range = new RangeHeaderValue(start, end);
+                        using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+                        if (response.StatusCode != HttpStatusCode.PartialContent)
+                            throw new NotSupportedException("服务器不支持分段下载");
+
+                        await using var source = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+                        await using var sink = new FileStream(tempPaths[index], FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
+                        var buffer = new byte[81920];
+                        long partBytes = 0;
+                        int read;
+                        while ((read = await source.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
+                        {
+                            await sink.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
+                            partBytes += read;
+                            var total = Interlocked.Add(ref received, read);
+                            var now = Environment.TickCount64;
+                            if (now - lastReport >= 400)
+                            {
+                                lastReport = now;
+                                var pct = Math.Min(99, total * 100.0 / asset.Size);
+                                Set(Status with { Progress = pct });
+                            }
+                        }
+                        lengths[index] = partBytes;
+                    }
+                    finally
+                    {
+                        limit.Release();
+                    }
+                }, ct);
+            }
+
+            await Task.WhenAll(tasks).ConfigureAwait(false);
+            long sum = 0;
+            foreach (var len in lengths) sum += len;
+            if (sum != asset.Size)
+                throw new InvalidDataException($"分段下载不完整（{sum}/{asset.Size} 字节）");
+
+            await using (var merged = new FileStream(target + ".part", FileMode.Create, FileAccess.Write, FileShare.None, 81920, true))
+            {
+                for (var i = 0; i < parts; i++)
+                {
+                    await using var src = new FileStream(tempPaths[i], FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true);
+                    await src.CopyToAsync(merged, ct).ConfigureAwait(false);
+                }
+            }
+            File.Move(target + ".part", target, overwrite: true);
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _log.Warn($"分段下载失败（{ex.Message}），回退单连接");
+            return false;
+        }
+        finally
+        {
+            foreach (var part in tempPaths)
+                if (part is not null) TryDelete(part);
+            TryDelete(target + ".part");
+        }
     }
 
     private static (bool Ok, string Message) VerifyDigest(string filePath, string digest)

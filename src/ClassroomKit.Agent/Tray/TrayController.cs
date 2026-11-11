@@ -186,9 +186,18 @@ public sealed class TrayController : IDisposable
         var launch = cfg.LaunchIfNeeded;
         _runtime.Log.Info($"托盘触发：保存 ClassInX 板书（保存后关闭={closeAfter}，没开则启动={launch}）");
 
-        // 点击立刻给反馈：保存流程可能要拉起/还原 ClassInX、按 Ctrl+S、等对话框，
-        // 十几秒里没有动静的话老师会以为“点了没反应”。
-        ShowBalloon("正在保存板书", launch ? "正在查找板书窗口（没开的话会先启动 ClassInX）…" : "正在查找 ClassInX 板书窗口…", true);
+        // 注意：保存过程中不能再弹托盘气泡。气泡固定在屏幕右下角，正好压在
+        // ClassInX「保存至本地」面板的勾选框和「保存」按钮上（学校一体机 150% 缩放时
+        // 面板更低更靠下），会被系统当成最顶层窗口，点击全落在气泡上。
+        // 所以只在结束时给一次结果提示；如果超过 8 秒还没完（ClassInX 冷启动要拉起），
+        // 再补一条“仍在保存”，那时面板通常已经点完了。
+        var finished = 0;
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(8000).ConfigureAwait(false);
+            if (Volatile.Read(ref finished) == 0)
+                ShowBalloon("仍在保存板书", "ClassInX 启动或保存较慢，请再等一会儿…", true);
+        });
 
         _ = Task.Run(() =>
         {
@@ -203,6 +212,7 @@ public sealed class TrayController : IDisposable
                 result = new BoardSaveResult(false, "保存板书异常：" + ex.Message, 0, Array.Empty<string>(), Array.Empty<BoardSaveStep>());
             }
 
+            Interlocked.Exchange(ref finished, 1);
             _runtime.Log.Info(result.Ok ? $"板书保存成功：{result.Message}" : $"板书保存失败：{result.Message}");
             ShowBalloon(result.Ok ? "板书已保存" : "保存板书失败", result.Message, result.Ok);
         });
