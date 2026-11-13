@@ -3,6 +3,6 @@ name: ClassroomKit 热点
 description: 在 ClassIsland 主界面查看热点状态，并在上课/下课时自动开关教室热点。热点逻辑仍由 ClassroomKit 守护进程负责，ClassIsland 退出或崩溃都不影响上网。
 entranceAssembly: ClassroomKit.ClassIsland.dll
 url: https://github.com/FoolishWiser/ClassroomKit
-version: 0.3.0-pre.4
+version: 0.3.0
 apiVersion: 2.0.0.0
 author: ClassroomKit

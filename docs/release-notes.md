@@ -1,4 +1,6 @@
-# ClassroomKit 0.3.0-pre.4
+# ClassroomKit 0.3.0
+
+0.3 的第一个正式版（开发期的 `0.3.0-pre.1`…`pre.4` 已全部并入本版，不再单独发布）。从这版起只发正式版。
 
 ## 改：板书冲突提示窗重做（界面）
 
@@ -19,7 +21,7 @@
 
 - 新增 8 项单测：倒计时与超时默认「都保留」、悬停暂停、只认第一次选择、快捷键映射、卡片文案、日期解析、暂停期间不弹、跨天自动恢复；总数 85 → 93。
 
-# ClassroomKit 0.3.0-pre.3
+## 历史：0.3.0-pre.3
 
 ## 新：全程静默升级（不弹 UAC）
 
@@ -37,7 +39,7 @@
 
 - `/api/update` 增加 `silent`、`checkOnBoot`、`autoInstall`、`installWithClients`、`installWindow`、`installWindowText`、`checkIntervalHours`、`serviceInstalled`；静默安装时状态文案是「正在后台静默安装（无需操作）…」。
 
-# ClassroomKit 0.3.0-pre.2
+## 历史：0.3.0-pre.2
 
 ## 新：GitHub 访问加速（hosts 护航）
 
@@ -52,9 +54,9 @@
 - MSI 安装时一并注册护航任务，卸载时一并删除；绿色版 `install.ps1` 同样注册。
 - 配置结构版本升到 2：旧 `config.json` 自动补 `hosts` 段（只盖章，不改任何已有值）。
 
-# ClassroomKit 0.3.0-pre.1
+## 历史：0.3.0-pre.1
 
-第一版预发布（1.0 之前都带 `-pre.N`）。内核照旧独立，ClassIsland 这一层从「零代码自动化」升级成**真正的插件**。
+第一版预发布（开发期用 `-pre.N` 标记，现已并入 0.3.0）。内核照旧独立，ClassIsland 这一层从「零代码自动化」升级成**真正的插件**。
 
 ## 新：ClassIsland 2.1 插件（`.cipx`）
 
@@ -73,7 +75,7 @@
 
 - 版本号收敛到 `Directory.Build.props` 单一来源；插件 manifest 版本由 CI 同步并校验。
 - 升级比较改成 SemVer 预发布规则（`pre.2` < `pre.10`、正式版 > 预发布、忽略 `+build`）。
-- CI 一次产出 MSI / zip / cipx 三个资产，带 `-` 的版本自动标 prerelease。
+- CI 一次产出 MSI / zip / cipx 三个资产；正式版不带 `-`，Release 都是正式版。
 
 # ClassroomKit 0.2.10
 

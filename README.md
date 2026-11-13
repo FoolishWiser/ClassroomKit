@@ -32,20 +32,20 @@
 
 预编译安装包在 [Releases](https://github.com/FoolishWiser/ClassroomKit/releases)：
 
-- `ClassroomKit-0.3.0-pre.4-x64.msi`（约 62 MB，推荐）
-- `ClassroomKit-0.3.0-pre.4-win-x64.zip`（绿色版）
-- `ClassroomKit-0.3.0-pre.4.cipx`（ClassIsland 2.1 插件，不是安装包，装到 ClassIsland 里）
+- `ClassroomKit-0.3.0-x64.msi`（约 62 MB，推荐）
+- `ClassroomKit-0.3.0-win-x64.zip`（绿色版）
+- `ClassroomKit-0.3.0.cipx`（ClassIsland 2.1 插件，不是安装包，装到 ClassIsland 里）
 
-前两个都是自包含单文件，目标机不需要装 .NET。0.3 还是预发布（1.0 前都带 `-pre.N`），Releases 页面上会标 Pre-release。
+前两个都是自包含单文件，目标机不需要装 .NET。0.3.0 是正式版：从这版起只发正式版，装了就自动收到后续正式版的升级提示。
 
 ## 快速开始
 
 ### 方式一：MSI 安装包（推荐）
 
 ```text
-双击 ClassroomKit-0.3.0-pre.4-x64.msi
+双击 ClassroomKit-0.3.0-x64.msi
 # 或者命令行静默安装：
-msiexec /i ClassroomKit-0.3.0-pre.4-x64.msi /qn
+msiexec /i ClassroomKit-0.3.0-x64.msi /qn
 ```
 
 装完自动：落地到 `C:\Program Files\ClassroomKit` → 建 `C:\ProgramData\ClassroomKit` 并授权普通用户可写 → 放宽设备上限（`WifiMaxPeers=16`）→ 注册登录自启任务 → 立刻拉起守护。开始菜单会多一项「ClassroomKit 控制面板」，点了直接带令牌打开面板（等价于 `ClassroomKit.Agent.exe --panel`）。
@@ -191,9 +191,9 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
 
 ![冲突提示窗](docs/img/conflict-dialog.png)
 
-（上图是 pre.3 的旧界面，pre.4 换成了圆角卡片 + 应用图标 + 进度条；在教室里点面板「预览提示窗」即可看到当前样式。）
+（上图是开发期的旧界面，0.3.0 换成了圆角卡片 + 应用图标 + 进度条；在教室里点面板「预览提示窗」即可看到当前样式。）
 
-0.3.0-pre.4 把这张窗重做了：无边框圆角卡片、跟随系统深/浅色、按 DPI 缩放，每个选项带应用图标和数字徽标；底部进度条走倒计时，**鼠标停在窗口上就暂停**（低头找鼠标时不会被自动选掉）；键盘 <kbd>Esc</kbd>/<kbd>Enter</kbd> = 都保留，<kbd>1</kbd>–<kbd>4</kbd> 直接选，<kbd>S</kbd> 切「今天不再提醒」。
+0.3.0 把这张窗重做了：无边框圆角卡片、跟随系统深/浅色、按 DPI 缩放，每个选项带应用图标和数字徽标；底部进度条走倒计时，**鼠标停在窗口上就暂停**（低头找鼠标时不会被自动选掉）；键盘 <kbd>Esc</kbd>/<kbd>Enter</kbd> = 都保留，<kbd>1</kbd>–<kbd>4</kbd> 直接选，<kbd>S</kbd> 切「今天不再提醒」。
 
 四个选项就是四种处理，选完立刻执行：
 
@@ -212,7 +212,7 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
 
 ## 卸载
 
-- **MSI 装的**：控制面板「应用」里卸载，或 `msiexec /x ClassroomKit-0.3.0-pre.4-x64.msi`；面板「维护 → 卸载本软件」也会调起同样的流程。
+- **MSI 装的**：控制面板「应用」里卸载，或 `msiexec /x ClassroomKit-0.3.0-x64.msi`；面板「维护 → 卸载本软件」也会调起同样的流程。
 - **绿色版**：面板「维护 → 卸载本软件」，或 `ClassroomKit.Agent.exe --uninstall`。
 - 卸载会停进程、删自启任务、把 `WifiMaxPeers` 改回原值并重启共享服务、删安装目录（含 BCU）；**默认保留** `C:\ProgramData\ClassroomKit`（配置和日志，方便重装后沿用 SSID/密码）。想连配置日志一起删：面板勾「同时删除配置与日志」再点卸载，或 `ClassroomKit.Agent.exe --uninstall --purge-data`（这两种方式都会先调 `msiexec /x` 再删目录；直接 `msiexec /x` 卸载则一定保留配置）。
 - 需要管理员权限：没提权会弹一次 UAC，点「是」即可。
@@ -321,7 +321,7 @@ powershell -ExecutionPolicy Bypass -File verify.ps1
 
 - [部署手册](docs/部署手册.md) —— 装、验、还原卡、升级、卸载、排障
 - [ClassIsland 接入](docs/ClassIsland-接入.md) —— 2.1 装插件，1.6/1.7 用零代码配方
-- [版本与发布](docs/版本与发布.md) —— 版本号规则、预发布怎么比、CI 出哪些产物
+- [版本与发布](docs/版本与发布.md) —— 版本号规则、升级比较、CI 出哪些产物
 - [GitHub 加速](docs/GitHub-加速.md) —— hosts 护航怎么工作、谁写 hosts、怎么还原
 - [原理与限制](docs/原理与限制.md) —— 8 台是怎么破的、为什么不写服务、还剩什么限制
 
