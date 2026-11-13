@@ -17,6 +17,9 @@ on:
 jobs:
   windows:
     runs-on: windows-latest
+    # 失败时要把 msi-step.log 推到 ci-logs 分支，所以需要写权限
+    permissions:
+      contents: write
     outputs:
       version: ${{ steps.ver.outputs.version }}
     steps:
@@ -69,8 +72,8 @@ jobs:
             exit 1
           }
 
-      - name: 打 MSI 失败时推日志到 ci-logs 分支
-        if: steps.msi.outcome == 'failure'
+      - name: 把 MSI 步骤日志推到 ci-logs 分支
+        if: always()
         continue-on-error: true
         shell: pwsh
         run: |
@@ -79,7 +82,7 @@ jobs:
           git checkout -B ci-logs
           Copy-Item msi-step.log ci-msi-step.log -Force
           git add -f ci-msi-step.log
-          git commit -m "CI 失败日志 ${{ github.run_id }}"
+          git commit -m "CI 日志 ${{ github.run_id }}（${{ steps.msi.outcome }}）"
           git push -f origin ci-logs
 
       - name: MSI 步骤失败就整体失败
