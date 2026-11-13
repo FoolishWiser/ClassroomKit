@@ -24,6 +24,26 @@ if (-not $Out) { $Out = Join-Path $Dist ("ClassroomKit-" + $Version + "-x64.msi"
 $wxs = Join-Path $root "installer\product.wxs"
 $filesWxs = Join-Path $root "installer\files.wxs"
 
+# MSI 的 ProductVersion 只认纯数字（最多 4 段），预发布后缀必须折成第 4 段：
+#   0.3.0-pre.4 -> 0.3.0.4    （同一 X.Y.Z 里 pre.N 递增；1.0 的正式版天然比它大）
+#   0.2.11      -> 0.2.11
+# 文件名仍保留完整版本号（ClassroomKit-0.3.0-pre.4-x64.msi），只有 MSI 内部的产品版本是数字。
+function ConvertTo-MsiVersion([string]$text) {
+    $m = [regex]::Match($text, '^(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?(?:-(?<tag>[0-9A-Za-z.\-]+))?$')
+    if (-not $m.Success) { throw "看不懂版本号：$text（应形如 0.3.0、0.3.0.4 或 0.3.0-pre.4）" }
+    $core = "$($m.Groups[1].Value).$($m.Groups[2].Value).$($m.Groups[3].Value)"
+    if ($m.Groups[4].Success) { $core = "$core.$($m.Groups[4].Value)" }
+    if ($m.Groups['tag'].Success) {
+        $pre = [regex]::Match($m.Groups['tag'].Value, '^pre\.(\d+)$')
+        if (-not $pre.Success) { throw "预发布后缀目前只支持 pre.N 形式：$text" }
+        if ($m.Groups[4].Success) { throw "版本号里不要再同时写第 4 段和 -pre.N：$text" }
+        $core = "$core.$([int]$pre.Groups[1].Value)"
+    }
+    return $core
+}
+
+$msiVersion = ConvertTo-MsiVersion $Version
+
 if (-not (Test-Path (Join-Path $Dist "ClassroomKit.Agent.exe"))) {
     throw "dist 里没有程序本体：$Dist。先跑 scripts\rebuild.ps1 或 dotnet publish。"
 }
@@ -105,17 +125,18 @@ foreach ($f in $files) {
 Write-Host "    已生成 $filesWxs" -ForegroundColor Gray
 
 Write-Host "==> 打包 MSI" -ForegroundColor Cyan
-Write-Host "    版本：$Version"
+# ProductCode 由完整版本号算出：同一版本重建得到同一个 ProductCode（Windows 会把它当"同一产品"替换，
+# 不会在「应用和功能」里留下两行残留），不同版本（含 pre.N 之间）则是不同产品，由 MajorUpgrade 走覆盖升级。
+$productCode = Get-StableGuid "ClassroomKit/ProductCode/$Version"
+
+Write-Host "    版本：$Version" -NoNewline
+if ($msiVersion -ne $Version) { Write-Host "（MSI 内部产品版本：$msiVersion）" } else { Write-Host "" }
 Write-Host "    ProductCode：$productCode"
 Write-Host "    输出：$Out"
 
 if (Test-Path $Out) { Remove-Item $Out -Force }
 
-# ProductCode 由版本号算出：同一版本重建得到同一个 ProductCode（Windows 会把它当"同一产品"替换，
-# 不会在「应用和功能」里留下两行残留），不同版本则是不同产品（配合 MajorUpgrade 走升级）。
-$productCode = Get-StableGuid "ClassroomKit/ProductCode/$Version"
-
-& $Wix build $wxs $filesWxs -arch x64 -d "DistDir=$Dist" -d "ProductVersion=$Version" -d "ProductCode=$productCode" -o $Out
+& $Wix build $wxs $filesWxs -arch x64 -d "DistDir=$Dist" -d "ProductVersion=$msiVersion" -d "ProductCode=$productCode" -o $Out
 if ($LASTEXITCODE -ne 0) { throw "wix build 失败（退出码 $LASTEXITCODE）" }
 
 $item = Get-Item $Out
