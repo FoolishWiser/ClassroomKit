@@ -62,7 +62,8 @@ public sealed class AgentRuntime : IDisposable
 
         Recipe = UiRecipe.Load(Paths.RecipePath);
         BoardSaver = new ClassInBoardSaver(Log, Recipe, () => Config.Current.BoardSave);
-        ConflictWatcher = new ConflictWatcher(Log, () => Config.Current.Conflict, () => Config.Current.Conflict.ExtraFullscreenProcesses);
+        ConflictWatcher = new ConflictWatcher(Log, () => Config.Current.Conflict,
+            () => Config.Current.Conflict.ExtraFullscreenProcesses, SaveConflictSnooze);
 
         Api.SaveBoard = SaveBoard;
         Api.ConflictCheck = ConflictWatcher.CheckNow;
@@ -433,6 +434,18 @@ public sealed class AgentRuntime : IDisposable
             case "都不保留": choice = ConflictChoice.KeepNone; return true;
             default: choice = ConflictChoice.KeepBoth; return false;
         }
+    }
+
+    /// <summary>弹窗里勾了「今天不再提醒」/面板上清除后调这里：只改配置里的日期，改完下一次巡检就生效。</summary>
+    private void SaveConflictSnooze(bool snooze)
+    {
+        var date = snooze ? ConflictSnooze.Today(DateTimeOffset.Now) : "";
+        Config.Update(c =>
+        {
+            c.Conflict.SnoozeDate = date;
+            return 0;
+        });
+        Log.Info(snooze ? $"板书冲突提示：今天（{date}）不再提醒" : "板书冲突提示：已恢复提醒");
     }
 
     private (bool Ok, string Message) ApplyConflictChoice(string text)

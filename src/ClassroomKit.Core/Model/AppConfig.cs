@@ -80,6 +80,8 @@ public sealed class ConflictConfig
     public int CooldownMinutes { get; set; } = 40;
     /// <summary>额外当作"全屏应用"的进程名（留空即可，学校可自行补充）。</summary>
     public List<string> ExtraFullscreenProcesses { get; set; } = new();
+    /// <summary>「今天不再提醒」的截止日（yyyy-MM-dd）；空 = 不暂停。当天有效，第二天自动恢复。</summary>
+    public string SnoozeDate { get; set; } = "";
 }
 
 /// <summary>GitHub 访问加速（类似 Watt Toolkit 的 hosts 修改）。</summary>

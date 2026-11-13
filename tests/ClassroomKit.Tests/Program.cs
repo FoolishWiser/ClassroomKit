@@ -52,6 +52,10 @@ internal static class Program
         await InstallWindowTests.RunAsync();
 
         Console.WriteLine();
+        Console.WriteLine("[板书冲突提示窗]");
+        await ConflictDialogTests.RunAsync();
+
+        Console.WriteLine();
         Console.WriteLine("[HTTP API]");
         await ApiTestsAsync();
 

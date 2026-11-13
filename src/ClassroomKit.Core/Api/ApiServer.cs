@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using ClassroomKit.Core.Board;
 using ClassroomKit.Core.Config;
 using ClassroomKit.Core.Hotspot;
 using ClassroomKit.Core.Http;
@@ -388,6 +389,29 @@ public sealed class ApiServer
                 }, Json));
             }
 
+            case "conflict-snooze":
+            {
+                var fields = ReadFields(request);
+                var clear = fields.TryGetValue("clear", out var clearValue) && IsOn(clearValue);
+                var snooze = !clear && !(fields.TryGetValue("snooze", out var snoozeValue) && !IsOn(snoozeValue));
+                var date = snooze ? ConflictSnooze.Today(DateTimeOffset.Now) : "";
+                _config.Update(c =>
+                {
+                    c.Conflict.SnoozeDate = date;
+                    return 0;
+                });
+
+                _log.Info(snooze ? $"板书冲突提示：今天（{date}）不再提醒" : "板书冲突提示：已恢复提醒");
+                return HttpResponse.Json(JsonSerializer.Serialize(new
+                {
+                    ok = true,
+                    action,
+                    snoozeDate = date,
+                    snoozeText = ConflictSnooze.Describe(date, DateTimeOffset.Now),
+                    message = snooze ? "今天不再弹板书冲突提示，明天自动恢复" : "已恢复板书冲突提示"
+                }, Json));
+            }
+
             case "hosts-refresh":
             {
                 if (RefreshHosts is null) return HttpResponse.Text("not supported", 409);
@@ -508,7 +532,13 @@ public sealed class ApiServer
             capacityWarning = _guard?.CapabilityWarning,
             bcu = new { enabled = cfg.Bcu.Enabled, path = cfg.Bcu.Path },
             boardSave = new { enabled = cfg.BoardSave.Enabled, closeAfterSave = cfg.BoardSave.CloseAfterSave },
-            conflict = new { enabled = cfg.Conflict.Enabled, cooldownMinutes = cfg.Conflict.CooldownMinutes },
+            conflict = new
+            {
+                enabled = cfg.Conflict.Enabled,
+                cooldownMinutes = cfg.Conflict.CooldownMinutes,
+                snoozeDate = cfg.Conflict.SnoozeDate,
+                snoozeText = ConflictSnooze.Describe(cfg.Conflict.SnoozeDate, DateTimeOffset.Now)
+            },
             hosts = GetHosts?.Invoke()
         };
     }

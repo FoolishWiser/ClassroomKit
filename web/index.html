@@ -130,6 +130,16 @@
   <p class="note">只在直连 GitHub 不通时才改 hosts；写完全程校验，还是不通会自动还原。依赖 SYSTEM 护航任务（安装包已注册，绿色版需管理员运行一次 --install-service）。</p>
 </section>
 
+<section class="card" id="conflict-card">
+  <h2>板书冲突提示 <small id="conflict-badge"></small></h2>
+  <p class="note" id="conflict-status">读取中…</p>
+  <div class="row">
+    <button class="btn" id="btn-conflict-preview">预览提示窗</button>
+    <button class="btn ghost" id="btn-conflict-snooze-clear">恢复提醒</button>
+  </div>
+  <p class="note">希沃白板与 ClassInX 的悬浮窗同时存在、又进入全屏时会弹一次提示窗（默认 40 分钟冷却）。弹窗里勾了「今天不再提醒」后，可以在这里提前恢复。</p>
+</section>
+
 <section class="card">
   <h2>维护</h2>
   <p class="note">卸载会先关热点，再删除登录自启、还原注册表放宽项并移除程序；需要点一次管理员授权（UAC）。</p>

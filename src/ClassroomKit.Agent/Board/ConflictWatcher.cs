@@ -4,14 +4,6 @@ using ClassroomKit.Core.Model;
 
 namespace ClassroomKit.Agent.Board;
 
-public enum ConflictChoice
-{
-    KeepBoth,
-    KeepClassIn,
-    KeepSeewo,
-    KeepNone
-}
-
 /// <summary>
 /// 每 2 秒扫一次窗口，按「两个悬浮窗共存 + 进入任一全屏」判断是否弹冲突窗。
 /// 冷却/去重交给 <see cref="ConflictGuard"/>，UI 交给托盘线程。
@@ -22,15 +14,18 @@ public sealed class ConflictWatcher : IDisposable
     private readonly Func<ConflictConfig> _config;
     private readonly Func<IReadOnlyList<string>> _extraFullscreen;
     private readonly ConflictGuard _guard = new();
+    private readonly Action<bool>? _setSnoozeToday;
 
     private System.Threading.Timer? _timer;
     private BoardSituation _last = new();
 
-    public ConflictWatcher(AppLog log, Func<ConflictConfig> config, Func<IReadOnlyList<string>> extraFullscreen)
+    public ConflictWatcher(AppLog log, Func<ConflictConfig> config, Func<IReadOnlyList<string>> extraFullscreen,
+        Action<bool>? setSnoozeToday = null)
     {
         _log = log;
         _config = config;
         _extraFullscreen = extraFullscreen;
+        _setSnoozeToday = setSnoozeToday;
     }
 
     /// <summary>需要弹窗时在后台线程触发，托盘层负责 Post 到 UI 线程。</summary>
@@ -52,6 +47,7 @@ public sealed class ConflictWatcher : IDisposable
             var cfg = _config();
             _guard.Enabled = cfg.Enabled;
             _guard.Cooldown = TimeSpan.FromMinutes(Math.Clamp(cfg.CooldownMinutes, 1, 24 * 60));
+            _guard.SnoozeUntil = ConflictSnooze.Parse(cfg.SnoozeDate);
 
             var situation = Evaluate();
             var now = DateTimeOffset.Now;
@@ -109,6 +105,14 @@ public sealed class ConflictWatcher : IDisposable
         _guard.MarkPrompted(DateTimeOffset.Now);
         PromptRequested?.Invoke(situation);
         return (true, "已触发");
+    }
+
+    /// <summary>用户在弹窗里勾了「今天不再提醒」（或取消）。由托盘层在关窗后调用。</summary>
+    public void SetSnoozeToday(bool snooze)
+    {
+        _setSnoozeToday?.Invoke(snooze);
+        _guard.SnoozeUntil = snooze ? DateOnly.FromDateTime(DateTimeOffset.Now.LocalDateTime) : null;
+        _log.Info(snooze ? "板书冲突提示：今天不再提醒" : "板书冲突提示：恢复提醒");
     }
 
     public void ApplyChoice(ConflictChoice choice)

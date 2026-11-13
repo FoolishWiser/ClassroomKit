@@ -266,8 +266,15 @@ ClassroomKit.Agent {Version}
         var idx = Array.FindIndex(args, a => a.Equals("--timeout", StringComparison.OrdinalIgnoreCase));
         if (idx >= 0 && idx + 1 < args.Length && int.TryParse(args[idx + 1], out var t)) timeout = Math.Clamp(t, 3, 300);
 
-        var choice = ConflictDialog.Ask("ClassIn悬浮窗 + 希沃悬浮窗 + WPS放映（预览）", timeout);
-        Console.WriteLine(JsonSerializer.Serialize(new { ok = true, choice = choice.ToString(), timeout }, new JsonSerializerOptions { WriteIndented = true }));
+        var result = ConflictDialog.Ask("ClassIn悬浮窗 + 希沃悬浮窗 + WPS放映（预览）", timeout);
+        Console.WriteLine(JsonSerializer.Serialize(new
+        {
+            ok = true,
+            choice = result.Choice.ToString(),
+            label = ConflictDialogModel.Label(result.Choice),
+            snoozeToday = result.SnoozeToday,
+            timeout
+        }, new JsonSerializerOptions { WriteIndented = true }));
         return 0;
     }
 

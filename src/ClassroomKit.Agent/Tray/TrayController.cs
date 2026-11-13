@@ -233,8 +233,9 @@ public sealed class TrayController : IDisposable
         {
             try
             {
-                var choice = ConflictDialog.Ask("ClassIn悬浮窗 + 希沃悬浮窗 + WPS放映（预览，不会关闭任何软件）", 30);
-                _runtime.Log.Info($"冲突提示窗预览结束，选择：{choice}（预览不执行动作）");
+                var result = ConflictDialog.Ask("ClassIn悬浮窗 + 希沃悬浮窗 + WPS放映（预览，不会关闭任何软件）", 30);
+                var snooze = result.SnoozeToday ? "，勾了今天不再提醒" : "";
+                _runtime.Log.Info($"冲突提示窗预览结束，选择：{ConflictDialogModel.Label(result.Choice)}{snooze}（预览不执行动作）");
             }
             catch (Exception ex)
             {
@@ -253,8 +254,9 @@ public sealed class TrayController : IDisposable
         {
             try
             {
-                var choice = ConflictDialog.Ask(situation.Describe());
-                _runtime.ConflictWatcher.ApplyChoice(choice);
+                var result = ConflictDialog.Ask(situation.Describe());
+                if (result.SnoozeToday) _runtime.ConflictWatcher.SetSnoozeToday(true);
+                _runtime.ConflictWatcher.ApplyChoice(result.Choice);
             }
             catch (Exception ex)
             {

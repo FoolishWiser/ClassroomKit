@@ -32,9 +32,9 @@
 
 预编译安装包在 [Releases](https://github.com/FoolishWiser/ClassroomKit/releases)：
 
-- `ClassroomKit-0.3.0-pre.3-x64.msi`（约 62 MB，推荐）
-- `ClassroomKit-0.3.0-pre.3-win-x64.zip`（绿色版）
-- `ClassroomKit-0.3.0-pre.3.cipx`（ClassIsland 2.1 插件，不是安装包，装到 ClassIsland 里）
+- `ClassroomKit-0.3.0-pre.4-x64.msi`（约 62 MB，推荐）
+- `ClassroomKit-0.3.0-pre.4-win-x64.zip`（绿色版）
+- `ClassroomKit-0.3.0-pre.4.cipx`（ClassIsland 2.1 插件，不是安装包，装到 ClassIsland 里）
 
 前两个都是自包含单文件，目标机不需要装 .NET。0.3 还是预发布（1.0 前都带 `-pre.N`），Releases 页面上会标 Pre-release。
 
@@ -43,9 +43,9 @@
 ### 方式一：MSI 安装包（推荐）
 
 ```text
-双击 ClassroomKit-0.3.0-pre.3-x64.msi
+双击 ClassroomKit-0.3.0-pre.4-x64.msi
 # 或者命令行静默安装：
-msiexec /i ClassroomKit-0.3.0-pre.3-x64.msi /qn
+msiexec /i ClassroomKit-0.3.0-pre.4-x64.msi /qn
 ```
 
 装完自动：落地到 `C:\Program Files\ClassroomKit` → 建 `C:\ProgramData\ClassroomKit` 并授权普通用户可写 → 放宽设备上限（`WifiMaxPeers=16`）→ 注册登录自启任务 → 立刻拉起守护。开始菜单会多一项「ClassroomKit 控制面板」，点了直接带令牌打开面板（等价于 `ClassroomKit.Agent.exe --panel`）。
@@ -158,7 +158,7 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
 | `POST /api/action` | `action=start\|stop\|ensure\|fix-peers\|bcu\|uninstall\|exit\|save-classin-board\|conflict-check\|conflict-choice\|conflict-preview`（form 或 JSON 均可） |
 
 `action` 细节：`uninstall` 可带 `keepData=true`；`save-classin-board` 可带 `closeAfterSave=false` 只存不关；
-`conflict-check` 可带 `force=true` 忽略冷却；`conflict-choice` 接受 `choice=keep-both|keep-classin|keep-seewo|keep-none`（给 ClassIsland 或外部脚本回应用弹窗用）；`conflict-preview` 只在屏幕上弹一次提示窗，不关闭任何软件。
+`conflict-check` 可带 `force=true` 忽略冷却；`conflict-choice` 接受 `choice=keep-both|keep-classin|keep-seewo|keep-none`（给 ClassIsland 或外部脚本回应用弹窗用）；`conflict-preview` 只在屏幕上弹一次提示窗，不关闭任何软件；`conflict-snooze` 写「今天不再提醒」（`snooze=1`，或 `clear=1` 提前恢复）。
 | `POST /api/policy` | `enabled=true\|false` |
 | `POST /api/settings` | `ssid` / `passphrase` / `targetClients` / `allowWifiUplink` / `uplinkMode` / `fallbackToLan` |
 
@@ -191,14 +191,20 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
 
 ![冲突提示窗](docs/img/conflict-dialog.png)
 
+（上图是 pre.3 的旧界面，pre.4 换成了圆角卡片 + 应用图标 + 进度条；在教室里点面板「预览提示窗」即可看到当前样式。）
+
+0.3.0-pre.4 把这张窗重做了：无边框圆角卡片、跟随系统深/浅色、按 DPI 缩放，每个选项带应用图标和数字徽标；底部进度条走倒计时，**鼠标停在窗口上就暂停**（低头找鼠标时不会被自动选掉）；键盘 <kbd>Esc</kbd>/<kbd>Enter</kbd> = 都保留，<kbd>1</kbd>–<kbd>4</kbd> 直接选，<kbd>S</kbd> 切「今天不再提醒」。
+
 四个选项就是四种处理，选完立刻执行：
 
 | 选项 | 动作 |
 | --- | --- |
-| 都保留 | 什么都不做（60 秒不选也是这个） |
+| 都保留 | 什么都不做（60 秒不选、按 Esc/Enter、点右上角 ✕ 也是这个） |
 | 保留 ClassInX | 关闭希沃白板（先关窗口，5 秒不退再结束进程） |
 | 保留希沃白板 | 关闭 ClassInX |
 | 都不保留 | 两个都关 |
+
+勾了「今天不再提醒」会记进 `conflict.snoozeDate`（`yyyy-MM-dd`），当天不再弹、第二天自动恢复；想提前恢复：面板「板书冲突提示 → 恢复提醒」，或 `POST /api/action {"action":"conflict-snooze","clear":"1"}`。
 
 「全屏」认三种：**WPS 放映**（标题 `WPS Presentation Slide Show` + 进程 `wpp`，实测 WPS 12 通用宿主下放映窗是 `Qt5QWindowIcon` 且**不置顶**）、**ClassInX 板书全屏**、**希沃白板全屏**；还可以在 `conflict.extraFullscreenProcesses` 里加自己学校的放映程序（按进程名）。
 
@@ -206,7 +212,7 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
 
 ## 卸载
 
-- **MSI 装的**：控制面板「应用」里卸载，或 `msiexec /x ClassroomKit-0.3.0-pre.3-x64.msi`；面板「维护 → 卸载本软件」也会调起同样的流程。
+- **MSI 装的**：控制面板「应用」里卸载，或 `msiexec /x ClassroomKit-0.3.0-pre.4-x64.msi`；面板「维护 → 卸载本软件」也会调起同样的流程。
 - **绿色版**：面板「维护 → 卸载本软件」，或 `ClassroomKit.Agent.exe --uninstall`。
 - 卸载会停进程、删自启任务、把 `WifiMaxPeers` 改回原值并重启共享服务、删安装目录（含 BCU）；**默认保留** `C:\ProgramData\ClassroomKit`（配置和日志，方便重装后沿用 SSID/密码）。想连配置日志一起删：面板勾「同时删除配置与日志」再点卸载，或 `ClassroomKit.Agent.exe --uninstall --purge-data`（这两种方式都会先调 `msiexec /x` 再删目录；直接 `msiexec /x` 卸载则一定保留配置）。
 - 需要管理员权限：没提权会弹一次 UAC，点「是」即可。
@@ -289,7 +295,7 @@ src/ClassroomKit.Core     纯逻辑：配置、状态机、HTTP、API（可在 L
 src/ClassroomKit.Agent    WinRT 热点、托盘、计划任务、BCU 拉起
 web/                      控制面板（无框架、无 CDN，离线可用）
 scripts/                  build / build-msi / install / uninstall / rebuild / probe / get-bcu / verify
-tests/ClassroomKit.Tests  零依赖测试（dotnet run，85 项）
+tests/ClassroomKit.Tests  零依赖测试（dotnet run，93 项）
 docs/                     部署手册、ClassIsland 接入、原理与限制
 installer/                MSI 定义（product.wxs；文件清单 files.wxs 由 build-msi.ps1 生成）
 ```
@@ -300,7 +306,7 @@ installer/                MSI 定义（product.wxs；文件清单 files.wxs 由 
 dotnet run --project tests/ClassroomKit.Tests -c Release
 ```
 
-85 项，覆盖配置规范化与落盘（含旧配置迁移与机器名默认值）、上行网卡选择、守护状态机九条分支（无上行 / 上行是 Wi-Fi / 策略关 / 正常开 / 退避 / 容量告警 / 自动关超时 / SSID 漂移 / 读状态失败）、窗口分类与冲突冷却、UI 配方匹配、GitHub Release 解析、SemVer 预发布比较与下载源顺序、hosts 区块合并 / 还原 / 挑最优 IP、升级时间窗（含跨午夜与不限时间）、HTTP 端到端（鉴权、表单与 JSON、静态文件）。
+93 项，覆盖配置规范化与落盘（含旧配置迁移与机器名默认值）、上行网卡选择、守护状态机九条分支（无上行 / 上行是 Wi-Fi / 策略关 / 正常开 / 退避 / 容量告警 / 自动关超时 / SSID 漂移 / 读状态失败）、窗口分类与冲突冷却、冲突提示窗的倒计时节流 / 快捷键映射 / 「今天不再提醒」、UI 配方匹配、GitHub Release 解析、SemVer 预发布比较与下载源顺序、hosts 区块合并 / 还原 / 挑最优 IP、升级时间窗（含跨午夜与不限时间）、HTTP 端到端（鉴权、表单与 JSON、静态文件）。
 
 装到目标机之后，再跑一遍**整机验收**（43 项，含注册表、系统上限、策略开关、计划任务、改设置落盘、异常输入、网卡判别、板书/冲突接口、BCU 按钮）：
 

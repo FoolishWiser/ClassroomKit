@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text.Json;
+using ClassroomKit.Core.Board;
 using ClassroomKit.Core.Hosts;
 using ClassroomKit.Core.Hotspot;
 using ClassroomKit.Core.Model;
@@ -96,6 +97,7 @@ public sealed class ConfigStore
             if (cfg.BoardSave.LaunchTimeoutSec is < 5 or > 600) cfg.BoardSave.LaunchTimeoutSec = 60;
             cfg.Conflict ??= new ConflictConfig();
             if (cfg.Conflict.CooldownMinutes is < 1 or > 1440) cfg.Conflict.CooldownMinutes = 40;
+            if (ConflictSnooze.Parse(cfg.Conflict.SnoozeDate) is null) cfg.Conflict.SnoozeDate = "";
             cfg.Conflict.ExtraFullscreenProcesses ??= new List<string>();
             cfg.Hosts ??= new HostsConfig();
             if (cfg.Hosts.Sources is null || cfg.Hosts.Sources.Count == 0)

@@ -14,6 +14,9 @@ public sealed class ConflictGuard
     /// <summary>总开关（面板/配置里可关）。</summary>
     public bool Enabled { get; set; } = true;
 
+    /// <summary>「今天不再提醒」的截止日（含当天）；null = 没暂停。</summary>
+    public DateOnly? SnoozeUntil { get; set; }
+
     public DateTimeOffset? LastPromptAt { get; private set; }
 
     public int PromptCount { get; private set; }
@@ -25,6 +28,12 @@ public sealed class ConflictGuard
     public bool ShouldPrompt(BoardSituation situation, DateTimeOffset now)
     {
         if (!Enabled || situation is null) return false;
+
+        if (SnoozeUntil is not null && DateOnly.FromDateTime(now.LocalDateTime) <= SnoozeUntil.Value)
+        {
+            LastReason = $"今天不再提醒（到 {SnoozeUntil.Value:yyyy-MM-dd} 为止，可在面板清除）";
+            return false;
+        }
 
         if (!situation.ShouldPrompt)
         {

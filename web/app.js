@@ -116,6 +116,7 @@ function renderState(s) {
   // 旧版本的默认热点名（CLASSROOM-302）会让人推着车换教室时还粘在旧热点上，提示一次改成电脑名
   $('legacy-banner').classList.toggle('hidden', !s.legacyDefaults);
   renderHosts(s.hosts);
+  renderConflict(s.conflict);
 
   // 表单只在"没被用户改过"时回写，否则保持用户正在编辑的内容
   if (!formDirty) fillForm(s);
@@ -185,6 +186,39 @@ $('btn-hosts-restore').onclick = async () => {
   try {
     const r = await api('/api/action', { method: 'POST', body: JSON.stringify({ action: 'hosts-restore' }) });
     toast(r.message || '已还原');
+    await refreshState();
+  } catch (e) { toast(e.message, true); }
+};
+
+function renderConflict(c) {
+  const badge = $('conflict-badge');
+  const text = $('conflict-status');
+  const clearBtn = $('btn-conflict-snooze-clear');
+  if (!c) { badge.textContent = ''; text.textContent = '未返回冲突设置。'; clearBtn.disabled = true; return; }
+  if (c.enabled === false) {
+    badge.textContent = '已关闭';
+    badge.style.color = 'var(--muted)';
+    text.textContent = '冲突提示已在配置里关闭（conflict.enabled = false）。';
+    clearBtn.disabled = true;
+    return;
+  }
+  badge.textContent = c.snoozeDate ? '暂停中' : '监听中';
+  badge.style.color = c.snoozeDate ? 'var(--warn, #d39b21)' : 'var(--green)';
+  text.textContent = (c.snoozeText || '未暂停') + '；两次提醒至少间隔 ' + c.cooldownMinutes + ' 分钟。';
+  clearBtn.disabled = !c.snoozeDate;
+}
+
+$('btn-conflict-preview').onclick = async () => {
+  try {
+    const r = await api('/api/action', { method: 'POST', body: JSON.stringify({ action: 'conflict-preview' }) });
+    toast(r.message || '已弹出预览窗');
+  } catch (e) { toast(e.message, true); }
+};
+
+$('btn-conflict-snooze-clear').onclick = async () => {
+  try {
+    const r = await api('/api/action', { method: 'POST', body: JSON.stringify({ action: 'conflict-snooze', clear: '1' }) });
+    toast(r.message || '已恢复提醒');
     await refreshState();
   } catch (e) { toast(e.message, true); }
 };
