@@ -8,8 +8,10 @@
 [CmdletBinding()]
 param(
     [string]$InstallDir = "C:\Program Files\ClassroomKit",
-    [string]$Ssid = "CLASSROOM-302",
-    [string]$Passphrase = "80258025",
+    # 留空 = 用这台电脑的名字（防止推去别的教室时手机还粘在旧热点上）
+    [string]$Ssid = "",
+    # 留空 = 每台机器随机生成 8 位密码
+    [string]$Passphrase = "",
     [int]$TargetClients = 10,
     [switch]$WithBCU,
     [string]$BcuSource = "",
@@ -25,6 +27,26 @@ $configPath = Join-Path $dataDir "config.json"
 
 function Write-Step($text) { Write-Host "==> $text" -ForegroundColor Cyan }
 function Write-Ok($text) { Write-Host "    $text" -ForegroundColor Green }
+
+# 热点名默认用电脑名；WLAN 的 SSID 最多 32 字节，按 UTF-8 裁，别把汉字切坏
+function Get-DefaultSsid {
+    $name = $env:COMPUTERNAME
+    if ([string]::IsNullOrWhiteSpace($name)) { return "ClassroomKit" }
+    if ([Text.Encoding]::UTF8.GetByteCount($name) -le 32) { return $name }
+    $sb = New-Object Text.StringBuilder
+    foreach ($ch in $name.ToCharArray()) {
+        if ([Text.Encoding]::UTF8.GetByteCount($sb.ToString() + $ch) -gt 32) { break }
+        [void]$sb.Append($ch)
+    }
+    return $sb.ToString()
+}
+
+# 密码用去掉易混字符的字母表随机 8 位（与守护里的 MachineDefaults 保持一致）
+function New-RandomPassphrase {
+    $alphabet = "abcdefghijkmnpqrstuvwxyz23456789"
+    $chars = for ($i = 0; $i -lt 8; $i++) { $alphabet[(Get-Random -Maximum $alphabet.Length)] }
+    return -join $chars
+}
 
 $current = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if (-not $current.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -70,9 +92,12 @@ Write-Step "写入配置"
 if (Test-Path $configPath) {
     Write-Ok "已有配置，保留（如需重写请先删除 $configPath）"
 } else {
+    if ([string]::IsNullOrWhiteSpace($Ssid)) { $Ssid = Get-DefaultSsid }
+    if ([string]::IsNullOrWhiteSpace($Passphrase)) { $Passphrase = New-RandomPassphrase }
     $hex = "0123456789abcdef"
     $token = -join ((1..32) | ForEach-Object { $hex[(Get-Random -Maximum 16)] })
     $config = [ordered]@{
+        schemaVersion = 1
         port = 36037
         token = $token
         hotspot = [ordered]@{

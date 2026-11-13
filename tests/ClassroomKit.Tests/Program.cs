@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using ClassroomKit.Core.Api;
+using ClassroomKit.Core.Client;
 using ClassroomKit.Core.Config;
 using ClassroomKit.Core.Hotspot;
 using ClassroomKit.Core.Http;
@@ -158,6 +159,55 @@ internal static class Program
             Eq("LAB-9", ConfigStore.Load(path)!.Hotspot.Ssid, "磁盘上的 SSID");
             Eq(12, ConfigStore.Load(path)!.Hotspot.TargetClients, "磁盘上的目标设备数");
             Contains(File.ReadAllText(path), "\"ssid\"", "写盘使用 camelCase");
+        });
+
+        await Run("新装机器用计算机名当热点名、随机 8 位密码", () =>
+        {
+            var cfg = ConfigStore.CreateDefault();
+            Eq(1, cfg.SchemaVersion, "新配置直接是新结构");
+            True(cfg.Hotspot.Ssid.Length > 0, "热点名不应为空");
+            Eq(MachineDefaults.DefaultSsid(), cfg.Hotspot.Ssid, "热点名默认取计算机名");
+            Eq(8, cfg.Hotspot.Passphrase.Length, "密码 8 位");
+            True(cfg.Hotspot.Passphrase.All(c => "abcdefghijkmnpqrstuvwxyz23456789".Contains(c)), "密码只用易辨认字符");
+        });
+
+        await Run("长中文计算机名按 UTF-8 32 字节截断，不切坏汉字", () =>
+        {
+            var cut = MachineDefaults.TruncateUtf8(new string('教', 20), MachineDefaults.MaxSsidBytes);
+            True(System.Text.Encoding.UTF8.GetByteCount(cut) <= 32, "字节数不超 32");
+            Eq(10, cut.Length, "32 字节正好放 10 个汉字");
+            Eq("", MachineDefaults.TruncateUtf8("教室", 0), "预算为 0 时返回空");
+            Eq("教室", MachineDefaults.TruncateUtf8("教室", 6), "刚好放下时不截断");
+        });
+
+        await Run("旧默认值只在成对出现时才判定", () =>
+        {
+            True(MachineDefaults.IsLegacy("CLASSROOM-302", "80258025"), "识别旧默认值");
+            False(MachineDefaults.IsLegacy("CLASSROOM-302", "other-pass"), "只认成对出现");
+            False(MachineDefaults.IsLegacy("ROOM-1", "80258025"), "自己改过名字就不算旧默认");
+        });
+
+        await Run("旧配置迁移：只盖章，不改热点名/密码", () =>
+        {
+            var path = TempFile("legacy.json");
+            File.WriteAllText(path, "{ \"token\": \"abc\", \"hotspot\": { \"ssid\": \"CLASSROOM-302\", \"passphrase\": \"80258025\" } }");
+            var store = new ConfigStore(path);
+            Eq(1, store.Current.SchemaVersion, "迁移后结构版本");
+            Eq(0, store.MigratedFrom, "记录迁移来源");
+            Eq("CLASSROOM-302", store.Current.Hotspot.Ssid, "旧 SSID 原样保留");
+            Eq("80258025", store.Current.Hotspot.Passphrase, "旧密码原样保留");
+            Eq("abc", store.Current.Token, "其它字段不动");
+            Eq(1, ConfigStore.Load(path)!.SchemaVersion, "迁移结果已落盘");
+        });
+
+        await Run("已是新结构的配置不会被再次迁移", () =>
+        {
+            var path = TempFile("config.json");
+            var store = new ConfigStore(path);
+            store.Update(c => { c.Hotspot.Ssid = "ROOM-1"; return 0; });
+            var again = new ConfigStore(path);
+            Eq(0, again.MigratedFrom, "无需迁移");
+            Eq("ROOM-1", again.Current.Hotspot.Ssid, "SSID 保持用户值");
         });
     }
 
@@ -328,7 +378,7 @@ internal static class Program
             Eq(200, (int)state.StatusCode, "状态码");
             using (var doc = JsonDocument.Parse(stateJson))
             {
-                Eq("CLASSROOM-302", doc.RootElement.GetProperty("hotspot").GetProperty("ssid").GetString(), "SSID");
+                Eq(MachineDefaults.DefaultSsid(), doc.RootElement.GetProperty("hotspot").GetProperty("ssid").GetString(), "SSID 默认取计算机名");
                 Eq("Unknown", doc.RootElement.GetProperty("guardState").GetString(), "守护状态");
             }
 
@@ -351,6 +401,32 @@ internal static class Program
                 var start = await http.SendAsync(startReq);
                 Eq(200, (int)start.StatusCode, "JSON 动作状态码");
                 Eq("on", policy, "JSON 动作应传到守护");
+            }
+
+            using (var client = new ClassroomKitClient($"http://127.0.0.1:{port}", token))
+            {
+                var dto = await client.GetStateAsync();
+                Eq("0.1.0-test", dto.Version, "客户端读到版本");
+                Eq(MachineDefaults.DefaultSsid(), dto.Hotspot.Ssid, "客户端读到 SSID");
+                Eq(1, dto.ConfigSchema, "客户端读到结构版本");
+                False(dto.LegacyDefaults, "新配置不算旧默认值");
+
+                var reply = await client.PostActionAsync("stop");
+                True(reply.Ok, "动作返回 ok");
+                Eq("off", policy, "客户端动作传到守护");
+
+                True(await client.PingAsync(), "Ping 通过");
+
+                var rename = await client.PostActionAsync("rename-ssid");
+                True(rename.Ok, "改名动作返回 ok");
+                Eq(MachineDefaults.DefaultSsid(), rename.Ssid, "默认改成计算机名");
+                Eq(MachineDefaults.DefaultSsid(), store.Current.Hotspot.Ssid, "改名落到配置");
+
+                using var bad = new ClassroomKitClient($"http://127.0.0.1:{port}", "wrong");
+                var (badState, error) = await bad.TryGetStateAsync();
+                Eq<AgentState?>(null, badState, "错令牌拿不到状态");
+                Contains(error ?? "", "401", "错令牌错误文案");
+                False(await bad.PingAsync(), "错令牌 Ping 失败");
             }
 
             using (var badReq = new HttpRequestMessage(HttpMethod.Post, $"/api/action?t={token}"))

@@ -9,27 +9,34 @@
 
 ![控制面板](docs/img/panel.png)
 
-## 为什么不是「ClassIsland 插件」或「现成热点软件」
+## 为什么内核独立、ClassIsland 只做薄壳
 
 | 方案 | 问题 |
 | --- | --- |
-| ClassIsland 插件 | 热点会跟着课表软件一起崩/一起升级；它要等界面和课表加载完（10–40 秒）才启动，比开机晚；插件 API 跨大版本会变 |
+| 把热点整个做进 ClassIsland 插件 | 热点会跟着课表软件一起崩/一起升级；插件要等界面和课表加载完（10–40 秒）才启动，比开机晚；插件 API 跨大版本会变 |
 | Connectify 等商业热点 | 闭源、付费、CLI 要高版本授权，学校环境下授权和静默部署都麻烦 |
 | 各种开源 hotpot | 底下都是 `netsh wlan hostednetwork`（Win10 已废弃，Intel AX210 直接「不支持承载网络」）或系统 icssvc，一样卡 8 台 |
 | 自己开 Windows 服务 | 服务跑在 Session 0，绑定不了「当前登录用户」的连接配置文件，起不来热点 |
 
-所以：**热点是基础设施，必须独立于课表软件活着**。ClassIsland 只在旁边做一件小事——用它的「自动化」在开机/上课时喊一声 `--ensure`（见 `docs/ClassIsland-接入.md`，零代码）。
+所以分工是 **内核 + 薄壳**：
+
+- **热点本体永远是独立的 ClassroomKit 守护进程**：登录 8 秒后自己起，崩了自己恢复。ClassIsland 没开、老师没登录、课表软件正在升级，热点都照常工作。
+- **ClassIsland 2.1 装我们的 cipx 插件**（0.3 起）：在设置页和主界面组件里看热点状态，在「自动化」里用「开启教室热点 / 关闭教室热点」两个行动上下课。插件只通过 `127.0.0.1:36037` 跟守护说话，**插件崩了不影响上网**。
+- 还在用 ClassIsland 1.6 / 1.7、或不想装插件的，可以继续用零代码「自动化」喊 `--ensure`（见 `docs/ClassIsland-接入.md`）。
+
+插件还有一个实际好处：默认热点名直接用**这台电脑的名字**（老配置不动），推着车换教室时手机不会还粘在 `CLASSROOM-302` 上。
 
 至于 8 台上限：那是 Windows 移动热点自己的默认值，不是网卡死限。本工具在安装时写 `WifiMaxPeers=16` 并重启 `icssvc`，实测 `MaxClientCount` 从 8 变成 16，**不需要第三方驱动**。
 
 ## 下载
 
-预编译安装包在 [Releases](https://github.com/FoolishWiser/ClassroomKit/releases/latest)：
+预编译安装包在 [Releases](https://github.com/FoolishWiser/ClassroomKit/releases)：
 
-- `ClassroomKit-0.2.10-x64.msi`（约 62 MB，推荐）
-- `ClassroomKit-0.2.10-win-x64.zip`（绿色版）
+- `ClassroomKit-0.3.0-pre.1-x64.msi`（约 62 MB，推荐）
+- `ClassroomKit-0.3.0-pre.1-win-x64.zip`（绿色版）
+- `ClassroomKit-0.3.0-pre.1.cipx`（ClassIsland 2.1 插件，不是安装包，装到 ClassIsland 里）
 
-两者都是自包含单文件，目标机不需要装 .NET。
+前两个都是自包含单文件，目标机不需要装 .NET。0.3 还是预发布（1.0 前都带 `-pre.N`），Releases 页面上会标 Pre-release。
 
 ## 快速开始
 
@@ -267,7 +274,8 @@ powershell -ExecutionPolicy Bypass -File verify.ps1
 ## 文档
 
 - [部署手册](docs/部署手册.md) —— 装、验、还原卡、升级、卸载、排障
-- [ClassIsland 接入](docs/ClassIsland-接入.md) —— 三分钟配完，零代码
+- [ClassIsland 接入](docs/ClassIsland-接入.md) —— 2.1 装插件，1.6/1.7 用零代码配方
+- [版本与发布](docs/版本与发布.md) —— 版本号规则、预发布怎么比、CI 出哪些产物
 - [原理与限制](docs/原理与限制.md) —— 8 台是怎么破的、为什么不写服务、还剩什么限制
 
 ## 许可证

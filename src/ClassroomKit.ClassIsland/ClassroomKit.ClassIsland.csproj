@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>12</LangVersion>
+    <AssemblyName>ClassroomKit.ClassIsland</AssemblyName>
+    <RootNamespace>ClassroomKit.ClassIsland</RootNamespace>
+    <Description>在 ClassIsland 里查看并控制 ClassroomKit 教室热点（薄壳，热点逻辑仍在守护进程里）</Description>
+    <ClassIslandPluginSdkVersion>2.1.0.1</ClassIslandPluginSdkVersion>
+    <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
+    <!-- 插件只在 ClassIsland 进程内运行：SDK 的运行时资产由宿主提供，不能随插件复制 -->
+    <ExcludeAssetsFromOutput>true</ExcludeAssetsFromOutput>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ClassIsland.PluginSdk" Version="$(ClassIslandPluginSdkVersion)" ExcludeAssets="runtime;native" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ClassroomKit.Core\ClassroomKit.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="manifest.yml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="icon.png" CopyToOutputDirectory="PreserveNewest" Condition="Exists('icon.png')" />
+  </ItemGroup>
+
+  <!--
+    清单里的 version 必须跟 Directory.Build.props 的 Version 一致。
+    版本只有一个来源；这里在编译期做校验，避免发出去的 cipx 带着旧版本号。
+  -->
+  <Target Name="VerifyManifestVersion" BeforeTargets="Build">
+    <PropertyGroup>
+      <_ManifestPath>$(MSBuildProjectDirectory)\manifest.yml</_ManifestPath>
+      <_ManifestVersion>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(_ManifestPath)')), '(?m)^version:\s*(\S+)').Groups[1].Value)</_ManifestVersion>
+    </PropertyGroup>
+    <Error Condition="'$(_ManifestVersion)' != '$(Version)'"
+           Text="manifest.yml 的 version（$(_ManifestVersion)）与项目版本（$(Version)）不一致；请改 manifest.yml 或 Directory.Build.props。" />
+  </Target>
+
+</Project>

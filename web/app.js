@@ -113,6 +113,9 @@ function renderState(s) {
   if (alerts.length) { box.textContent = alerts.join('\n'); box.classList.remove('hidden'); }
   else box.classList.add('hidden');
 
+  // 旧版本的默认热点名（CLASSROOM-302）会让人推着车换教室时还粘在旧热点上，提示一次改成电脑名
+  $('legacy-banner').classList.toggle('hidden', !s.legacyDefaults);
+
   // 表单只在"没被用户改过"时回写，否则保持用户正在编辑的内容
   if (!formDirty) fillForm(s);
   if (s.uplink.reason) $('uplink-note').textContent = s.uplink.reason + (s.uplink.name ? '：' + s.uplink.name : '');
@@ -265,6 +268,14 @@ function toast(text, isError) {
 $('btn-on').onclick = () => act('start', '已开启热点');
 $('btn-off').onclick = () => act('stop', '已关闭热点');
 $('btn-fix').onclick = () => act('fix-peers', '已尝试修复设备上限');
+$('btn-rename-ssid').onclick = async () => {
+  try {
+    const r = await api('/api/action', { method: 'POST', body: JSON.stringify({ action: 'rename-ssid', ssid: '' }) });
+    toast(r.message || '已改用电脑名');
+    setDirty(false);
+    await refreshState();
+  } catch (e) { toast(e.message, true); }
+};
 $('btn-bcu').onclick = () => act('bcu', '正在拉起强力卸载工具');
 $('btn-logs').onclick = refreshLogs;
 $('btn-rescan').onclick = () => refreshUplinks(true);

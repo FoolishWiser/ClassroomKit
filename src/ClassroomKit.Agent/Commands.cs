@@ -15,7 +15,7 @@ namespace ClassroomKit.Agent;
 /// <summary>命令行入口（--status / --ensure / --on / --off / --fix-peers / --install-task / --probe）。</summary>
 internal static class Commands
 {
-    public static string Version => typeof(Commands).Assembly.GetName().Version?.ToString(3) ?? "0.1.0";
+    public static string Version => AgentRuntime.DisplayVersion();
 
     public static int PrintVersion()
     {

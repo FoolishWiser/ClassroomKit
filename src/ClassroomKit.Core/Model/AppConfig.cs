@@ -1,7 +1,12 @@
+using ClassroomKit.Core.Config;
+
 namespace ClassroomKit.Core.Model;
 
 public sealed class AppConfig
 {
+    /// <summary>配置结构版本。旧文件没有这个字段时反序列化为 0，由 ConfigStore 迁移（只盖章，不改已有值）。</summary>
+    public int SchemaVersion { get; set; }
+
     public int Port { get; set; } = 36037;
     public string Token { get; set; } = "";
     public HotspotConfig Hotspot { get; set; } = new();
@@ -17,8 +22,10 @@ public sealed class AppConfig
 public sealed class HotspotConfig
 {
     public bool Enabled { get; set; } = true;
-    public string Ssid { get; set; } = "CLASSROOM-302";
-    public string Passphrase { get; set; } = "80258025";
+    /// <summary>默认取计算机名：换教室不用改配置，笔记本漫游也不会跟隔壁班热点撞名。</summary>
+    public string Ssid { get; set; } = MachineDefaults.DefaultSsid();
+    /// <summary>每台机器随机生成（安装后在面板上能看到）；从旧版升级的机器保留原密码。</summary>
+    public string Passphrase { get; set; } = MachineDefaults.DefaultPassphrase();
     /// <summary>auto | 2.4GHz | 5GHz</summary>
     public string Band { get; set; } = "auto";
     /// <summary>设计容量：UI 上显示的“在线 x/目标”。</summary>

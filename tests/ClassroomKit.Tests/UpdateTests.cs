@@ -59,7 +59,14 @@ internal static class UpdateTests
             Eq(-1, UpdateVersion.Compare("0.2.1", "0.2.2"), "旧版本更小");
             Eq(1, UpdateVersion.Compare("1.0", "0.9.9"), "段数不同按缺省 0 补齐");
             Eq(-1, UpdateVersion.Compare("0.3.0-beta1", "0.3.0"), "预发布版应比正式版旧");
-            Eq(0, UpdateVersion.Compare("0.3.0-beta1", "0.3.0-beta2"), "预发布后缀不参与比较");
+            Eq(-1, UpdateVersion.Compare("0.3.0-beta1", "0.3.0-beta2"), "字母后缀按字典序比较");
+            Eq(-1, UpdateVersion.Compare("v0.3.0-pre.1", "0.3.0-pre.2"), "pre.N 按数值递增");
+            Eq(1, UpdateVersion.Compare("0.3.0-pre.10", "0.3.0-pre.9"), "多位数字按数值而不是字典序");
+            Eq(-1, UpdateVersion.Compare("0.3.0-pre.1", "0.3.0-pre.1.1"), "前缀相同短者更旧");
+            Eq(1, UpdateVersion.Compare("0.3.0", "0.3.0-pre.99"), "正式版高于任何预发布");
+            Eq(0, UpdateVersion.Compare("0.3.0+build.7", "0.3.0"), "构建元数据不参与比较");
+            Eq(1, UpdateVersion.Compare("0.3.0-pre.2", "0.2.10"), "预发布也比上一正式版新");
+            True(UpdateVersion.IsNewer("0.3.0-pre.2", "0.3.0-pre.1"), "pre.2 比 pre.1 新");
             True(UpdateVersion.IsNewer("v0.2.2", "0.2.1"), "v0.2.2 应比 0.2.1 新");
             False(UpdateVersion.IsNewer("0.2.1", "0.2.1"), "同版本不算新");
         });

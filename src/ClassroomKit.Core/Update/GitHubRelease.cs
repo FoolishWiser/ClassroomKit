@@ -42,13 +42,16 @@ public static class UpdateVersion
     }
 
     /// <summary>
-    /// 比较两个版本号：返回 -1 / 0 / 1。只比较数字段（1.2.3），后缀（-beta1）按"比正式版旧"处理。
-    /// 任何解析不了的地方都按 0 处理，避免因为奇怪的 tag 把用户卡在"永远有新版本"。
+    /// 比较两个版本号：返回 -1 / 0 / 1。按 SemVer 2.0 比较（预发布阶段 0.3.0-pre.N 必需）：
+    /// 先比数字段；数字相同时没有后缀的是正式版，比任何 -pre 都新；
+    /// 预发布后缀按 . 分段，纯数字段按数值比、数字段比字母段旧、前缀相同则短者更旧。
+    /// 构建元数据（+build）不参与比较。任何解析不了的地方按 0 处理。
     /// </summary>
     public static int Compare(string? left, string? right)
     {
         var a = Parse(left);
         var b = Parse(right);
+
         for (var i = 0; i < Math.Max(a.Numbers.Length, b.Numbers.Length); i++)
         {
             var x = i < a.Numbers.Length ? a.Numbers[i] : 0;
@@ -56,32 +59,63 @@ public static class UpdateVersion
             if (x != y) return x < y ? -1 : 1;
         }
 
-        // 数字段相同：带预发布后缀的比正式版旧（0.3.0-beta < 0.3.0）
-        if (a.Prerelease == b.Prerelease) return 0;
-        return a.Prerelease ? -1 : 1;
+        if (a.Pre.Length == 0 && b.Pre.Length == 0) return 0;
+        if (a.Pre.Length == 0) return 1;
+        if (b.Pre.Length == 0) return -1;
+
+        for (var i = 0; i < Math.Max(a.Pre.Length, b.Pre.Length); i++)
+        {
+            if (i >= a.Pre.Length) return -1;
+            if (i >= b.Pre.Length) return 1;
+
+            var x = a.Pre[i];
+            var y = b.Pre[i];
+            var xNumeric = long.TryParse(x, out var xv);
+            var yNumeric = long.TryParse(y, out var yv);
+
+            if (xNumeric && yNumeric)
+            {
+                if (xv != yv) return xv < yv ? -1 : 1;
+                continue;
+            }
+            if (xNumeric) return -1;
+            if (yNumeric) return 1;
+
+            var cmp = string.CompareOrdinal(x, y);
+            if (cmp != 0) return cmp < 0 ? -1 : 1;
+        }
+        return 0;
     }
 
     public static bool IsNewer(string? candidate, string? current) => Compare(candidate, current) > 0;
 
-    private static (int[] Numbers, bool Prerelease) Parse(string? version)
+    private static (int[] Numbers, string[] Pre) Parse(string? version)
     {
         var text = Normalize(version);
-        if (text.Length == 0) return (Array.Empty<int>(), false);
+        if (text.Length == 0) return (Array.Empty<int>(), Array.Empty<string>());
 
-        var prerelease = text.Contains('-') || text.Contains('+');
         var core = text;
-        var cut = core.IndexOfAny(new[] { '-', '+' });
-        if (cut >= 0) core = core[..cut];
+        var plus = core.IndexOf('+');
+        if (plus >= 0) core = core[..plus];
 
-        var parts = core.Split('.', StringSplitOptions.RemoveEmptyEntries);
-        var numbers = new List<int>(parts.Length);
-        foreach (var part in parts)
+        var pre = "";
+        var dash = core.IndexOf('-');
+        if (dash >= 0)
+        {
+            pre = core[(dash + 1)..];
+            core = core[..dash];
+        }
+
+        var numbers = new List<int>(3);
+        foreach (var part in core.Split('.', StringSplitOptions.RemoveEmptyEntries))
         {
             var digits = new string(part.TakeWhile(char.IsDigit).ToArray());
             if (digits.Length == 0) break;
             numbers.Add(int.TryParse(digits, out var n) ? n : 0);
         }
-        return (numbers.ToArray(), prerelease);
+
+        var ids = pre.Length == 0 ? Array.Empty<string>() : pre.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        return (numbers.ToArray(), ids);
     }
 }
 

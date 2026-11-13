@@ -22,7 +22,7 @@ public static class Probe
         var data = new Dictionary<string, object?>
         {
             ["time"] = DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm:ss"),
-            ["version"] = typeof(Probe).Assembly.GetName().Version?.ToString(3),
+            ["version"] = AgentRuntime.DisplayVersion(),
             ["machine"] = Environment.MachineName,
             ["user"] = Environment.UserName,
             ["os"] = Environment.OSVersion.VersionString,

@@ -69,6 +69,15 @@ h1 { font-size: 18px; margin: 0; }
 .cell label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 2px; }
 .cell strong { font-size: 15px; font-weight: 600; }
 
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.banner .note { margin: 4px 0 0; }
+.banner.hidden { display: none; }
+
 .alert {
   padding: 10px 12px;
   border-radius: 10px;

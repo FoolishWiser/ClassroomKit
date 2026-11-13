@@ -17,10 +17,36 @@ public sealed class ConfigStore
         FilePath = filePath;
         var loaded = Load(filePath);
         _config = loaded ?? CreateDefault();
-        if (loaded is null)
+
+        var dirty = loaded is null;
+        if (loaded is not null && loaded.SchemaVersion < CurrentSchemaVersion)
+        {
+            MigratedFrom = loaded.SchemaVersion;
+            Migrate(loaded);
+            dirty = true;
+        }
+
+        if (dirty)
         {
             try { SaveLocked(_config); } catch { /* 无写权限时退化为内存配置 */ }
         }
+    }
+
+    /// <summary>当前配置结构版本。</summary>
+    public const int CurrentSchemaVersion = 1;
+
+    /// <summary>本次加载从哪个结构版本迁移过来；0 表示没有迁移。</summary>
+    public int MigratedFrom { get; private set; }
+
+    /// <summary>
+    /// 结构迁移：只补字段/盖章，绝不改用户已有值。
+    /// v0 → v1 只加 schemaVersion：热点名与密码原样保留，避免升级时把正在上课的机器热点改名。
+    /// 改机器名的动作由用户显式触发（面板按钮 / rename-ssid）。
+    /// </summary>
+    private static void Migrate(AppConfig cfg)
+    {
+        if (cfg.SchemaVersion < 0) cfg.SchemaVersion = 0;
+        cfg.SchemaVersion = CurrentSchemaVersion;
     }
 
     public AppConfig Current
@@ -32,6 +58,7 @@ public sealed class ConfigStore
 
     public static AppConfig CreateDefault() => new()
     {
+        SchemaVersion = CurrentSchemaVersion,
         Token = NewToken(),
         Hotspot = new HotspotConfig()
     };

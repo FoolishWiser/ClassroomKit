@@ -30,7 +30,7 @@ public sealed class AgentRuntime : IDisposable
         Tethering = new TetheringService(Uplink, () => Config.Current);
         Guard = new HotspotGuard(Tethering, () => Config.Current, Log);
 
-        var version = typeof(AgentRuntime).Assembly.GetName().Version?.ToString(3) ?? "0.1.0";
+        var version = DisplayVersion();
         Api = new ApiServer(Config, Log, Paths.WebRoot, version);
         _http = new MiniHttpServer(Config.Current.Port, Api.HandleAsync, Log);
 
@@ -91,9 +91,24 @@ public sealed class AgentRuntime : IDisposable
 
     public TimeSpan? PauseRemaining => _pauseUntil is null ? null : _pauseUntil - DateTimeOffset.Now;
 
+    /// <summary>
+    /// 面板/API 显示的版本号：保留 -pre.N 预发布后缀，去掉 SourceLink 追加的 +commit 构建元数据。
+    /// </summary>
+    public static string DisplayVersion()
+    {
+        var asm = typeof(AgentRuntime).Assembly;
+        var info = asm.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+        if (!string.IsNullOrWhiteSpace(info))
+        {
+            var plus = info.IndexOf('+');
+            return plus >= 0 ? info[..plus] : info;
+        }
+        return asm.GetName().Version?.ToString(3) ?? "0.0.0";
+    }
+
     public void Start()
     {
-        Log.Info($"ClassroomKit Agent 启动 v{typeof(AgentRuntime).Assembly.GetName().Version?.ToString(3)}");
+        Log.Info($"ClassroomKit Agent 启动 v{DisplayVersion()}");
         Log.Info($"配置：{Paths.ConfigPath}｜面板：{BaseUrl}｜上行策略：{(Config.Current.Hotspot.AllowWifiUplink ? "允许 Wi-Fi" : "仅有线")}");
         using (var self = System.Diagnostics.Process.GetCurrentProcess())
         {

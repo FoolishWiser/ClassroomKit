@@ -345,6 +345,36 @@ public sealed class ApiServer
                 return HttpResponse.Json(JsonSerializer.Serialize(new { ok, action, message }, Json), ok ? 200 : 500);
             }
 
+            case "rename-ssid":
+            {
+                var fields = ReadFields(request);
+                var ssid = fields.TryGetValue("ssid", out var s) ? s.Trim() : "";
+                if (ssid.Length == 0) ssid = MachineDefaults.DefaultSsid();
+                if (Encoding.UTF8.GetByteCount(ssid) > MachineDefaults.MaxSsidBytes)
+                    throw new ApiException($"热点名不能超过 {MachineDefaults.MaxSsidBytes} 字节（约 10 个汉字）");
+
+                var regen = fields.TryGetValue("regeneratePassphrase", out var rp) &&
+                            rp is "1" or "true" or "on" or "yes";
+                var passphrase = regen ? MachineDefaults.DefaultPassphrase() : null;
+
+                _config.Update(c =>
+                {
+                    c.Hotspot.Ssid = ssid;
+                    if (passphrase is not null) c.Hotspot.Passphrase = passphrase;
+                    return 0;
+                });
+
+                _log.Info($"热点名改为 {ssid}{(passphrase is null ? "" : "，并重新生成密码")}");
+                return HttpResponse.Json(JsonSerializer.Serialize(new
+                {
+                    ok = true,
+                    action,
+                    ssid,
+                    passphrase,
+                    message = "已保存；下一次巡检会自动重启热点生效，已连接的设备需要重新连接"
+                }, Json));
+            }
+
             case "exit":
                 RequestExit?.Invoke();
                 return HttpResponse.Json(JsonSerializer.Serialize(new { ok = true, action }, Json));
@@ -378,6 +408,8 @@ public sealed class ApiServer
         return new
         {
             version = _version,
+            configSchema = cfg.SchemaVersion,
+            legacyDefaults = MachineDefaults.IsLegacy(cfg.Hotspot.Ssid, cfg.Hotspot.Passphrase),
             startedAt = _startedAt,
             uptimeSec = (int)(DateTimeOffset.Now - _startedAt).TotalSeconds,
             enabled = cfg.Hotspot.Enabled,

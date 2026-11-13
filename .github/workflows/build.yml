@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "版本号（留空则用 csproj 里的 Version）"
+        description: "版本号（留空则用 Directory.Build.props 里的 Version）"
         required: false
         default: ""
       publish:
@@ -33,7 +33,7 @@ jobs:
           $v = "${{ github.event.inputs.version }}"
           if (-not $v -and "${{ github.ref_type }}" -eq "tag") { $v = "${{ github.ref_name }}".TrimStart("v") }
           if (-not $v) {
-            [xml]$p = Get-Content src/ClassroomKit.Agent/ClassroomKit.Agent.csproj
+            [xml]$p = Get-Content Directory.Build.props
             $v = $p.Project.PropertyGroup.Version | Select-Object -First 1
           }
           if (-not $v) { throw "拿不到版本号" }
@@ -54,11 +54,24 @@ jobs:
         shell: pwsh
         run: ./scripts/build-msi.ps1 -Version "${{ steps.ver.outputs.version }}" -Dist dist
 
+      - name: 打 ClassIsland 插件（cipx）
+        shell: pwsh
+        run: |
+          $v = "${{ steps.ver.outputs.version }}"
+          $manifest = "src/ClassroomKit.ClassIsland/manifest.yml"
+          # 版本只有一个来源：发布时把 Directory.Build.props 的版本写进清单，再让构建去校验
+          $text = Get-Content $manifest -Raw
+          $text = $text -replace '(?m)^version:.*', "version: $v"
+          Set-Content -Path $manifest -Value $text -NoNewline -Encoding UTF8
+          dotnet publish src/ClassroomKit.ClassIsland/ClassroomKit.ClassIsland.csproj -c Release -p:Version="$v" -p:CreateCipx=true -p:GenerateHashSummary=true
+          Copy-Item "src/ClassroomKit.ClassIsland/cipx/ClassroomKit.ClassIsland.cipx" "dist\ClassroomKit-$v.cipx" -Force
+          Get-Item "dist\ClassroomKit-$v.cipx" | ForEach-Object { "{0}  {1:N0} 字节" -f $_.Name, $_.Length }
+
       - name: 打 zip
         shell: pwsh
         run: |
           $v = "${{ steps.ver.outputs.version }}"
-          $items = Get-ChildItem dist\* | Where-Object { $_.Extension -notin @('.msi', '.wixpdb') }
+          $items = Get-ChildItem dist\* | Where-Object { $_.Extension -notin @('.msi', '.wixpdb', '.cipx') }
           Compress-Archive -Path $items -DestinationPath "dist\ClassroomKit-$v-win-x64.zip" -Force
           Get-ChildItem dist\ClassroomKit-*.zip | ForEach-Object { "{0}  {1:N0} 字节" -f $_.Name, $_.Length }
 
@@ -68,6 +81,19 @@ jobs:
           $v = "${{ steps.ver.outputs.version }}"
           $msi = "dist\ClassroomKit-$v-x64.msi"
           $zip = "dist\ClassroomKit-$v-win-x64.zip"
+          $cipx = "dist\ClassroomKit-$v.cipx"
+          if (-not (Test-Path $cipx)) { throw "缺少产物 $cipx" }
+          $ci = Get-Item $cipx
+          "{0}  {1:N0} 字节  sha256={2}" -f $ci.Name, $ci.Length, (Get-FileHash $cipx -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($ci.Length -lt 30KB) { throw "cipx 太小，插件可能没打进去" }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zipArchive = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $cipx))
+          try {
+            $names = $zipArchive.Entries | ForEach-Object { $_.FullName }
+            foreach ($required in @('manifest.yml', 'ClassroomKit.ClassIsland.dll')) {
+              if ($names -notcontains $required) { throw "cipx 里缺少 $required" }
+            }
+          } finally { $zipArchive.Dispose() }
           foreach ($f in @($msi, $zip)) {
             if (-not (Test-Path $f)) { throw "缺少产物 $f" }
             $i = Get-Item $f
@@ -81,6 +107,7 @@ jobs:
           path: |
             dist/ClassroomKit-*-x64.msi
             dist/ClassroomKit-*-win-x64.zip
+            dist/ClassroomKit-*.cipx
           if-no-files-found: error
 
   release:
@@ -107,5 +134,6 @@ jobs:
           files: |
             ClassroomKit-*-x64.msi
             ClassroomKit-*-win-x64.zip
+            ClassroomKit-*.cipx
           draft: false
-          prerelease: false
+          prerelease: ${{ contains(needs.windows.outputs.version, '-') }}

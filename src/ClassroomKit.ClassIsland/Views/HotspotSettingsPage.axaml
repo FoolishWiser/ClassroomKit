@@ -1,0 +1,70 @@
+<ci:SettingsPageBase
+    x:Class="ClassroomKit.ClassIsland.Views.HotspotSettingsPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ci="http://classisland.tech/schemas/xaml/core">
+    <ScrollViewer>
+        <StackPanel Margin="32,24,32,32" Spacing="16" MaxWidth="760" HorizontalAlignment="Left">
+
+            <TextBlock Text="ClassroomKit 热点" FontSize="24" FontWeight="SemiBold" />
+            <TextBlock TextWrapping="Wrap" Opacity="0.75"
+                       Text="这里只做查看和开关。热点、网卡、升级都由独立运行的 ClassroomKit 守护进程负责：ClassIsland 退出、崩溃或没启动，教室里的网也不会断。" />
+
+            <Border BorderThickness="1" CornerRadius="8" Padding="20,16">
+                <StackPanel Spacing="10">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <TextBlock x:Name="StatusTitle" Text="正在读取状态…" FontSize="18" FontWeight="SemiBold" />
+                        <TextBlock x:Name="StatusBadge" Text="" Opacity="0.7" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock x:Name="StatusDetail" TextWrapping="Wrap" Opacity="0.8" />
+                    <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="6" ColumnSpacing="16">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="热点名称" Opacity="0.7" />
+                        <TextBlock Grid.Row="0" Grid.Column="1" x:Name="SsidText" />
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="密码" Opacity="0.7" />
+                        <TextBlock Grid.Row="1" Grid.Column="1" x:Name="PassphraseText" />
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="已连接设备" Opacity="0.7" />
+                        <TextBlock Grid.Row="2" Grid.Column="1" x:Name="ClientsText" />
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="上联网卡" Opacity="0.7" />
+                        <TextBlock Grid.Row="3" Grid.Column="1" x:Name="UplinkText" />
+                    </Grid>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="StartButton" Content="启动热点" Click="OnStartClick" />
+                        <Button x:Name="StopButton" Content="关闭热点" Click="OnStopClick" />
+                        <Button x:Name="FixPeersButton" Content="修复连接上限" Click="OnFixPeersClick" />
+                        <Button x:Name="PanelButton" Content="打开控制面板" Click="OnPanelClick" />
+                        <Button x:Name="RefreshButton" Content="刷新" Click="OnRefreshClick" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <Border BorderThickness="1" CornerRadius="8" Padding="20,16">
+                <StackPanel Spacing="10">
+                    <TextBlock Text="换一个热点名称" FontSize="16" FontWeight="SemiBold" />
+                    <TextBlock TextWrapping="Wrap" Opacity="0.7"
+                               Text="默认用这台电脑的名字，免得推着车换教室时手机还粘在旧教室的热点上。改完下一次巡检自动生效，已连接的设备需要重新连接。" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBox x:Name="SsidBox" Watermark="新的热点名称" Width="260" />
+                        <Button Content="保存名称" Click="OnRenameClick" />
+                        <Button Content="恢复为电脑名" Click="OnRenameToMachineNameClick" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <Border BorderThickness="1" CornerRadius="8" Padding="20,16">
+                <StackPanel Spacing="10">
+                    <TextBlock Text="连接设置" FontSize="16" FontWeight="SemiBold" />
+                    <TextBlock TextWrapping="Wrap" Opacity="0.7"
+                               Text="一般不用改。令牌留空时，插件会直接读 ClassroomKit 自己的配置。" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBox x:Name="BaseUrlBox" Watermark="http://127.0.0.1:36037" Width="240" />
+                        <TextBox x:Name="TokenBox" Watermark="访问令牌（可留空）" Width="240" PasswordChar="●" />
+                        <Button Content="保存" Click="OnSaveSettingsClick" />
+                    </StackPanel>
+                    <TextBlock x:Name="VersionText" Opacity="0.6" />
+                </StackPanel>
+            </Border>
+
+            <TextBlock x:Name="StatusMessage" TextWrapping="Wrap" Opacity="0.85" />
+        </StackPanel>
+    </ScrollViewer>
+</ci:SettingsPageBase>
