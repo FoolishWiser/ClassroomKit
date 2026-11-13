@@ -161,11 +161,16 @@ jobs:
       - name: 列出产物
         run: ls -lh
 
+      - name: 生成发布说明（只取当前版本）
+        run: |
+          awk 'BEGIN{p=0} /^# /{p=1} p&&/^## 历史/{exit} p' docs/release-notes.md > release-body.md
+          wc -l release-body.md
+
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.windows.outputs.version }}
           name: ClassroomKit ${{ needs.windows.outputs.version }}
-          body_path: docs/release-notes.md
+          body_path: release-body.md
           files: |
             ClassroomKit-*-x64.msi
             ClassroomKit-*-win-x64.zip
