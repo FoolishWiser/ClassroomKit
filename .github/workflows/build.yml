@@ -17,7 +17,7 @@ on:
 jobs:
   windows:
     runs-on: windows-latest
-    # 失败时要把 msi-step.log 推到 ci-logs 分支，所以需要写权限
+    # 打 MSI 失败时会把 msi-step.log 推到 ci-logs 分支（排查用），所以需要写权限
     permissions:
       contents: write
     outputs:
@@ -56,7 +56,7 @@ jobs:
       - name: 打 MSI
         id: msi
         shell: pwsh
-        # 失败时不让整步直接红掉，先把输出落盘，好在下一步推分支里看原因
+        # 失败时不直接红掉，先把输出落盘，好让下一步推分支，方便看原因
         continue-on-error: true
         run: |
           $v = "${{ steps.ver.outputs.version }}"
@@ -72,8 +72,8 @@ jobs:
             exit 1
           }
 
-      - name: 把 MSI 步骤日志推到 ci-logs 分支
-        if: always()
+      - name: 打 MSI 失败时把日志推到 ci-logs 分支
+        if: steps.msi.outcome == 'failure'
         continue-on-error: true
         shell: pwsh
         run: |
