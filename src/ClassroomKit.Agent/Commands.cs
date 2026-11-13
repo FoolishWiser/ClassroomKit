@@ -43,7 +43,7 @@ ClassroomKit.Agent {Version}
   --hosts-restore   删除 ClassroomKit 写入的 hosts 记录
   --service-tick    （护航任务内部使用）处理一次 hosts / 静默安装请求
   --check-update    检查 GitHub 上有没有新版本（JSON；--pre 连预发布版一起看）
-  --update          检查 → 下载 → 提权安装新版本（--dry-run 只检查；--yes 不询问）
+  --update          检查 → 下载 → 静默安装（装了护航任务就不弹 UAC；--dry-run 只检查）
   --panel           用默认浏览器打开 Web 控制面板（带令牌）
   --uplinks         列出本机网卡并输出上行选择结果（JSON）
   --save-classin-board  保存 ClassInX 板书（三种格式）并关闭 ClassInX；ClassInX 没开时会先自动拉起。
@@ -402,7 +402,7 @@ ClassroomKit.Agent {Version}
         return action(hosts, cts.Token).GetAwaiter().GetResult();
     }
 
-    /// <summary>CLI：注册 SYSTEM 护航计划任务（每 15 分钟醒一次；hosts 写入与静默升级都由它执行）。</summary>
+    /// <summary>CLI：注册 SYSTEM 护航计划任务（每 5 分钟醒一次；hosts 写入与静默升级都由它执行）。</summary>
     public static int InstallServiceTask()
     {
         var (ok, message) = ScheduledTaskInstaller.InstallService(Paths.ExePath);

@@ -6,7 +6,7 @@ namespace ClassroomKit.Agent.Service;
 
 /// <summary>
 /// SYSTEM 护航任务的一次执行：处理 hosts 写入请求、静默安装请求。
-/// 由计划任务 ClassroomKit-Service 每 15 分钟叫一次，命令是 --service-tick。
+/// 由计划任务 ClassroomKit-Service 每 5 分钟叫一次，命令是 --service-tick。
 /// </summary>
 public static class ServiceTick
 {
@@ -64,6 +64,15 @@ public static class ServiceTick
         var request = ServiceChannel.Read<InstallRequest>(ServiceChannel.InstallRequestPath);
         if (request is null) return;
 
+        // 太老的安装请求不执行：用户可能早就在别处装过了，别把机器降级回旧包。
+        if (DateTimeOffset.Now - request.At > TimeSpan.FromMinutes(30))
+        {
+            ServiceChannel.Delete(ServiceChannel.InstallRequestPath);
+            log.Warn("丢弃过期的静默安装请求");
+            return;
+        }
+
+        log.Info($"护航任务开始静默安装：{Path.GetFileName(request.MsiPath)}");
         var (ok, message) = InstallRunner.Run(request.MsiPath, log);
         ServiceChannel.Write(ServiceChannel.InstallStatusPath, new InstallStatus(request.Id, ok, message, DateTimeOffset.Now));
         ServiceChannel.Delete(ServiceChannel.InstallRequestPath);

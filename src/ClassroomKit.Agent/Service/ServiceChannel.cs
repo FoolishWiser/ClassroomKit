@@ -14,7 +14,7 @@ public sealed record InstallStatus(string Id, bool Ok, string Message, DateTimeO
 
 /// <summary>
 /// 普通权限的守护 ↔ SYSTEM 护航任务之间的文件信箱。
-/// 为什么不用 socket/管道：护航任务每 15 分钟才醒一次，信箱天然容忍「对方不在」，
+/// 为什么不用 socket/管道：护航任务每 5 分钟才醒一次，信箱天然容忍「对方不在」，
 /// 也不需要为了提权在用户会话里常驻一个高权限进程。
 /// </summary>
 public static class ServiceChannel

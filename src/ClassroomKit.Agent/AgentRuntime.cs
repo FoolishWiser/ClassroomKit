@@ -12,6 +12,7 @@ using ClassroomKit.Core.Hotspot;
 using ClassroomKit.Core.Http;
 using ClassroomKit.Core.Logging;
 using ClassroomKit.Core.Model;
+using ClassroomKit.Core.Update;
 
 namespace ClassroomKit.Agent;
 
@@ -50,7 +51,7 @@ public sealed class AgentRuntime : IDisposable
             var status = await Update.CheckAsync(force, ct).ConfigureAwait(false);
             return UpdateDto(status);
         };
-        Api.StartUpgrade = StartUpgrade;
+        Api.StartUpgrade = _ => StartUpgradeAsync();
         Api.Uninstall = Uninstall;
         Api.RequestExit = () => ExitRequested?.Invoke();
 
@@ -137,6 +138,7 @@ public sealed class AgentRuntime : IDisposable
         ConflictWatcher.Start();
         _ = Task.Run(GuardLoopAsync);
         _ = Task.Run(HostsLoopAsync);
+        _ = Task.Run(UpdateLoopAsync);
 
         if (Config.Current.Hotspot.AutoStartOnLaunch && !Config.Current.Hotspot.Enabled)
         {
@@ -212,6 +214,75 @@ public sealed class AgentRuntime : IDisposable
             try { await Task.Delay(TimeSpan.FromHours(1), _cts.Token); }
             catch (OperationCanceledException) { break; }
         }
+    }
+
+    /// <summary>
+    /// 更新巡检：启动 90 秒后先查一次（开机自检），之后每 checkIntervalHours 小时查一次；
+    /// 开了 autoInstall 就只在时间窗内、且（默认）没有学生连着热点时才静默装 —— 上课中绝不重启热点。
+    /// </summary>
+    private async Task UpdateLoopAsync()
+    {
+        try { await Task.Delay(TimeSpan.FromSeconds(90), _cts.Token); }
+        catch (OperationCanceledException) { return; }
+
+        var first = true;
+        while (!_cts.IsCancellationRequested)
+        {
+            var cfg = Config.Current.Update ?? new UpdateConfig();
+            try
+            {
+                var shouldCheck = cfg.Enabled && (first ? cfg.CheckOnBoot : cfg.CheckIntervalHours > 0);
+                if (shouldCheck)
+                {
+                    var status = await Update.CheckAsync(false, _cts.Token).ConfigureAwait(false);
+                    if (first) Log.Info($"开机自检更新：{status.PhaseText}{(status.Latest is null ? "" : $"（远端 v{status.Latest}）")}");
+
+                    if (cfg.AutoInstall && status.HasUpdate && CanInstallNow(cfg))
+                    {
+                        Log.Info($"自动安装新版本：v{status.Current} → v{status.Latest}（{InstallWindow.Describe(cfg.InstallWindow)}）");
+                        var after = await Update.DownloadAsync(_cts.Token).ConfigureAwait(false);
+                        if (after.Phase == UpdatePhase.Ready)
+                        {
+                            var (ok, message) = Update.Install();
+                            Log.Info(ok ? "自动安装已启动：" + message : "自动安装未启动：" + message);
+                        }
+                        else
+                        {
+                            Log.Warn("自动安装中止：" + (after.Error ?? after.PhaseText));
+                        }
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("更新巡检异常：" + ex.Message);
+            }
+
+            first = false;
+            var hours = cfg.CheckIntervalHours <= 0 ? 6 : Math.Clamp(cfg.CheckIntervalHours, 1, 168);
+            try { await Task.Delay(TimeSpan.FromHours(hours), _cts.Token); }
+            catch (OperationCanceledException) { return; }
+        }
+    }
+
+    /// <summary>自动安装的前置条件：在时间窗内，且（默认）没有设备连着热点。</summary>
+    private bool CanInstallNow(UpdateConfig cfg)
+    {
+        if (!InstallWindow.IsOpen(cfg.InstallWindow, TimeOnly.FromDateTime(DateTime.Now))) return false;
+        if (cfg.InstallWithClients) return true;
+
+        var clients = Guard.Clients.Count;
+        if (clients > 0)
+        {
+            Log.Info($"有 {clients} 台设备连着热点，自动升级推迟到现在之后（可设 update.installWithClients=true 强制）");
+            return false;
+        }
+
+        return true;
     }
 
     public void SetPolicy(bool enabled)
@@ -439,19 +510,27 @@ public sealed class AgentRuntime : IDisposable
         assetSize = status.AssetSize,
         progress = Math.Round(status.Progress, 1),
         hasUpdate = status.HasUpdate,
+        silent = status.Silent,
         error = status.Error,
-        checkedAt = status.CheckedAt
+        checkedAt = status.CheckedAt,
+        checkOnBoot = Config.Current.Update.CheckOnBoot,
+        autoInstall = Config.Current.Update.AutoInstall,
+        installWithClients = Config.Current.Update.InstallWithClients,
+        installWindow = Config.Current.Update.InstallWindow,
+        installWindowText = InstallWindow.Describe(Config.Current.Update.InstallWindow),
+        checkIntervalHours = Config.Current.Update.CheckIntervalHours,
+        serviceInstalled = Tasks.ScheduledTaskInstaller.IsServiceInstalled()
     };
 
-    /// <summary>面板点「升级」：后台下载 → 校验 → 调起安装器；立刻把当前状态返回给页面。</summary>
-    private object StartUpgrade()
+    /// <summary>面板点「升级」：后台下载 → 校验 → 静默安装；立刻把当前状态返回给页面。</summary>
+    private Task<object> StartUpgradeAsync()
     {
         var status = Update.Status;
-        if (status.Phase is UpdatePhase.Installing or UpdatePhase.Downloading) return UpdateDto(status);
+        if (status.Phase is UpdatePhase.Installing or UpdatePhase.Downloading) return Task.FromResult<object>(UpdateDto(status));
         if (!status.HasUpdate)
         {
             Log.Warn("升级请求被忽略：当前没有可安装的新版本");
-            return UpdateDto(status);
+            return Task.FromResult<object>(UpdateDto(status));
         }
 
         _ = Task.Run(async () =>
@@ -474,7 +553,7 @@ public sealed class AgentRuntime : IDisposable
             }
         });
 
-        return UpdateDto();
+        return Task.FromResult<object>(UpdateDto());
     }
 
     private (bool Ok, string Message) Uninstall(bool keepData)

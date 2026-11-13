@@ -1,10 +1,28 @@
+# ClassroomKit 0.3.0-pre.3
+
+## 新：全程静默升级（不弹 UAC）
+
+- 下载完把 MSI 投给 SYSTEM 护航任务 `ClassroomKit-Service`，由它以 `msiexec /qn /norestart` 安装；护航任务先停掉用户态守护（否则替换不了 exe），装完再把新版本拉回用户会话。
+- 面板「下载并升级」不再弹 UAC、不再出现安装窗口；没装护航任务时才退回管理员授权安装。
+- 排队的代价：护航任务每 5 分钟醒一次（原来是 15 分钟），点升级后最多等 5 分钟；点「立即执行」那一次会马上跑。
+
+## 新：开机自检与自动安装
+
+- 启动 90 秒后自检一次（`update.checkOnBoot`），之后每 `update.checkIntervalHours` 小时查一次（默认 6，0 = 只手动）。
+- `update.autoInstall` 默认关闭；打开后只在**安装时间窗**（`update.installWindow`，默认 `02:00-05:00`，可跨午夜、留空不限）内、且**没有设备连着热点**（`update.installWithClients`）时才自己装 —— 上课中不会断学生的网。
+- 面板「升级」卡片新增这四个开关/输入框与状态提示；API 新增 action `update-config`。
+
+## 改：升级状态
+
+- `/api/update` 增加 `silent`、`checkOnBoot`、`autoInstall`、`installWithClients`、`installWindow`、`installWindowText`、`checkIntervalHours`、`serviceInstalled`；静默安装时状态文案是「正在后台静默安装（无需操作）…」。
+
 # ClassroomKit 0.3.0-pre.2
 
 ## 新：GitHub 访问加速（hosts 护航）
 
 - 守护每分钟看一眼 `api.github.com/zen`，**只在直连不通时**才改 hosts；写完立即校验，还是不通就自动还原。
 - 从公开 hosts 源取候选，按 443 端口实测时延挑最快的 IP；区块置顶、保留原文件内容与 CRLF/LF，写前备份到 `hosts.classroomkit-original`。
-- 写 hosts 需要管理员：普通权限下投递给 **SYSTEM 护航任务** `ClassroomKit-Service`（开机 1 分钟后、每 15 分钟醒一次，动作 `--service-tick`），守护最多等 25 秒。
+- 写 hosts 需要管理员：普通权限下投递给 **SYSTEM 护航任务** `ClassroomKit-Service`（开机 1 分钟后、每 15 分钟醒一次 —— pre.3 起改为每 5 分钟，动作 `--service-tick`），守护最多等 25 秒。
 - 面板新增「GitHub 访问加速」卡片；命令行 `--hosts-status` / `--hosts-refresh` / `--hosts-restore` / `--install-service`；API `GET /api/hosts` 与两个 action。
 - 详见 [GitHub-加速.md](GitHub-加速.md)。
 

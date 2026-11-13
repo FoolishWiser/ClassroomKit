@@ -3,6 +3,7 @@ using System.Text.Json;
 using ClassroomKit.Core.Hosts;
 using ClassroomKit.Core.Hotspot;
 using ClassroomKit.Core.Model;
+using ClassroomKit.Core.Update;
 
 namespace ClassroomKit.Core.Config;
 
@@ -86,6 +87,10 @@ public sealed class ConfigStore
             if (string.IsNullOrWhiteSpace(cfg.Uplink.Mode)) cfg.Uplink.Mode = UplinkSelector.Auto;
             cfg.Bcu ??= new BcuConfig();
             cfg.Update ??= new UpdateConfig();
+            if (cfg.Update.Mirrors is null || cfg.Update.Mirrors.Length == 0)
+                cfg.Update.Mirrors = new[] { "https://ghproxy.net/" };
+            cfg.Update.CheckIntervalHours = Math.Clamp(cfg.Update.CheckIntervalHours, 0, 168);
+            cfg.Update.InstallWindow = InstallWindow.Normalize(cfg.Update.InstallWindow);
             cfg.Tray ??= new TrayConfig();
             cfg.BoardSave ??= new BoardSaveConfig();
             if (cfg.BoardSave.LaunchTimeoutSec is < 5 or > 600) cfg.BoardSave.LaunchTimeoutSec = 60;

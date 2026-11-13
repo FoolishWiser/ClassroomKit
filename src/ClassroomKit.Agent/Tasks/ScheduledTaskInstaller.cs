@@ -51,7 +51,7 @@ public static class ScheduledTaskInstaller
         return code == 0;
     }
 
-    /// <summary>注册 SYSTEM 护航任务（开机 1 分钟后起，每 15 分钟跑一次 --service-tick）。需要管理员。</summary>
+    /// <summary>注册 SYSTEM 护航任务（开机 1 分钟后起，每 5 分钟跑一次 --service-tick）。需要管理员。</summary>
     public static (bool Ok, string Message) InstallService(string exePath)
     {
         try
@@ -60,7 +60,7 @@ public static class ScheduledTaskInstaller
             File.WriteAllText(temp, BuildServiceXml(exePath), Encoding.Unicode);
             var (code, output) = Run("schtasks.exe", $"/Create /TN \"{ServiceTaskName}\" /XML \"{temp}\" /F");
             return code == 0
-                ? (true, "护航任务已注册（SYSTEM，每 15 分钟一次）")
+                ? (true, "护航任务已注册（SYSTEM，每 5 分钟一次）")
                 : (false, $"护航任务注册失败（{code}）：{output}（需要管理员权限）");
         }
         catch (Exception ex)
@@ -88,7 +88,7 @@ public static class ScheduledTaskInstaller
         return code == 0;
     }
 
-    /// <summary>让护航任务马上跑一次（比如刚投递了升级请求，不想等 15 分钟）。</summary>
+    /// <summary>让护航任务马上跑一次（比如刚投递了升级请求，不想等 5 分钟）。</summary>
     public static (bool Ok, string Message) RunServiceNow()
     {
         var (code, output) = Run("schtasks.exe", $"/Run /TN \"{ServiceTaskName}\"");
@@ -239,7 +239,7 @@ public static class ScheduledTaskInstaller
       <Enabled>true</Enabled>
       <Delay>PT1M</Delay>
       <Repetition>
-        <Interval>PT15M</Interval>
+        <Interval>PT5M</Interval>
         <StopAtDurationEnd>false</StopAtDurationEnd>
       </Repetition>
     </BootTrigger>

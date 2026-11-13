@@ -48,6 +48,10 @@ internal static class Program
         await HostsTests.RunAsync();
 
         Console.WriteLine();
+        Console.WriteLine("[升级时间窗]");
+        await InstallWindowTests.RunAsync();
+
+        Console.WriteLine();
         Console.WriteLine("[HTTP API]");
         await ApiTestsAsync();
 

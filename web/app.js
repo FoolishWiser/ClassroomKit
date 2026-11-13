@@ -196,6 +196,7 @@ function escapeHtml(text) {
 // ---- 版本与升级 ----
 let updateBusy = false;
 let lastUpdateState = null;
+let updFormDirty = false;
 
 function renderUpdate(u) {
   if (!u) return;
@@ -221,6 +222,8 @@ function renderUpdate(u) {
     notes.classList.add('hidden');
   }
 
+  renderUpdateConfig(u);
+
   runBtn.classList.toggle('hidden', !(u.hasUpdate && u.phase !== 'installing'));
   runBtn.disabled = updateBusy || downloading;
   runBtn.textContent = downloading
@@ -235,6 +238,54 @@ function renderUpdate(u) {
   el.textContent = text;
   el.style.color = u.phase === 'failed' ? 'var(--red)' : (u.hasUpdate ? 'var(--amber)' : 'var(--muted)');
 }
+
+// 升级策略表单：只有用户动过才不被 3 秒轮询覆盖
+function renderUpdateConfig(u) {
+  if (!updFormDirty) {
+    $('upd-check-boot').checked = !!u.checkOnBoot;
+    $('upd-auto-install').checked = !!u.autoInstall;
+    $('upd-with-clients').checked = !!u.installWithClients;
+    $('upd-window').value = u.installWindow || '';
+    const hours = String(u.checkIntervalHours ?? 6);
+    const sel = $('upd-interval');
+    if (![...sel.options].some(o => o.value === hours)) sel.add(new Option('每 ' + hours + ' 小时', hours));
+    sel.value = hours;
+  }
+  const hint = $('upd-window-text');
+  hint.textContent = (u.installWindowText || '不限时间') +
+    (u.serviceInstalled ? ' · 静默升级已就绪' : ' · 护航任务未安装，只能走 UAC 安装');
+  hint.style.color = u.serviceInstalled ? 'var(--muted)' : 'var(--amber)';
+}
+
+for (const id of ['upd-check-boot', 'upd-auto-install', 'upd-with-clients', 'upd-window', 'upd-interval']) {
+  $(id).addEventListener('input', () => { updFormDirty = true; });
+  $(id).addEventListener('change', () => { updFormDirty = true; });
+}
+
+$('btn-update-save-config').onclick = async () => {
+  const btn = $('btn-update-save-config');
+  btn.disabled = true;
+  try {
+    const r = await api('/api/action', {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'update-config',
+        checkOnBoot: $('upd-check-boot').checked ? '1' : '0',
+        autoInstall: $('upd-auto-install').checked ? '1' : '0',
+        installWithClients: $('upd-with-clients').checked ? '1' : '0',
+        installWindow: $('upd-window').value.trim(),
+        checkIntervalHours: $('upd-interval').value
+      })
+    });
+    updFormDirty = false;
+    toast(r.message || '已保存');
+    refreshUpdate();
+  } catch (e) {
+    toast(e.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+};
 
 async function refreshUpdate() {
   try { renderUpdate(await api('/api/update')); } catch { }
@@ -257,11 +308,12 @@ $('btn-update-check').onclick = async () => {
 $('btn-update-run').onclick = async () => {
   const u = lastUpdateState;
   if (u && u.phase === 'ready') {
-    toast('安装会由后台立刻开始：请在随后弹出的窗口里允许管理员授权');
+    toast(u.serviceInstalled ? '后台正在静默安装，无需操作' : '安装会由后台立刻开始：请在随后弹出的窗口里允许管理员授权');
     return;
   }
-  const tips = '将从 GitHub 下载 v' + ((u && u.latest) || '?') + ' 的安装包，然后弹一次管理员授权安装。\n\n' +
-    '安装时 ClassroomKit 会退出并自动重启，热点会中断几秒。继续吗？';
+  const tips = '将从 GitHub 下载 v' + ((u && u.latest) || '?') + ' 的安装包，' +
+    (u && u.serviceInstalled ? '交给系统后台静默安装（不弹窗、不需要授权）。' : '然后弹一次管理员授权安装。') + '\n\n' +
+    '安装时 ClassroomKit 会退出并自动重启，热点会中断 1–2 分钟。继续吗？';
   if (!confirm(tips)) return;
   updateBusy = true;
   try {

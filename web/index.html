@@ -95,7 +95,29 @@
     <button class="btn primary hidden" id="btn-update-run">下载并升级</button>
     <a class="btn ghost hidden" id="btn-update-page" target="_blank" rel="noreferrer">打开发布页</a>
   </div>
-  <p class="note">升级从 GitHub Releases 下载，安装时会弹一次管理员授权（UAC），程序随后自动重启；热点会中断几秒。</p>
+  <div class="grid" style="margin-top:12px">
+    <label class="check"><input type="checkbox" id="upd-check-boot"> 开机自检</label>
+    <label class="check"><input type="checkbox" id="upd-auto-install"> 自动安装</label>
+    <label class="check"><input type="checkbox" id="upd-with-clients"> 有人连着也装</label>
+    <label>检查间隔
+      <select id="upd-interval">
+        <option value="0">只在点按钮时</option>
+        <option value="1">每 1 小时</option>
+        <option value="3">每 3 小时</option>
+        <option value="6">每 6 小时</option>
+        <option value="12">每 12 小时</option>
+        <option value="24">每天一次</option>
+      </select>
+    </label>
+    <label>安装时间窗
+      <input type="text" id="upd-window" placeholder="02:00-05:00" autocomplete="off">
+    </label>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <button class="btn" id="btn-update-save-config">保存升级设置</button>
+    <span class="note" id="upd-window-text"></span>
+  </div>
+  <p class="note">升级从 GitHub Releases 下载，由系统后台护航任务静默安装（不弹 UAC、不用点确认），热点会中断 1–2 分钟；没装护航任务时才退回管理员授权安装。</p>
 </section>
 
 <section class="card" id="hosts-card">

@@ -4,7 +4,9 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
+using ClassroomKit.Agent.Service;
 using ClassroomKit.Agent.Shell;
+using ClassroomKit.Agent.Tasks;
 using ClassroomKit.Core.Logging;
 using ClassroomKit.Core.Model;
 using ClassroomKit.Core.Update;
@@ -35,7 +37,7 @@ public sealed record UpdateStatus
         UpdatePhase.Available => "有新版本可升级",
         UpdatePhase.Downloading => "正在下载安装包…",
         UpdatePhase.Ready => "安装包已下载，等待安装",
-        UpdatePhase.Installing => "正在安装，程序会短暂退出…",
+        UpdatePhase.Installing => Silent ? "正在后台静默安装（无需操作）…" : "正在安装，程序会短暂退出…",
         UpdatePhase.Failed => "升级失败",
         _ => "未检查"
     };
@@ -50,6 +52,8 @@ public sealed record UpdateStatus
     public double Progress { get; init; }
     public string? Error { get; init; }
     public DateTimeOffset? CheckedAt { get; init; }
+    /// <summary>安装是否走后台护航任务（true = 没有 UAC、没有窗口）。</summary>
+    public bool Silent { get; init; }
 
     public bool HasUpdate => Phase is UpdatePhase.Available or UpdatePhase.Downloading or UpdatePhase.Ready or UpdatePhase.Installing;
 }
@@ -358,8 +362,9 @@ public sealed class UpdateService
     }
 
     /// <summary>
-    /// 启动安装器：写一个独立 cmd（等本进程退出 → msiexec /qn 静默安装 → 兜底拉起新版本），
-    /// 以管理员身份运行它，然后请求本进程退出。返回的 message 直接给面板/托盘显示。
+    /// 安装新版本。优先交给 SYSTEM 护航任务：它在跑 msiexec 前会停掉用户态进程，
+    /// 全程无窗口、无 UAC；守护自己不退出，等它来停（停之前热点一直在线）。
+    /// 只有没装护航任务（绿色版）时才退回「弹一次 UAC」的老路。
     /// </summary>
     public (bool Ok, string Message) Install()
     {
@@ -370,6 +375,40 @@ public sealed class UpdateService
         if (!path.EndsWith(".msi", StringComparison.OrdinalIgnoreCase))
             return (false, "当前版本只支持用 MSI 安装包升级，请到 GitHub Release 手动解压 zip");
 
+        if (ScheduledTaskInstaller.IsServiceInstalled())
+            return QueueSilentInstall(path);
+
+        return InstallViaUac(path);
+    }
+
+    /// <summary>把安装请求投给护航任务，立刻返回；真正的 msiexec 由 SYSTEM 执行。</summary>
+    private (bool Ok, string Message) QueueSilentInstall(string path)
+    {
+        var id = ServiceChannel.NewId();
+        ServiceChannel.Write(ServiceChannel.InstallRequestPath, new InstallRequest(id, path, DateTimeOffset.Now));
+
+        // 尝试立刻叫醒护航任务（它是 SYSTEM 任务，普通权限多半叫不动，失败不算错）。
+        var (woke, wakeMessage) = ScheduledTaskInstaller.RunServiceNow();
+
+        Set(Status with { Phase = UpdatePhase.Installing, Silent = true, Error = null });
+        _log.Info($"已投递静默安装请求 {id}：{Path.GetFileName(path)}（{wakeMessage}）");
+
+        // 护航任务若一直没接手（任务被禁用之类），20 分钟后退回「可安装」，免得面板永远显示升级中。
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromMinutes(20)).ConfigureAwait(false);
+            if (Status.Phase != UpdatePhase.Installing) return;
+            _log.Warn("静默安装 20 分钟没有完成，认为护航任务没有接手");
+            Set(Status with { Phase = UpdatePhase.Ready, Silent = false, Error = "护航任务没有接手安装，可再点一次升级" });
+        });
+
+        var hint = woke ? "已交给后台护航任务，正在静默安装" : "已排队，护航任务会在下一次巡检（最多 5 分钟）接手";
+        return (true, $"{hint}：没有弹窗也不需要授权，热点会短暂中断，装完自动恢复");
+    }
+
+    /// <summary>兜底路径：绿色版没注册护航任务时，仍然弹一次 UAC 让 msiexec 跑起来。</summary>
+    private (bool Ok, string Message) InstallViaUac(string path)
+    {
         var logPath = Path.Combine(Paths.LogDir, "update.log");
         var scriptPath = Path.Combine(UpdateRoot, "apply-update.cmd");
         try
@@ -403,7 +442,7 @@ public sealed class UpdateService
             var process = Process.Start(psi);
             _log.Info($"已启动升级脚本（PID {process?.Id}）：{Path.GetFileName(path)}");
 
-            Set(Status with { Phase = UpdatePhase.Installing, Error = null });
+            Set(Status with { Phase = UpdatePhase.Installing, Silent = false, Error = null });
 
             // 给 UAC 授权与脚本的 timeout 留出时间，再安静退出，避免 MSI 替换文件时被占用。
             _ = Task.Run(async () =>
@@ -412,7 +451,7 @@ public sealed class UpdateService
                 try { _requestExit(); } catch { /* 退出路径由上层决定 */ }
             });
 
-            return (true, "正在静默安装新版本：会弹一次管理员授权，安装过程没有进度窗口，完成后程序自动重启（面板会断开几秒）");
+            return (true, "正在安装新版本：会弹一次管理员授权，安装过程没有进度窗口，完成后程序自动重启（面板会断开几秒）");
         }
         catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
         {

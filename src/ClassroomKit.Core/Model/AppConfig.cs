@@ -104,4 +104,19 @@ public sealed class UpdateConfig
 
     /// <summary>GitHub 下载被墙/504 时依次尝试的镜像前缀（拼在原始下载地址前面）。</summary>
     public string[] Mirrors { get; set; } = { "https://ghproxy.net/" };
+
+    /// <summary>开机后自动检查一次新版本（开机自检）。</summary>
+    public bool CheckOnBoot { get; set; } = true;
+
+    /// <summary>自动检查的间隔（小时）。0 表示只在开机时查一次。</summary>
+    public int CheckIntervalHours { get; set; } = 6;
+
+    /// <summary>发现新版本后自动静默安装。默认关：上课中重启热点会断学生网络。</summary>
+    public bool AutoInstall { get; set; }
+
+    /// <summary>允许自动安装的时间窗（HH:mm-HH:mm，可跨午夜）。空 = 不限。</summary>
+    public string InstallWindow { get; set; } = ClassroomKit.Core.Update.InstallWindow.Default;
+
+    /// <summary>有设备连着热点时也允许自动安装（默认要等没人连着）。</summary>
+    public bool InstallWithClients { get; set; }
 }

@@ -6,6 +6,7 @@ using ClassroomKit.Core.Hotspot;
 using ClassroomKit.Core.Http;
 using ClassroomKit.Core.Logging;
 using ClassroomKit.Core.Model;
+using ClassroomKit.Core.Update;
 
 namespace ClassroomKit.Core.Api;
 
@@ -69,7 +70,8 @@ public sealed class ApiServer
     /// <summary>检查 GitHub 更新（参数：是否强制刷新），返回状态快照。</summary>
     public Func<bool, CancellationToken, Task<object>>? CheckUpdateAsync { get; set; }
     /// <summary>后台下载并安装新版本，立即返回当前状态。</summary>
-    public Func<object>? StartUpgrade { get; set; }
+    /// <summary>升级：后台下载 → 静默安装；调用本身立刻返回当前状态。</summary>
+    public Func<CancellationToken, Task<object>>? StartUpgrade { get; set; }
     /// <summary>hosts 加速状态（GET /api/hosts）。</summary>
     public Func<object>? GetHosts { get; set; }
     /// <summary>手动刷新加速记录并写入 hosts（force=true 表示忽略「已能直连」的判断）。</summary>
@@ -219,14 +221,16 @@ public sealed class ApiServer
             {
                 if (StartUpgrade is null) return HttpResponse.Text("not supported", 409);
                 _log.Info("面板请求升级：开始后台下载并安装");
-                var status = StartUpgrade();
-                return HttpResponse.Json(JsonSerializer.Serialize(status, Json));
+                var upgradeStatus = await StartUpgrade(ct);
+                return HttpResponse.Json(JsonSerializer.Serialize(upgradeStatus, Json));
             }
 
             default:
                 return HttpResponse.Text("unknown update action", 400);
         }
     }
+
+    private static bool IsOn(string text) => text is "1" or "true" or "on" or "yes";
 
     /// <summary>把请求体解析成字段表：支持 JSON 对象、x-www-form-urlencoded，以及 ?a=b 查询串。</summary>
     private static Dictionary<string, string> ReadFields(HttpRequest request)
@@ -398,6 +402,39 @@ public sealed class ApiServer
                 var (ok, message) = await RestoreHosts(ct);
                 _log.Info($"hosts 还原：{message}");
                 return HttpResponse.Json(JsonSerializer.Serialize(new { ok, action, message }, Json), ok ? 200 : 500);
+            }
+
+            case "update-config":
+            {
+                var fields = ReadFields(request);
+                _config.Update(c =>
+                {
+                    if (fields.TryGetValue("checkOnBoot", out var boot))
+                        c.Update.CheckOnBoot = IsOn(boot);
+                    if (fields.TryGetValue("autoInstall", out var auto))
+                        c.Update.AutoInstall = IsOn(auto);
+                    if (fields.TryGetValue("installWithClients", out var withClients))
+                        c.Update.InstallWithClients = IsOn(withClients);
+                    if (fields.TryGetValue("installWindow", out var window))
+                        c.Update.InstallWindow = InstallWindow.Normalize(window);
+                    if (fields.TryGetValue("checkIntervalHours", out var hours) && int.TryParse(hours, out var h))
+                        c.Update.CheckIntervalHours = Math.Clamp(h, 0, 168);
+                    return 0;
+                });
+
+                var cfg = _config.Current.Update;
+                _log.Info($"更新设置已保存：开机检查={cfg.CheckOnBoot}｜自动安装={cfg.AutoInstall}｜时间窗={InstallWindow.Describe(cfg.InstallWindow)}｜每 {cfg.CheckIntervalHours} 小时检查");
+                return HttpResponse.Json(JsonSerializer.Serialize(new
+                {
+                    ok = true,
+                    action,
+                    checkOnBoot = cfg.CheckOnBoot,
+                    autoInstall = cfg.AutoInstall,
+                    installWithClients = cfg.InstallWithClients,
+                    installWindow = cfg.InstallWindow,
+                    checkIntervalHours = cfg.CheckIntervalHours,
+                    message = "已保存"
+                }, Json));
             }
 
             case "exit":

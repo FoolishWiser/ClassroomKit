@@ -63,7 +63,7 @@ internal static class MsiSetup
         var (taskOk, taskMsg) = ScheduledTaskInstaller.Install(Paths.ExePath);
         Log(taskMsg);
 
-        // 护航任务：SYSTEM 身份、开机 1 分钟后与每 15 分钟醒一次，负责写 hosts 和静默升级。
+        // 护航任务：SYSTEM 身份、开机 1 分钟后与每 5 分钟醒一次，负责写 hosts 和静默升级。
         var (svcOk, svcMsg) = ScheduledTaskInstaller.InstallService(Paths.ExePath);
         Log(svcMsg + (svcOk ? "" : "（hosts 加速与静默升级需要它，请以管理员运行一次 ClassroomKit.Agent.exe --install-service）"));
 

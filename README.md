@@ -32,9 +32,9 @@
 
 预编译安装包在 [Releases](https://github.com/FoolishWiser/ClassroomKit/releases)：
 
-- `ClassroomKit-0.3.0-pre.2-x64.msi`（约 62 MB，推荐）
-- `ClassroomKit-0.3.0-pre.2-win-x64.zip`（绿色版）
-- `ClassroomKit-0.3.0-pre.2.cipx`（ClassIsland 2.1 插件，不是安装包，装到 ClassIsland 里）
+- `ClassroomKit-0.3.0-pre.3-x64.msi`（约 62 MB，推荐）
+- `ClassroomKit-0.3.0-pre.3-win-x64.zip`（绿色版）
+- `ClassroomKit-0.3.0-pre.3.cipx`（ClassIsland 2.1 插件，不是安装包，装到 ClassIsland 里）
 
 前两个都是自包含单文件，目标机不需要装 .NET。0.3 还是预发布（1.0 前都带 `-pre.N`），Releases 页面上会标 Pre-release。
 
@@ -43,9 +43,9 @@
 ### 方式一：MSI 安装包（推荐）
 
 ```text
-双击 ClassroomKit-0.3.0-pre.2-x64.msi
+双击 ClassroomKit-0.3.0-pre.3-x64.msi
 # 或者命令行静默安装：
-msiexec /i ClassroomKit-0.3.0-pre.2-x64.msi /qn
+msiexec /i ClassroomKit-0.3.0-pre.3-x64.msi /qn
 ```
 
 装完自动：落地到 `C:\Program Files\ClassroomKit` → 建 `C:\ProgramData\ClassroomKit` 并授权普通用户可写 → 放宽设备上限（`WifiMaxPeers=16`）→ 注册登录自启任务 → 立刻拉起守护。开始菜单会多一项「ClassroomKit 控制面板」，点了直接带令牌打开面板（等价于 `ClassroomKit.Agent.exe --panel`）。
@@ -78,15 +78,29 @@ powershell -ExecutionPolicy Bypass -File get-bcu.ps1
 
 ## 升级
 
-不用重装、不用换包：软件自己从 GitHub Releases 查新版并安装（只在你点的时候查，开机时不联网）。
+不用重装、不用换包：软件自己从 GitHub Releases 查新版并安装。
 
 | 入口 | 操作 |
 | --- | --- |
+| 开机自检 | 默认开启：启动 90 秒后查一次（`update.checkOnBoot`） |
+| 定时检查 | 默认每 6 小时查一次（`update.checkIntervalHours`，设 0 = 只在手动时查） |
 | 面板「升级」卡片 | 点「检查更新」→ 有新版本时点「下载并升级」 |
 | 托盘右键 | 「检查更新…」→ 一路确认 |
 | 命令行 | `ClassroomKit.Agent.exe --check-update`（只看，不装）；`--update` 下载并安装 |
 
-安装是标准 MSI 升级，但走静默参数（`msiexec /qn /norestart`）：只弹一次 UAC（点「是」），之后没有安装界面，热点中断几秒，其余配置、令牌、日志都保留。
+**全程静默**：下载完把安装包投给 SYSTEM 护航任务，由它以 `msiexec /qn /norestart` 安装 —— 没有安装界面、**不弹 UAC、不需要点任何确认**，装在后台完成。
+代价是排队：护航任务每 5 分钟醒一次，所以从点「下载并升级」到真正开始安装最多等 5 分钟（点了「立即执行」的那一次会马上跑）。安装期间守护进程会被护航任务停掉，热点中断约 1–2 分钟，之后自动恢复到用户会话；配置、令牌、日志都保留。
+没装护航任务（绿色版没执行 `--install-service`、或 MSI 装完被手动删了任务）时，才退回老办法：弹一次 UAC 安装。
+
+### 自动安装
+
+面板「升级」卡片底部可以打开 **自动安装**（`update.autoInstall`，默认关闭）。打开后满足三个条件才会自己装：
+
+1. 当前时间在**安装时间窗**内（`update.installWindow`，默认 `02:00-05:00`；写空 = 不限时间，可写 `23:00-06:00` 跨午夜）；
+2. 默认要求**没有设备连着热点**（`update.installWithClients=false`）—— 上课中间不会把学生的热点断掉；
+3. 护航任务在（否则只能弹 UAC，自动安装会被跳过）。
+
+时间窗、检查间隔、开机自检都能在卡片里改，也可直接改 `config.json`。
 安装包下载按 8 MB 分段、最多 6 路并发，合并后按 sha256 校验；单连接被限速时能明显快一些。
 旧版安装包会在下次启动时自动清掉：`C:\ProgramData\ClassroomKit\update\` 里最多只留一个待安装包。
 学校网络屏蔽 GitHub 时，检查更新会直接告诉你「连不上 GitHub」，这时手动下载 MSI 双击装即可。下载顺序是：GitHub API 资产接口（`api.github.com`，能绕开 `releases/download` 常见的 504）→ 直连 → `update.mirrors` 里的镜像（默认 `https://ghproxy.net/`）。不管从哪条路下，落地后都按 GitHub 给的 sha256 校验，镜像改不了包。
@@ -99,7 +113,7 @@ powershell -ExecutionPolicy Bypass -File get-bcu.ps1
 
 - 每 60 秒先试 `api.github.com/zen`，通了就什么都不做（正常网络下等于没这个功能）；
 - 不通才拉公开 hosts 源，按 443 实测时延挑最快的 IP，区块**置顶**、保留原 hosts 内容与换行风格，写前备份；
-- 写 hosts 要管理员：普通权限下交给 **SYSTEM 护航任务** `ClassroomKit-Service`（开机 1 分钟后、每 15 分钟醒一次）；
+- 写 hosts 要管理员：普通权限下交给 **SYSTEM 护航任务** `ClassroomKit-Service`（开机 1 分钟后、每 5 分钟醒一次；同一个任务也负责静默升级）；
 - 面板「GitHub 访问加速」卡片可刷新 / 还原；命令行 `--hosts-status`、`--hosts-refresh`、`--hosts-restore`。
 
 细节与排障见 [GitHub-加速.md](docs/GitHub-加速.md)。
@@ -192,7 +206,7 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
 
 ## 卸载
 
-- **MSI 装的**：控制面板「应用」里卸载，或 `msiexec /x ClassroomKit-0.3.0-pre.2-x64.msi`；面板「维护 → 卸载本软件」也会调起同样的流程。
+- **MSI 装的**：控制面板「应用」里卸载，或 `msiexec /x ClassroomKit-0.3.0-pre.3-x64.msi`；面板「维护 → 卸载本软件」也会调起同样的流程。
 - **绿色版**：面板「维护 → 卸载本软件」，或 `ClassroomKit.Agent.exe --uninstall`。
 - 卸载会停进程、删自启任务、把 `WifiMaxPeers` 改回原值并重启共享服务、删安装目录（含 BCU）；**默认保留** `C:\ProgramData\ClassroomKit`（配置和日志，方便重装后沿用 SSID/密码）。想连配置日志一起删：面板勾「同时删除配置与日志」再点卸载，或 `ClassroomKit.Agent.exe --uninstall --purge-data`（这两种方式都会先调 `msiexec /x` 再删目录；直接 `msiexec /x` 卸载则一定保留配置）。
 - 需要管理员权限：没提权会弹一次 UAC，点「是」即可。
@@ -235,7 +249,12 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
     "enabled": true,
     "repo": "FoolishWiser/ClassroomKit",
     "includePrerelease": false,
-    "mirrors": ["https://ghproxy.net/"]
+    "mirrors": ["https://ghproxy.net/"],
+    "checkOnBoot": true,
+    "checkIntervalHours": 6,
+    "autoInstall": false,
+    "installWindow": "02:00-05:00",
+    "installWithClients": false
   },
   "hosts": {
     "enabled": true,
@@ -270,7 +289,7 @@ src/ClassroomKit.Core     纯逻辑：配置、状态机、HTTP、API（可在 L
 src/ClassroomKit.Agent    WinRT 热点、托盘、计划任务、BCU 拉起
 web/                      控制面板（无框架、无 CDN，离线可用）
 scripts/                  build / build-msi / install / uninstall / rebuild / probe / get-bcu / verify
-tests/ClassroomKit.Tests  零依赖测试（dotnet run，79 项）
+tests/ClassroomKit.Tests  零依赖测试（dotnet run，85 项）
 docs/                     部署手册、ClassIsland 接入、原理与限制
 installer/                MSI 定义（product.wxs；文件清单 files.wxs 由 build-msi.ps1 生成）
 ```
@@ -281,7 +300,7 @@ installer/                MSI 定义（product.wxs；文件清单 files.wxs 由 
 dotnet run --project tests/ClassroomKit.Tests -c Release
 ```
 
-79 项，覆盖配置规范化与落盘（含旧配置迁移与机器名默认值）、上行网卡选择、守护状态机九条分支（无上行 / 上行是 Wi-Fi / 策略关 / 正常开 / 退避 / 容量告警 / 自动关超时 / SSID 漂移 / 读状态失败）、窗口分类与冲突冷却、UI 配方匹配、GitHub Release 解析、SemVer 预发布比较与下载源顺序、hosts 区块合并 / 还原 / 挑最优 IP、HTTP 端到端（鉴权、表单与 JSON、静态文件）。
+85 项，覆盖配置规范化与落盘（含旧配置迁移与机器名默认值）、上行网卡选择、守护状态机九条分支（无上行 / 上行是 Wi-Fi / 策略关 / 正常开 / 退避 / 容量告警 / 自动关超时 / SSID 漂移 / 读状态失败）、窗口分类与冲突冷却、UI 配方匹配、GitHub Release 解析、SemVer 预发布比较与下载源顺序、hosts 区块合并 / 还原 / 挑最优 IP、升级时间窗（含跨午夜与不限时间）、HTTP 端到端（鉴权、表单与 JSON、静态文件）。
 
 装到目标机之后，再跑一遍**整机验收**（43 项，含注册表、系统上限、策略开关、计划任务、改设置落盘、异常输入、网卡判别、板书/冲突接口、BCU 按钮）：
 
