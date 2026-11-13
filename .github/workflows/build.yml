@@ -51,8 +51,40 @@ jobs:
         run: ./scripts/build.ps1 -Output dist
 
       - name: 打 MSI
+        id: msi
         shell: pwsh
-        run: ./scripts/build-msi.ps1 -Version "${{ steps.ver.outputs.version }}" -Dist dist
+        # 失败时不让整步直接红掉，先把输出落盘，好在下一步推分支里看原因
+        continue-on-error: true
+        run: |
+          $v = "${{ steps.ver.outputs.version }}"
+          $ErrorActionPreference = "Stop"
+          try {
+            wix --version *>&1 | Tee-Object -FilePath msi-step.log
+            ./scripts/build-msi.ps1 -Version "$v" -Dist dist *>&1 | Tee-Object -FilePath msi-step.log -Append
+            if ($LASTEXITCODE -ne 0) { throw "build-msi.ps1 退出码 $LASTEXITCODE" }
+            "MSI-OK" | Tee-Object -FilePath msi-step.log -Append
+          } catch {
+            "==== 失败 ====" | Tee-Object -FilePath msi-step.log -Append
+            ($_ | Out-String) | Tee-Object -FilePath msi-step.log -Append
+            exit 1
+          }
+
+      - name: 打 MSI 失败时推日志到 ci-logs 分支
+        if: steps.msi.outcome == 'failure'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          git config user.name "ci-bot"
+          git config user.email "ci-bot@users.noreply.github.com"
+          git checkout -B ci-logs
+          Copy-Item msi-step.log ci-msi-step.log -Force
+          git add -f ci-msi-step.log
+          git commit -m "CI 失败日志 ${{ github.run_id }}"
+          git push -f origin ci-logs
+
+      - name: MSI 步骤失败就整体失败
+        if: steps.msi.outcome == 'failure'
+        run: exit 1
 
       - name: 打 ClassIsland 插件（cipx）
         shell: pwsh
