@@ -16,6 +16,7 @@ public sealed class AppConfig
     public BoardSaveConfig BoardSave { get; set; } = new();
     public ConflictConfig Conflict { get; set; } = new();
     public UpdateConfig Update { get; set; } = new();
+    public HostsConfig Hosts { get; set; } = new();
     public string? InstalledVersion { get; set; }
 }
 
@@ -79,6 +80,17 @@ public sealed class ConflictConfig
     public int CooldownMinutes { get; set; } = 40;
     /// <summary>额外当作"全屏应用"的进程名（留空即可，学校可自行补充）。</summary>
     public List<string> ExtraFullscreenProcesses { get; set; } = new();
+}
+
+/// <summary>GitHub 访问加速（类似 Watt Toolkit 的 hosts 修改）。</summary>
+public sealed class HostsConfig
+{
+    /// <summary>总开关。开了也只在「直连 GitHub 不通」时才真的改 hosts，通了就不动。</summary>
+    public bool Enabled { get; set; } = true;
+    /// <summary>多久重新取一次加速记录（小时）。</summary>
+    public int RefreshHours { get; set; } = 24;
+    /// <summary>hosts 源，按顺序尝试。</summary>
+    public List<string> Sources { get; set; } = new(ClassroomKit.Core.Hosts.HostsAccelerator.DefaultSources);
 }
 
 /// <summary>从 GitHub Releases 检查/下载新版本。</summary>

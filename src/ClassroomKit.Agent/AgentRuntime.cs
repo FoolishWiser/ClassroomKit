@@ -1,4 +1,6 @@
+using System.Reflection;
 using ClassroomKit.Agent.Board;
+using ClassroomKit.Agent.Hosts;
 using ClassroomKit.Agent.Bcu;
 using ClassroomKit.Agent.Shell;
 using ClassroomKit.Agent.Tethering;
@@ -52,6 +54,11 @@ public sealed class AgentRuntime : IDisposable
         Api.Uninstall = Uninstall;
         Api.RequestExit = () => ExitRequested?.Invoke();
 
+        Hosts = new HostsService(Log, () => Config.Current);
+        Api.GetHosts = () => Hosts.StatusDto();
+        Api.RefreshHosts = Hosts.RefreshAsync;
+        Api.RestoreHosts = Hosts.RestoreAsync;
+
         Recipe = UiRecipe.Load(Paths.RecipePath);
         BoardSaver = new ClassInBoardSaver(Log, Recipe, () => Config.Current.BoardSave);
         ConflictWatcher = new ConflictWatcher(Log, () => Config.Current.Conflict, () => Config.Current.Conflict.ExtraFullscreenProcesses);
@@ -77,6 +84,7 @@ public sealed class AgentRuntime : IDisposable
     public ClassInBoardSaver BoardSaver { get; }
     public ConflictWatcher ConflictWatcher { get; }
     public UpdateService Update { get; }
+    public HostsService Hosts { get; }
 
     /// <summary>面板/接口请求预览冲突窗时触发（由托盘层弹到 UI 线程）。</summary>
     public Action? PreviewConflictRequested { get; set; }
@@ -128,6 +136,7 @@ public sealed class AgentRuntime : IDisposable
 
         ConflictWatcher.Start();
         _ = Task.Run(GuardLoopAsync);
+        _ = Task.Run(HostsLoopAsync);
 
         if (Config.Current.Hotspot.AutoStartOnLaunch && !Config.Current.Hotspot.Enabled)
         {
@@ -175,6 +184,35 @@ public sealed class AgentRuntime : IDisposable
     }
 
     private void Wake() { try { _wake.Release(); } catch (SemaphoreFullException) { } }
+
+    /// <summary>
+    /// GitHub 护航巡检：启动 1 分钟后先看一眼，之后每小时醒一次。
+    /// 真正要不要改 hosts 由 HostsService 决定（能直连就什么都不动）。
+    /// </summary>
+    private async Task HostsLoopAsync()
+    {
+        try { await Task.Delay(TimeSpan.FromSeconds(60), _cts.Token); }
+        catch (OperationCanceledException) { return; }
+
+        while (!_cts.IsCancellationRequested)
+        {
+            try
+            {
+                await Hosts.TickAsync(_cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"hosts 护航异常：{ex.Message}");
+            }
+
+            try { await Task.Delay(TimeSpan.FromHours(1), _cts.Token); }
+            catch (OperationCanceledException) { break; }
+        }
+    }
 
     public void SetPolicy(bool enabled)
     {

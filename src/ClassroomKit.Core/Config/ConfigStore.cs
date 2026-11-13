@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text.Json;
+using ClassroomKit.Core.Hosts;
 using ClassroomKit.Core.Hotspot;
 using ClassroomKit.Core.Model;
 
@@ -33,7 +34,7 @@ public sealed class ConfigStore
     }
 
     /// <summary>当前配置结构版本。</summary>
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 
     /// <summary>本次加载从哪个结构版本迁移过来；0 表示没有迁移。</summary>
     public int MigratedFrom { get; private set; }
@@ -91,6 +92,10 @@ public sealed class ConfigStore
             cfg.Conflict ??= new ConflictConfig();
             if (cfg.Conflict.CooldownMinutes is < 1 or > 1440) cfg.Conflict.CooldownMinutes = 40;
             cfg.Conflict.ExtraFullscreenProcesses ??= new List<string>();
+            cfg.Hosts ??= new HostsConfig();
+            if (cfg.Hosts.Sources is null || cfg.Hosts.Sources.Count == 0)
+                cfg.Hosts.Sources = new List<string>(HostsAccelerator.DefaultSources);
+            if (cfg.Hosts.RefreshHours is < 1 or > 720) cfg.Hosts.RefreshHours = 24;
             if (string.IsNullOrWhiteSpace(cfg.Token)) cfg.Token = NewToken();
             if (cfg.Port is < 1024 or > 65535) cfg.Port = 36037;
             if (cfg.Hotspot.GuardIntervalSec < 3) cfg.Hotspot.GuardIntervalSec = 3;

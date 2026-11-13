@@ -97,7 +97,7 @@ if (Test-Path $configPath) {
     $hex = "0123456789abcdef"
     $token = -join ((1..32) | ForEach-Object { $hex[(Get-Random -Maximum 16)] })
     $config = [ordered]@{
-        schemaVersion = 1
+        schemaVersion = 2
         port = 36037
         token = $token
         hotspot = [ordered]@{
@@ -110,6 +110,15 @@ if (Test-Path $configPath) {
             allowWifiUplink = $false
             guardIntervalSec = 15
             autoStartOnLaunch = $true
+        }
+        hosts = [ordered]@{
+            enabled = $true
+            refreshHours = 24
+            sources = @(
+                "https://raw.hellogithub.com/hosts",
+                "https://cdn.jsdelivr.net/gh/521xueweihan/GitHub520@main/hosts",
+                "https://ghproxy.net/https://raw.githubusercontent.com/521xueweihan/GitHub520/main/hosts"
+            )
         }
         bcu = [ordered]@{ enabled = $true; path = "" }
         tray = [ordered]@{ enabled = $true }
@@ -137,6 +146,9 @@ if (-not $SkipRegistry) {
 
 Write-Step "注册登录自启任务"
 & $agent --install-task
+
+Write-Step "注册 SYSTEM 护航任务（hosts 写入 + 静默升级）"
+& $agent --install-service
 
 if (-not $NoStart) {
     Write-Step "启动守护"

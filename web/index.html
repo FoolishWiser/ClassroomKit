@@ -98,6 +98,16 @@
   <p class="note">升级从 GitHub Releases 下载，安装时会弹一次管理员授权（UAC），程序随后自动重启；热点会中断几秒。</p>
 </section>
 
+<section class="card" id="hosts-card">
+  <h2>GitHub 访问加速 <small id="hosts-badge"></small></h2>
+  <p class="note" id="hosts-status">读取中…</p>
+  <div class="row">
+    <button class="btn" id="btn-hosts-refresh">刷新 hosts</button>
+    <button class="btn ghost" id="btn-hosts-restore">还原 hosts</button>
+  </div>
+  <p class="note">只在直连 GitHub 不通时才改 hosts；写完全程校验，还是不通会自动还原。依赖 SYSTEM 护航任务（安装包已注册，绿色版需管理员运行一次 --install-service）。</p>
+</section>
+
 <section class="card">
   <h2>维护</h2>
   <p class="note">卸载会先关热点，再删除登录自启、还原注册表放宽项并移除程序；需要点一次管理员授权（UAC）。</p>

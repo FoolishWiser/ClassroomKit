@@ -115,6 +115,7 @@ function renderState(s) {
 
   // 旧版本的默认热点名（CLASSROOM-302）会让人推着车换教室时还粘在旧热点上，提示一次改成电脑名
   $('legacy-banner').classList.toggle('hidden', !s.legacyDefaults);
+  renderHosts(s.hosts);
 
   // 表单只在"没被用户改过"时回写，否则保持用户正在编辑的内容
   if (!formDirty) fillForm(s);
@@ -142,6 +143,51 @@ function renderClients(data) {
     '<td class="mono">' + escapeHtml(c.ip || '—') + '</td></tr>'
   ).join('');
 }
+
+function renderHosts(h) {
+  const badge = $('hosts-badge');
+  const text = $('hosts-status');
+  if (!h) { badge.textContent = ''; text.textContent = '未启用'; return; }
+  if (h.enabled === false) {
+    badge.textContent = '已关闭';
+    badge.style.color = 'var(--muted)';
+    text.textContent = '配置里关闭了 hosts 加速，守护不会改动 hosts。';
+    return;
+  }
+  if (h.applied) {
+    badge.textContent = '已生效';
+    badge.style.color = 'var(--green)';
+    text.textContent = 'hosts 里已有 ' + h.count + ' 条记录' + (h.source ? '（来源 ' + h.source + '）' : '') +
+      (h.lastSuccess ? '，最近成功 ' + new Date(h.lastSuccess).toLocaleString() : '');
+  } else {
+    badge.textContent = '未修改';
+    badge.style.color = 'var(--muted)';
+    text.textContent = h.lastError ? h.lastError : '当前没有写入记录：能直连 GitHub 就不需要它。';
+  }
+  if (h.serviceInstalled === false) text.textContent += '（护航任务未注册：管理员运行 --install-service 才能自动写 hosts）';
+  else if (h.writable === false && h.applied === false) text.textContent += '（守护没有写权限，会交给护航任务执行）';
+}
+
+$('btn-hosts-refresh').onclick = async () => {
+  const btn = $('btn-hosts-refresh');
+  btn.disabled = true; btn.textContent = '刷新中…';
+  try {
+    const r = await api('/api/action', { method: 'POST', body: JSON.stringify({ action: 'hosts-refresh' }) });
+    toast(r.message || '已刷新');
+    setDirty(false);
+    await refreshState();
+  } catch (e) { toast(e.message, true); }
+  finally { btn.disabled = false; btn.textContent = '刷新 hosts'; }
+};
+
+$('btn-hosts-restore').onclick = async () => {
+  if (!confirm('删除 ClassroomKit 写进 hosts 的加速记录？（其它行不受影响）')) return;
+  try {
+    const r = await api('/api/action', { method: 'POST', body: JSON.stringify({ action: 'hosts-restore' }) });
+    toast(r.message || '已还原');
+    await refreshState();
+  } catch (e) { toast(e.message, true); }
+};
 
 function escapeHtml(text) {
   return String(text).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));

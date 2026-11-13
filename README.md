@@ -32,9 +32,9 @@
 
 预编译安装包在 [Releases](https://github.com/FoolishWiser/ClassroomKit/releases)：
 
-- `ClassroomKit-0.3.0-pre.1-x64.msi`（约 62 MB，推荐）
-- `ClassroomKit-0.3.0-pre.1-win-x64.zip`（绿色版）
-- `ClassroomKit-0.3.0-pre.1.cipx`（ClassIsland 2.1 插件，不是安装包，装到 ClassIsland 里）
+- `ClassroomKit-0.3.0-pre.2-x64.msi`（约 62 MB，推荐）
+- `ClassroomKit-0.3.0-pre.2-win-x64.zip`（绿色版）
+- `ClassroomKit-0.3.0-pre.2.cipx`（ClassIsland 2.1 插件，不是安装包，装到 ClassIsland 里）
 
 前两个都是自包含单文件，目标机不需要装 .NET。0.3 还是预发布（1.0 前都带 `-pre.N`），Releases 页面上会标 Pre-release。
 
@@ -43,9 +43,9 @@
 ### 方式一：MSI 安装包（推荐）
 
 ```text
-双击 ClassroomKit-0.2.10-x64.msi
+双击 ClassroomKit-0.3.0-pre.2-x64.msi
 # 或者命令行静默安装：
-msiexec /i ClassroomKit-0.2.10-x64.msi /qn
+msiexec /i ClassroomKit-0.3.0-pre.2-x64.msi /qn
 ```
 
 装完自动：落地到 `C:\Program Files\ClassroomKit` → 建 `C:\ProgramData\ClassroomKit` 并授权普通用户可写 → 放宽设备上限（`WifiMaxPeers=16`）→ 注册登录自启任务 → 立刻拉起守护。开始菜单会多一项「ClassroomKit 控制面板」，点了直接带令牌打开面板（等价于 `ClassroomKit.Agent.exe --panel`）。
@@ -60,7 +60,8 @@ powershell -ExecutionPolicy Bypass -File scripts\build.ps1
 
 # 2. 把 dist 整个目录拷到一体机，右键「以管理员身份运行 PowerShell」
 cd D:\ClassroomKit
-powershell -ExecutionPolicy Bypass -File install.ps1 -Ssid "CLASSROOM-302" -Passphrase "80258025" -TargetClients 10
+powershell -ExecutionPolicy Bypass -File install.ps1
+# 默认热点名 = 这台电脑的计算机名，密码随机 8 位；要指定就加 -Ssid / -Passphrase
 
 # 3. 面板里确认「热点已开」，手机连上试一下
 ```
@@ -92,6 +93,17 @@ powershell -ExecutionPolicy Bypass -File get-bcu.ps1
 
 升级失败会写 `C:\ProgramData\ClassroomKit\logs\update.log`（msiexec 退出码也在里面）。
 
+## GitHub 访问加速（hosts 护航）
+
+学校网络里 GitHub 时通时不通，升级和下载就会失败。程序在**直连不通时**才往 hosts 写一小段 GitHub 域名的 IP，写完立刻校验；还是不通就自己删掉。
+
+- 每 60 秒先试 `api.github.com/zen`，通了就什么都不做（正常网络下等于没这个功能）；
+- 不通才拉公开 hosts 源，按 443 实测时延挑最快的 IP，区块**置顶**、保留原 hosts 内容与换行风格，写前备份；
+- 写 hosts 要管理员：普通权限下交给 **SYSTEM 护航任务** `ClassroomKit-Service`（开机 1 分钟后、每 15 分钟醒一次）；
+- 面板「GitHub 访问加速」卡片可刷新 / 还原；命令行 `--hosts-status`、`--hosts-refresh`、`--hosts-restore`。
+
+细节与排障见 [GitHub-加速.md](docs/GitHub-加速.md)。
+
 ## 命令行
 
 ```text
@@ -102,6 +114,8 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
 --probe                           收集本机能力（JSON），评估能不能用
 --fix-peers                       提权写 WifiMaxPeers 并重启 icssvc
 --install-task / --uninstall-task 注册 / 删除登录自启任务
+--install-service / --uninstall-service 注册 / 删除 SYSTEM 护航任务（hosts 与静默升级）
+--hosts-status / --hosts-refresh / --hosts-restore  GitHub 加速 hosts 的状态、刷新、还原
 --uplinks                        列出本机所有网卡，说明会挑哪块开热点
 --uninstall                      卸载自己（MSI 装的走 msiexec /x；绿色版自己删目录）
 --uninstall --purge-data         连 C:\ProgramData\ClassroomKit（配置/日志）一起删
@@ -178,7 +192,7 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
 
 ## 卸载
 
-- **MSI 装的**：控制面板「应用」里卸载，或 `msiexec /x ClassroomKit-0.2.10-x64.msi`；面板「维护 → 卸载本软件」也会调起同样的流程。
+- **MSI 装的**：控制面板「应用」里卸载，或 `msiexec /x ClassroomKit-0.3.0-pre.2-x64.msi`；面板「维护 → 卸载本软件」也会调起同样的流程。
 - **绿色版**：面板「维护 → 卸载本软件」，或 `ClassroomKit.Agent.exe --uninstall`。
 - 卸载会停进程、删自启任务、把 `WifiMaxPeers` 改回原值并重启共享服务、删安装目录（含 BCU）；**默认保留** `C:\ProgramData\ClassroomKit`（配置和日志，方便重装后沿用 SSID/密码）。想连配置日志一起删：面板勾「同时删除配置与日志」再点卸载，或 `ClassroomKit.Agent.exe --uninstall --purge-data`（这两种方式都会先调 `msiexec /x` 再删目录；直接 `msiexec /x` 卸载则一定保留配置）。
 - 需要管理员权限：没提权会弹一次 UAC，点「是」即可。
@@ -187,6 +201,7 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
 
 ```json
 {
+  "schemaVersion": 2,
   "port": 36037,
   "token": "32 位十六进制，首次启动自动生成",
   "hotspot": {
@@ -222,12 +237,18 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
     "includePrerelease": false,
     "mirrors": ["https://ghproxy.net/"]
   },
+  "hosts": {
+    "enabled": true,
+    "refreshHours": 24,
+    "sources": ["https://raw.hellogithub.com/hosts"]
+  },
   "bcu": { "enabled": true, "path": "" },
   "tray": { "enabled": true }
 }
 ```
 
 越界值会被自动纠正（端口 1024–65535、巡检 ≥3 秒、目标 ≥1 台），坏 JSON 会回退默认并重写。
+全新安装时 `ssid` 默认是计算机名、`passphrase` 是随机 8 位；上面这份是 0.2.x 升上来的老配置（旧热点名与密码会原样保留）。
 
 ## 实测数据（ZYT 的 Win10 一体机，Intel AX210）
 
@@ -249,7 +270,7 @@ src/ClassroomKit.Core     纯逻辑：配置、状态机、HTTP、API（可在 L
 src/ClassroomKit.Agent    WinRT 热点、托盘、计划任务、BCU 拉起
 web/                      控制面板（无框架、无 CDN，离线可用）
 scripts/                  build / build-msi / install / uninstall / rebuild / probe / get-bcu / verify
-tests/ClassroomKit.Tests  零依赖测试（dotnet run，55 项）
+tests/ClassroomKit.Tests  零依赖测试（dotnet run，79 项）
 docs/                     部署手册、ClassIsland 接入、原理与限制
 installer/                MSI 定义（product.wxs；文件清单 files.wxs 由 build-msi.ps1 生成）
 ```
@@ -260,7 +281,7 @@ installer/                MSI 定义（product.wxs；文件清单 files.wxs 由 
 dotnet run --project tests/ClassroomKit.Tests -c Release
 ```
 
-65 项，覆盖配置规范化与落盘、上行网卡选择、守护状态机九条分支（无上行 / 上行是 Wi-Fi / 策略关 / 正常开 / 退避 / 容量告警 / 自动关超时 / SSID 漂移 / 读状态失败）、窗口分类与冲突冷却、UI 配方匹配、GitHub Release 解析、版本比较与下载源顺序、HTTP 端到端（鉴权、表单与 JSON、静态文件）。
+79 项，覆盖配置规范化与落盘（含旧配置迁移与机器名默认值）、上行网卡选择、守护状态机九条分支（无上行 / 上行是 Wi-Fi / 策略关 / 正常开 / 退避 / 容量告警 / 自动关超时 / SSID 漂移 / 读状态失败）、窗口分类与冲突冷却、UI 配方匹配、GitHub Release 解析、SemVer 预发布比较与下载源顺序、hosts 区块合并 / 还原 / 挑最优 IP、HTTP 端到端（鉴权、表单与 JSON、静态文件）。
 
 装到目标机之后，再跑一遍**整机验收**（43 项，含注册表、系统上限、策略开关、计划任务、改设置落盘、异常输入、网卡判别、板书/冲突接口、BCU 按钮）：
 
@@ -276,6 +297,7 @@ powershell -ExecutionPolicy Bypass -File verify.ps1
 - [部署手册](docs/部署手册.md) —— 装、验、还原卡、升级、卸载、排障
 - [ClassIsland 接入](docs/ClassIsland-接入.md) —— 2.1 装插件，1.6/1.7 用零代码配方
 - [版本与发布](docs/版本与发布.md) —— 版本号规则、预发布怎么比、CI 出哪些产物
+- [GitHub 加速](docs/GitHub-加速.md) —— hosts 护航怎么工作、谁写 hosts、怎么还原
 - [原理与限制](docs/原理与限制.md) —— 8 台是怎么破的、为什么不写服务、还剩什么限制
 
 ## 许可证

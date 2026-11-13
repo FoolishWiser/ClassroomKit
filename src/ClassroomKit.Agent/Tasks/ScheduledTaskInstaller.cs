@@ -9,6 +9,9 @@ public static class ScheduledTaskInstaller
 {
     public const string TaskName = "ClassroomKit-Agent";
 
+    /// <summary>SYSTEM 护航任务：写 hosts、静默跑 MSI 这类必须提权、但绝不能弹 UAC 的活。</summary>
+    public const string ServiceTaskName = "ClassroomKit-Service";
+
     public static (bool Ok, string Message) Install(string exePath)
     {
         try
@@ -46,6 +49,50 @@ public static class ScheduledTaskInstaller
     {
         var (code, _) = Run("schtasks.exe", $"/Query /TN \"{TaskName}\"");
         return code == 0;
+    }
+
+    /// <summary>注册 SYSTEM 护航任务（开机 1 分钟后起，每 15 分钟跑一次 --service-tick）。需要管理员。</summary>
+    public static (bool Ok, string Message) InstallService(string exePath)
+    {
+        try
+        {
+            var temp = Path.Combine(Path.GetTempPath(), "classroomkit-service-task.xml");
+            File.WriteAllText(temp, BuildServiceXml(exePath), Encoding.Unicode);
+            var (code, output) = Run("schtasks.exe", $"/Create /TN \"{ServiceTaskName}\" /XML \"{temp}\" /F");
+            return code == 0
+                ? (true, "护航任务已注册（SYSTEM，每 15 分钟一次）")
+                : (false, $"护航任务注册失败（{code}）：{output}（需要管理员权限）");
+        }
+        catch (Exception ex)
+        {
+            return (false, $"护航任务注册失败：{ex.Message}");
+        }
+    }
+
+    public static (bool Ok, string Message) UninstallService()
+    {
+        try
+        {
+            var (code, output) = Run("schtasks.exe", $"/Delete /TN \"{ServiceTaskName}\" /F");
+            return code == 0 ? (true, "护航任务已删除") : (false, $"护航任务删除失败（{code}）：{output}");
+        }
+        catch (Exception ex)
+        {
+            return (false, $"护航任务删除失败：{ex.Message}");
+        }
+    }
+
+    public static bool IsServiceInstalled()
+    {
+        var (code, _) = Run("schtasks.exe", $"/Query /TN \"{ServiceTaskName}\"");
+        return code == 0;
+    }
+
+    /// <summary>让护航任务马上跑一次（比如刚投递了升级请求，不想等 15 分钟）。</summary>
+    public static (bool Ok, string Message) RunServiceNow()
+    {
+        var (code, output) = Run("schtasks.exe", $"/Run /TN \"{ServiceTaskName}\"");
+        return code == 0 ? (true, "已触发护航任务") : (false, $"触发失败（{code}）：{output}");
     }
 
     /// <summary>
@@ -171,6 +218,56 @@ public static class ScheduledTaskInstaller
   <Actions Context="Author">
     <Exec>
       <Command>{escaped}</Command>
+    </Exec>
+  </Actions>
+</Task>
+""";
+    }
+
+    private static string BuildServiceXml(string exePath)
+    {
+        var escaped = System.Security.SecurityElement.Escape(exePath) ?? exePath;
+        return $"""
+<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>ClassroomKit 护航任务（SYSTEM）：hosts 加速写入、静默升级</Description>
+    <URI>\{ServiceTaskName}</URI>
+  </RegistrationInfo>
+  <Triggers>
+    <BootTrigger>
+      <Enabled>true</Enabled>
+      <Delay>PT1M</Delay>
+      <Repetition>
+        <Interval>PT15M</Interval>
+        <StopAtDurationEnd>false</StopAtDurationEnd>
+      </Repetition>
+    </BootTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>S-1-5-18</UserId>
+      <RunLevel>HighestAvailable</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>true</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <ExecutionTimeLimit>PT10M</ExecutionTimeLimit>
+    <Priority>5</Priority>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>{escaped}</Command>
+      <Arguments>--service-tick</Arguments>
     </Exec>
   </Actions>
 </Task>

@@ -36,6 +36,12 @@ ClassroomKit.Agent {Version}
   --fix-peers       提权写入 WifiMaxPeers 并重启 icssvc（放宽设备数上限）
   --install-task    注册登录自启计划任务
   --uninstall-task  删除登录自启计划任务
+  --install-service 注册 SYSTEM 护航任务（hosts 写入 + 静默升级；需要管理员）
+  --uninstall-service 删除 SYSTEM 护航任务
+  --hosts-status    GitHub 加速 hosts 的当前状态（JSON）
+  --hosts-refresh   刷新 hosts 加速记录（默认强制；--check 只在直连不通时才改）
+  --hosts-restore   删除 ClassroomKit 写入的 hosts 记录
+  --service-tick    （护航任务内部使用）处理一次 hosts / 静默安装请求
   --check-update    检查 GitHub 上有没有新版本（JSON；--pre 连预发布版一起看）
   --update          检查 → 下载 → 提权安装新版本（--dry-run 只检查；--yes 不询问）
   --panel           用默认浏览器打开 Web 控制面板（带令牌）
@@ -358,6 +364,59 @@ ClassroomKit.Agent {Version}
     }
 
     /// <summary>用默认浏览器打开带令牌的面板地址（托盘菜单「打开面板」和开始菜单快捷方式都走这里）。</summary>
+    /// <summary>CLI：SYSTEM 护航任务的一次执行（--service-tick），处理 hosts 写入与静默安装请求。</summary>
+    public static int ServiceTickCli() => Service.ServiceTick.Run();
+
+    public static int HostsStatusCli()
+    {
+        var store = new ConfigStore(Paths.ConfigPath);
+        var log = new AppLog(Paths.LogDir);
+        var hosts = new Hosts.HostsService(log, () => store.Current);
+        Console.WriteLine(JsonSerializer.Serialize(hosts.StatusDto(), new JsonSerializerOptions { WriteIndented = true }));
+        return 0;
+    }
+
+    /// <summary>CLI：刷新 hosts 加速记录（默认强制刷新；--check 只在直连 GitHub 不通时才动）。</summary>
+    public static int HostsRefreshCli(string[] args)
+    {
+        var force = !args.Any(a => a.Equals("--check", StringComparison.OrdinalIgnoreCase));
+        var (ok, message) = RunHosts((h, ct) => h.RefreshAsync(force, ct));
+        Console.WriteLine(message);
+        return ok ? 0 : 1;
+    }
+
+    public static int HostsRestoreCli()
+    {
+        var (ok, message) = RunHosts((h, ct) => h.RestoreAsync(ct));
+        Console.WriteLine(message);
+        return ok ? 0 : 1;
+    }
+
+    private static (bool Ok, string Message) RunHosts(
+        Func<Hosts.HostsService, CancellationToken, Task<(bool Ok, string Message)>> action)
+    {
+        var store = new ConfigStore(Paths.ConfigPath);
+        var log = new AppLog(Paths.LogDir);
+        var hosts = new Hosts.HostsService(log, () => store.Current);
+        using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+        return action(hosts, cts.Token).GetAwaiter().GetResult();
+    }
+
+    /// <summary>CLI：注册 SYSTEM 护航计划任务（每 15 分钟醒一次；hosts 写入与静默升级都由它执行）。</summary>
+    public static int InstallServiceTask()
+    {
+        var (ok, message) = ScheduledTaskInstaller.InstallService(Paths.ExePath);
+        Console.WriteLine(message);
+        return ok ? 0 : 1;
+    }
+
+    public static int UninstallServiceTask()
+    {
+        var (ok, message) = ScheduledTaskInstaller.UninstallService();
+        Console.WriteLine(message);
+        return ok ? 0 : 1;
+    }
+
     public static int Panel()
     {
         var store = new ConfigStore(Paths.ConfigPath);

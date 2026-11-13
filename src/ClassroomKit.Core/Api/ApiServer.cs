@@ -70,6 +70,12 @@ public sealed class ApiServer
     public Func<bool, CancellationToken, Task<object>>? CheckUpdateAsync { get; set; }
     /// <summary>后台下载并安装新版本，立即返回当前状态。</summary>
     public Func<object>? StartUpgrade { get; set; }
+    /// <summary>hosts 加速状态（GET /api/hosts）。</summary>
+    public Func<object>? GetHosts { get; set; }
+    /// <summary>手动刷新加速记录并写入 hosts（force=true 表示忽略「已能直连」的判断）。</summary>
+    public Func<bool, CancellationToken, Task<(bool Ok, string Message)>>? RefreshHosts { get; set; }
+    /// <summary>还原 hosts（删掉受管区块）。</summary>
+    public Func<CancellationToken, Task<(bool Ok, string Message)>>? RestoreHosts { get; set; }
 
     public sealed record UserSettings(string Ssid, string Passphrase, int TargetClients, bool AllowWifiUplink, string UplinkMode, bool FallbackToLan);
 
@@ -171,6 +177,9 @@ public sealed class ApiServer
                     ApplySettings?.Invoke(new UserSettings(ssid, pass, target, allowWifi, uplinkMode, fallback));
                     return new { ok = true };
                 });
+
+            case "/api/hosts":
+                return HttpResponse.Json(JsonSerializer.Serialize(GetHosts?.Invoke() ?? new { supported = false }, Json));
 
             case "/api/update":
                 return await HandleUpdateAsync(request, ct);
@@ -375,6 +384,22 @@ public sealed class ApiServer
                 }, Json));
             }
 
+            case "hosts-refresh":
+            {
+                if (RefreshHosts is null) return HttpResponse.Text("not supported", 409);
+                var (ok, message) = await RefreshHosts(true, ct);
+                _log.Info($"hosts 加速：{message}");
+                return HttpResponse.Json(JsonSerializer.Serialize(new { ok, action, message }, Json), ok ? 200 : 500);
+            }
+
+            case "hosts-restore":
+            {
+                if (RestoreHosts is null) return HttpResponse.Text("not supported", 409);
+                var (ok, message) = await RestoreHosts(ct);
+                _log.Info($"hosts 还原：{message}");
+                return HttpResponse.Json(JsonSerializer.Serialize(new { ok, action, message }, Json), ok ? 200 : 500);
+            }
+
             case "exit":
                 RequestExit?.Invoke();
                 return HttpResponse.Json(JsonSerializer.Serialize(new { ok = true, action }, Json));
@@ -446,7 +471,8 @@ public sealed class ApiServer
             capacityWarning = _guard?.CapabilityWarning,
             bcu = new { enabled = cfg.Bcu.Enabled, path = cfg.Bcu.Path },
             boardSave = new { enabled = cfg.BoardSave.Enabled, closeAfterSave = cfg.BoardSave.CloseAfterSave },
-            conflict = new { enabled = cfg.Conflict.Enabled, cooldownMinutes = cfg.Conflict.CooldownMinutes }
+            conflict = new { enabled = cfg.Conflict.Enabled, cooldownMinutes = cfg.Conflict.CooldownMinutes },
+            hosts = GetHosts?.Invoke()
         };
     }
 

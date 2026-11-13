@@ -1,3 +1,18 @@
+# ClassroomKit 0.3.0-pre.2
+
+## 新：GitHub 访问加速（hosts 护航）
+
+- 守护每分钟看一眼 `api.github.com/zen`，**只在直连不通时**才改 hosts；写完立即校验，还是不通就自动还原。
+- 从公开 hosts 源取候选，按 443 端口实测时延挑最快的 IP；区块置顶、保留原文件内容与 CRLF/LF，写前备份到 `hosts.classroomkit-original`。
+- 写 hosts 需要管理员：普通权限下投递给 **SYSTEM 护航任务** `ClassroomKit-Service`（开机 1 分钟后、每 15 分钟醒一次，动作 `--service-tick`），守护最多等 25 秒。
+- 面板新增「GitHub 访问加速」卡片；命令行 `--hosts-status` / `--hosts-refresh` / `--hosts-restore` / `--install-service`；API `GET /api/hosts` 与两个 action。
+- 详见 [GitHub-加速.md](GitHub-加速.md)。
+
+## 改：卸载与安装
+
+- MSI 安装时一并注册护航任务，卸载时一并删除；绿色版 `install.ps1` 同样注册。
+- 配置结构版本升到 2：旧 `config.json` 自动补 `hosts` 段（只盖章，不改任何已有值）。
+
 # ClassroomKit 0.3.0-pre.1
 
 第一版预发布（1.0 之前都带 `-pre.N`）。内核照旧独立，ClassIsland 这一层从「零代码自动化」升级成**真正的插件**。

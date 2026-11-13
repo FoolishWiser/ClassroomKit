@@ -63,6 +63,10 @@ internal static class MsiSetup
         var (taskOk, taskMsg) = ScheduledTaskInstaller.Install(Paths.ExePath);
         Log(taskMsg);
 
+        // 护航任务：SYSTEM 身份、开机 1 分钟后与每 15 分钟醒一次，负责写 hosts 和静默升级。
+        var (svcOk, svcMsg) = ScheduledTaskInstaller.InstallService(Paths.ExePath);
+        Log(svcMsg + (svcOk ? "" : "（hosts 加速与静默升级需要它，请以管理员运行一次 ClassroomKit.Agent.exe --install-service）"));
+
         // 计划任务挂在「Users 组 + 登录触发」，只会在用户登录后、以用户身份启动（托盘图标才看得见）。
         // MSI 的自定义动作跑在 Session 0，直接 /Run 会把进程拉进 Session 0（没托盘、没有交互桌面），
         // 所以这里用「交互令牌临时任务」把它送进用户会话；没有已登录用户就等下次登录，不算错误。
@@ -92,6 +96,9 @@ internal static class MsiSetup
 
         var (taskOk, taskMsg) = ScheduledTaskInstaller.Uninstall();
         Log(taskMsg + (taskOk ? "" : "（可能本来就没注册）"));
+
+        var (svcOk, svcMsg) = ScheduledTaskInstaller.UninstallService();
+        Log(svcMsg + (svcOk ? "" : "（可能本来就没注册）"));
 
         if (PeerLimit.Read() is not null)
         {

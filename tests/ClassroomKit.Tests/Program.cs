@@ -44,6 +44,10 @@ internal static class Program
         await GuardTestsAsync();
 
         Console.WriteLine();
+        Console.WriteLine("[hosts 加速]");
+        await HostsTests.RunAsync();
+
+        Console.WriteLine();
         Console.WriteLine("[HTTP API]");
         await ApiTestsAsync();
 
@@ -164,7 +168,7 @@ internal static class Program
         await Run("新装机器用计算机名当热点名、随机 8 位密码", () =>
         {
             var cfg = ConfigStore.CreateDefault();
-            Eq(1, cfg.SchemaVersion, "新配置直接是新结构");
+            Eq(ConfigStore.CurrentSchemaVersion, cfg.SchemaVersion, "新配置直接是新结构");
             True(cfg.Hotspot.Ssid.Length > 0, "热点名不应为空");
             Eq(MachineDefaults.DefaultSsid(), cfg.Hotspot.Ssid, "热点名默认取计算机名");
             Eq(8, cfg.Hotspot.Passphrase.Length, "密码 8 位");
@@ -192,12 +196,12 @@ internal static class Program
             var path = TempFile("legacy.json");
             File.WriteAllText(path, "{ \"token\": \"abc\", \"hotspot\": { \"ssid\": \"CLASSROOM-302\", \"passphrase\": \"80258025\" } }");
             var store = new ConfigStore(path);
-            Eq(1, store.Current.SchemaVersion, "迁移后结构版本");
+            Eq(ConfigStore.CurrentSchemaVersion, store.Current.SchemaVersion, "迁移后结构版本");
             Eq(0, store.MigratedFrom, "记录迁移来源");
             Eq("CLASSROOM-302", store.Current.Hotspot.Ssid, "旧 SSID 原样保留");
             Eq("80258025", store.Current.Hotspot.Passphrase, "旧密码原样保留");
             Eq("abc", store.Current.Token, "其它字段不动");
-            Eq(1, ConfigStore.Load(path)!.SchemaVersion, "迁移结果已落盘");
+            Eq(ConfigStore.CurrentSchemaVersion, ConfigStore.Load(path)!.SchemaVersion, "迁移结果已落盘");
         });
 
         await Run("已是新结构的配置不会被再次迁移", () =>
@@ -408,7 +412,7 @@ internal static class Program
                 var dto = await client.GetStateAsync();
                 Eq("0.1.0-test", dto.Version, "客户端读到版本");
                 Eq(MachineDefaults.DefaultSsid(), dto.Hotspot.Ssid, "客户端读到 SSID");
-                Eq(1, dto.ConfigSchema, "客户端读到结构版本");
+                Eq(ConfigStore.CurrentSchemaVersion, dto.ConfigSchema, "客户端读到结构版本");
                 False(dto.LegacyDefaults, "新配置不算旧默认值");
 
                 var reply = await client.PostActionAsync("stop");
