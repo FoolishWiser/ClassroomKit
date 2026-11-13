@@ -90,8 +90,11 @@ $subDirs = $files | ForEach-Object {
 } | Where-Object { $_ } | Sort-Object -Unique
 
 [void]$sb.AppendLine('    <DirectoryRef Id="INSTALLFOLDER">')
+$usedDirIds = @{}
 foreach ($d in $subDirs) {
     $id = "dir_" + (Get-SafeId $d)
+    if ($usedDirIds.ContainsKey($id)) { $id = $id + "_" + (Get-StableGuid ("ClassroomKit/Dir/" + $d.ToLowerInvariant())).Substring(0, 8).ToLowerInvariant() }
+    $usedDirIds[$id] = $true
     $dirIds[$d] = $id
     [void]$sb.AppendLine(('      <Directory Id="{0}" Name="{1}" />' -f $id, $d))
 }
@@ -99,6 +102,7 @@ foreach ($d in $subDirs) {
 [void]$sb.AppendLine('')
 [void]$sb.AppendLine('    <ComponentGroup Id="Files">')
 
+$usedIds = @{}
 foreach ($f in $files) {
     $rel = $f.FullName.Substring($Dist.Length).TrimStart('\')
     $parts = $rel -split '\\'
@@ -108,8 +112,18 @@ foreach ($f in $files) {
         if (-not $dirIds.ContainsKey($top)) { $dirIds[$top] = "dir_" + (Get-SafeId $top) }
         $dirId = $dirIds[$top]
     }
-    $compId = "c_" + (Get-SafeId $rel)
-    $fileId = "f_" + (Get-SafeId $rel)
+    # 中文文件名（如 原理与限制.md / 部署手册.md）会被规整成一串下划线，可能撞成同一个 Id，
+    # 这里给撞车的补一段由相对路径算出的稳定后缀；ClassroomKit.Agent.exe 的 f_ClassroomKit_Agent_exe
+    # 在 product.wxs 里被 FileRef 直接引用，它的 Id 天然不会撞，必须保持原样。
+    $safe = Get-SafeId $rel
+    $compId = "c_$safe"
+    $fileId = "f_$safe"
+    if ($usedIds.ContainsKey($fileId)) {
+        $suffix = (Get-StableGuid ("ClassroomKit/Id/" + $rel.ToLowerInvariant())).Substring(0, 8).ToLowerInvariant()
+        $compId = "c_${safe}_$suffix"
+        $fileId = "f_${safe}_$suffix"
+    }
+    $usedIds[$fileId] = $true
     $guid = Get-StableGuid ("ClassroomKit/" + $rel.ToLowerInvariant())
     $src = [System.Security.SecurityElement]::Escape($f.FullName)
     [void]$sb.AppendLine(('      <Component Id="{0}" Directory="{1}" Guid="{2}">' -f $compId, $dirId, $guid))
