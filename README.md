@@ -7,7 +7,7 @@
 - 上课前 **5 分钟**弹一次提醒窗（时间与提前量可改），不点也会替你保存
 - 板书按 **上一节课的科目** 改名：`数学_2026-11-14_10-05.png`
 - 热点由守护进程负责：开机就有、被关会自动恢复，学生上限从 8 台放到 16 台
-- 全程静默升级：下载完交给 SYSTEM 护航任务装，不弹 UAC；hosts 只在直连 GitHub 不通时才动
+- 全程静默升级：下载完交给 SYSTEM 护航任务装，不弹 UAC；hosts 全天生效、自动刷新
 
 ![控制面板](docs/img/panel.png)
 
@@ -164,7 +164,7 @@ powershell -ExecutionPolicy Bypass -File get-bcu.ps1
 
 ## GitHub 访问加速（hosts 护航）
 
-学校网络里 GitHub 时通时不通，升级和下载就会失败。程序在**直连不通时**才往 hosts 写一小段 GitHub 域名的 IP，写完立刻校验；还是不通就自己删掉。
+学校网络里 GitHub 时通时不通，升级和下载就会失败。程序**全天**往 hosts 写一小段 GitHub 域名的 IP（直连可用时也走加速），按刷新间隔自动更新；写完立刻校验，还是不通就自己删掉 —— 不会把网络改坏。
 
 - 每 60 秒先试 `api.github.com/zen`，通了就什么都不做（正常网络下等于没这个功能）；
 - 不通才拉公开 hosts 源，按 443 实测时延挑最快的 IP，区块**置顶**、保留原 hosts 内容与换行风格，写前备份；
@@ -193,7 +193,7 @@ powershell -ExecutionPolicy Bypass -File get-bcu.ps1
 
 面板底部可以打开 **自动安装**（`update.autoInstall`，默认关闭）。打开后满足三个条件才会自己装：
 
-1. 当前时间在**安装时间窗**内（`update.installWindow`，默认 `02:00-05:00`；写空 = 不限时间，可写 `23:00-06:00` 跨午夜）；
+1. 当前时间在**安装时间窗**内（`update.installWindow` 默认留空 = 全天都能装；需要避开上课才填 `23:00-06:00` 这类窗口，可跨午夜）；
 2. 默认要求**没有设备连着热点**（`update.installWithClients=false`）；
 3. 护航任务在（否则只能弹 UAC，自动安装会被跳过）。
 
@@ -306,7 +306,7 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
     "checkOnBoot": true,
     "checkIntervalHours": 6,
     "autoInstall": false,
-    "installWindow": "02:00-05:00",
+    "installWindow": "",
     "installWithClients": false
   },
   "hosts": { "enabled": true, "refreshHours": 24, "sources": ["https://raw.hellogithub.com/hosts"] },
@@ -346,7 +346,7 @@ src/ClassroomKit.Agent         WinRT 热点、托盘、提醒窗、自检、计�
 src/ClassroomKit.ClassIsland   ClassIsland 2.1 插件（cipx）：课表桥 + 设置页 + 主界面组件 + 行动
 web/                           控制面板（无框架、无 CDN，离线可用）
 scripts/                       build / build-msi / install / uninstall / rebuild / probe / get-bcu / verify
-tests/ClassroomKit.Tests       零依赖测试（dotnet run，112 项）
+tests/ClassroomKit.Tests       零依赖测试（dotnet run，113 项）
 docs/                          部署手册、ClassIsland 接入、原理与限制、版本与发布
 installer/                     MSI 定义（product.wxs；文件清单 files.wxs 由 build-msi.ps1 生成）
 ```
@@ -357,7 +357,7 @@ installer/                     MSI 定义（product.wxs；文件清单 files.wxs
 dotnet run --project tests/ClassroomKit.Tests -c Release
 ```
 
-112 项，覆盖配置规范化与落盘（含旧配置迁移与机器名默认值）、上行网卡选择、守护状态机九条分支、窗口分类与冲突冷却、冲突提示窗、UI 配方匹配、GitHub Release 解析与 SemVer 预发布比较、hosts 区块合并 / 还原 / 挑最优 IP、升级时间窗（含跨午夜）、板书命名模板与改名冲突、课表提醒判定的十条原因分支与稍后提醒、提醒窗超时/暂停/快捷键、HTTP 端到端。
+113 项，覆盖配置规范化与落盘（含旧配置迁移与机器名默认值）、上行网卡选择、守护状态机九条分支、窗口分类与冲突冷却、冲突提示窗、UI 配方匹配、GitHub Release 解析与 SemVer 预发布比较、hosts 区块合并 / 还原 / 挑最优 IP、升级时间窗（含跨午夜、默认不限）与 v3→v4 时间窗迁移、板书命名模板与改名冲突、课表提醒判定的十条原因分支与稍后提醒、提醒窗超时/暂停/快捷键、HTTP 端到端。
 
 装到目标机之后，再跑一遍**整机验收**（43 项，含注册表、系统上限、策略开关、计划任务、改设置落盘、异常输入、网卡判别、板书/冲突接口、BCU 按钮）：
 

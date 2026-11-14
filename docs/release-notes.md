@@ -8,7 +8,7 @@
 - **面板重做**：课表卡置顶，新增一键自检（11 项检查 + 下一步建议）与「重置面板令牌」，热点相关卡片下移、文案改成辅助工具口径。
 - **README 重写**：按「课表 / 板书 / 热点 / hosts / 升级」重新组织，讲清哪部分必须在守护进程、哪部分必须在插件里。
 
-升级：老版本在面板「升级」处即可看到本版；自动安装需开启 `update.autoInstall`。配置自动迁移到 schemaVersion 3，只补新字段，SSID / 密码 / 令牌不变。
+升级：老版本在面板「升级」处即可看到本版；自动安装需开启 `update.autoInstall`。配置自动迁移到 schemaVersion 4：只补新字段、把 0.3.x 的默认安装窗口（02:00-05:00）改成不限，SSID / 密码 / 令牌和用户自填的窗口都不变。
 
 ## 历史：0.3.0
 
@@ -16,8 +16,8 @@
 
 - **ClassIsland 2.1 插件**：装 `.cipx` 后可在 ClassIsland 里看热点状态、在上课/下课时自动开关热点；热点逻辑仍在独立守护进程里，ClassIsland 崩了不影响上网。
 - **热点默认值跟机器走**：全新安装时 SSID = 计算机名、密码每机随机 8 位，换教室不再粘旧热点；已有配置原样保留。
-- **GitHub 访问加速**：直连不通时自动写 hosts（由 SYSTEM 护航任务执行），写完校验，仍不通自动还原。
-- **全程静默升级**：由 SYSTEM 护航任务用 `msiexec /qn` 安装，不弹 UAC；支持开机自检与安装时间窗。
+- **GitHub 访问加速（全天生效）**：有可用记录就写进 hosts，直连也走加速，按刷新间隔自动更新（由 SYSTEM 护航任务执行），写完校验，仍不通自动还原。
+- **全程静默升级**：由 SYSTEM 护航任务用 `msiexec /qn` 安装，不弹 UAC；支持开机自检；自动安装不再限定凌晨（留空=全天，仅要求没有设备连着热点）。
 - **板书冲突提示窗重做**：圆角卡片、真实应用图标、高 DPI 缩放、键盘 1–4、倒计时悬停暂停、今天不再提醒。
 
 升级：老版本在面板「升级」处即可看到本版；自动安装需开启 `update.autoInstall`。配置自动迁移到 schemaVersion 2，SSID / 密码 / 令牌不变。
@@ -33,7 +33,7 @@
 ## 新：开机自检与自动安装
 
 - 启动 90 秒后自检一次（`update.checkOnBoot`），之后每 `update.checkIntervalHours` 小时查一次（默认 6，0 = 只手动）。
-- `update.autoInstall` 默认关闭；打开后只在**安装时间窗**（`update.installWindow`，默认 `02:00-05:00`，可跨午夜、留空不限）内、且**没有设备连着热点**（`update.installWithClients`）时才自己装 —— 上课中不会断学生的网。
+- `update.autoInstall` 默认关闭；打开后只要**没有设备连着热点**（`update.installWithClients`）就自己装 —— 上课中不会断学生的网。时间窗默认不限（`update.installWindow` 留空）；需要避开上课才填 `23:00-06:00` 这类窗口。
 - 面板「升级」卡片新增这四个开关/输入框与状态提示；API 新增 action `update-config`。
 
 ## 改：升级状态
@@ -44,7 +44,7 @@
 
 ## 新：GitHub 访问加速（hosts 护航）
 
-- 守护每分钟看一眼 `api.github.com/zen`，**只在直连不通时**才改 hosts；写完立即校验，还是不通就自动还原。
+- 守护按刷新间隔更新 hosts，**全天生效**（直连也走加速）；写完立即校验，还是不通就自动还原。
 - 从公开 hosts 源取候选，按 443 端口实测时延挑最快的 IP；区块置顶、保留原文件内容与 CRLF/LF，写前备份到 `hosts.classroomkit-original`。
 - 写 hosts 需要管理员：普通权限下投递给 **SYSTEM 护航任务** `ClassroomKit-Service`（开机 1 分钟后、每 15 分钟醒一次 —— pre.3 起改为每 5 分钟，动作 `--service-tick`），守护最多等 25 秒。
 - 面板新增「GitHub 访问加速」卡片；命令行 `--hosts-status` / `--hosts-refresh` / `--hosts-restore` / `--install-service`；API `GET /api/hosts` 与两个 action。

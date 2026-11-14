@@ -153,7 +153,7 @@
     <button class="btn" id="btn-hosts-refresh">刷新 hosts</button>
     <button class="btn ghost" id="btn-hosts-restore">还原 hosts</button>
   </div>
-  <p class="note">只在直连 GitHub 不通时才改 hosts；写完全程校验，还是不通会自动还原。依赖 SYSTEM 护航任务（安装包已注册，绿色版需管理员运行一次 --install-service）。</p>
+  <p class="note">全天生效：有可用记录就写进 hosts（直连也走加速），按刷新间隔自动更新；写完全程校验，还是不通会自动还原。依赖 SYSTEM 护航任务（安装包已注册，绿色版需管理员运行一次 --install-service）。</p>
 </section>
 
 <section class="card" id="diagnose-card">
@@ -192,8 +192,8 @@
         <option value="24">每天一次</option>
       </select>
     </label>
-    <label>安装时间窗
-      <input type="text" id="upd-window" placeholder="02:00-05:00" autocomplete="off">
+    <label>安装时间窗（留空=全天）
+      <input type="text" id="upd-window" placeholder="留空 = 全天" autocomplete="off">
     </label>
   </div>
   <div class="row" style="margin-top:10px">

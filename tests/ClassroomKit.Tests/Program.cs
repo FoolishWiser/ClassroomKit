@@ -216,6 +216,19 @@ internal static class Program
             Eq(ConfigStore.CurrentSchemaVersion, ConfigStore.Load(path)!.SchemaVersion, "迁移结果已落盘");
         });
 
+        await Run("v3 → v4：旧的默认安装窗口改成不限，用户自填的窗口保留", () =>
+        {
+            var legacy = TempFile("v3-legacy.json");
+            File.WriteAllText(legacy, "{ \"schemaVersion\": 3, \"update\": { \"installWindow\": \"02:00-05:00\" } }");
+            var store = new ConfigStore(legacy);
+            Eq(4, store.Current.SchemaVersion, "升到 4");
+            Eq("", store.Current.Update.InstallWindow, "0.3.x 的默认窗口改成不限，开机就能装");
+
+            var custom = TempFile("v3-custom.json");
+            File.WriteAllText(custom, "{ \"schemaVersion\": 3, \"update\": { \"installWindow\": \"23:00-06:00\" } }");
+            Eq("23:00-06:00", new ConfigStore(custom).Current.Update.InstallWindow, "用户自己填的窗口不动");
+        });
+
         await Run("已是新结构的配置不会被再次迁移", () =>
         {
             var path = TempFile("config.json");

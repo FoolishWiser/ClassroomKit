@@ -1,6 +1,6 @@
 # GitHub 访问加速（hosts 护航）
 
-学校里 GitHub 经常时通时不通（DNS 污染、出口抖动）。这个功能在**直连不通时**往系统 hosts 里写一小段 GitHub 域名的 IP，写完立刻校验；还是不通就自己把这段删掉。
+学校里 GitHub 经常时通时不通（DNS 污染、出口抖动）。这个功能**全天生效**：往系统 hosts 里写一小段 GitHub 域名的 IP（直连可用时也走加速），按刷新间隔自动更新；写完立刻校验，还是不通就自己把这段删掉。
 
 它解决的问题很具体：检查更新、下载安装包、GitHub API 都走这几个域名，一旦解析到被污染的地址，升级就会失败。
 
@@ -55,7 +55,7 @@ ClassroomKit.Agent.exe --install-service
 
 ```text
 ClassroomKit.Agent.exe --hosts-status    打印状态 JSON
-ClassroomKit.Agent.exe --hosts-refresh   立即刷新（默认强制；加 --check 只在直连不通时才动）
+ClassroomKit.Agent.exe --hosts-refresh   立即刷新（强制；加 --check 时若配置里关掉了 hosts 就直接跳过）
 ClassroomKit.Agent.exe --hosts-restore   删除受管区块
 ```
 

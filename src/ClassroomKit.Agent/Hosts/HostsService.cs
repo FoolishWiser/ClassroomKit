@@ -7,7 +7,7 @@ using ClassroomKit.Core.Model;
 namespace ClassroomKit.Agent.Hosts;
 
 /// <summary>
-/// GitHub 访问护航：只在「直连不通」时才往 hosts 里写加速记录；写完全程校验，还是不通就自动还原。
+/// GitHub 访问护航：默认全天生效 —— 有可用记录就写进 hosts（直连也走加速）；写完全程校验，还是不通就自动还原。
 /// 写盘要么本进程有权限（管理员运行），要么交给 SYSTEM 护航任务（--service-tick）。
 /// </summary>
 public sealed class HostsService
@@ -63,7 +63,7 @@ public sealed class HostsService
         };
     }
 
-    /// <summary>周期巡检：能直连就不动 hosts；不能直连就刷新并写入。</summary>
+    /// <summary>周期巡检：不论直连是否可用都刷新并写入（全天生效，直连也走加速记录）。</summary>
     public async Task TickAsync(CancellationToken ct)
     {
         var cfg = _config().Hosts;
@@ -72,7 +72,6 @@ public sealed class HostsService
 
         try
         {
-            if (await GitHubReachableAsync(ct).ConfigureAwait(false)) return;
             await RefreshAsync(force: false, ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
@@ -91,9 +90,6 @@ public sealed class HostsService
     {
         var cfg = _config().Hosts;
         if (!cfg.Enabled && !force) return (false, "hosts 加速已在配置里关闭");
-        if (!force && await GitHubReachableAsync(ct).ConfigureAwait(false))
-            return (true, "当前可直连 GitHub，未改动 hosts");
-
         _lastCheck = DateTimeOffset.Now;
         var result = await _accelerator.RefreshAsync(cfg.Sources, null, ct).ConfigureAwait(false);
 
@@ -135,7 +131,7 @@ public sealed class HostsService
         {
             _lastError = null;
             _log.Info($"hosts 加速已生效（{entries.Count} 条，来源 {_source}）");
-            return (true, $"已写入 {entries.Count} 条记录，GitHub 已连通");
+            return (true, $"已写入 {entries.Count} 条记录（全天生效），GitHub 已连通");
         }
 
         await RestoreAsync(ct).ConfigureAwait(false);

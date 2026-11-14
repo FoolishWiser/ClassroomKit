@@ -8,7 +8,11 @@ namespace ClassroomKit.Core.Update;
 /// </summary>
 public static class InstallWindow
 {
-    public const string Default = "02:00-05:00";
+    /// <summary>
+    /// 默认不限时间：0.4.0 起自动安装不再锁在凌晨 —— 教室机器常常整夜断电，
+    /// 只认 02:00-05:00 等于永远装不上。只要没有设备连着热点就允许装。
+    /// </summary>
+    public const string Default = "";
 
     public static bool TryParse(string? text, out TimeOnly start, out TimeOnly end)
     {
@@ -34,7 +38,7 @@ public static class InstallWindow
             : now >= start || now < end;
     }
 
-    /// <summary>规范化成 "HH:mm-HH:mm"；空字符串保留为「不限时间」，写错格式退回默认窗口。</summary>
+    /// <summary>规范化成 "HH:mm-HH:mm"；空字符串与写错的格式都按「不限时间」处理。</summary>
     public static string Normalize(string? text)
     {
         if (string.IsNullOrWhiteSpace(text)) return "";

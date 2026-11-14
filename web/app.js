@@ -164,7 +164,7 @@ function renderHosts(h) {
   } else {
     badge.textContent = '未修改';
     badge.style.color = 'var(--muted)';
-    text.textContent = h.lastError ? h.lastError : '当前没有写入记录：能直连 GitHub 就不需要它。';
+    text.textContent = h.lastError ? h.lastError : '还没有写入记录：守护会按刷新间隔自动写，也可点「立即刷新」。';
   }
   if (h.serviceInstalled === false) text.textContent += '（护航任务未注册：管理员运行 --install-service 才能自动写 hosts）';
   else if (h.writable === false && h.applied === false) text.textContent += '（守护没有写权限，会交给护航任务执行）';

@@ -37,7 +37,7 @@ public sealed class ConfigStore
     }
 
     /// <summary>当前配置结构版本。</summary>
-    public const int CurrentSchemaVersion = 3;
+    public const int CurrentSchemaVersion = 4;
 
     /// <summary>本次加载从哪个结构版本迁移过来；0 表示没有迁移。</summary>
     public int MigratedFrom { get; private set; }
@@ -46,11 +46,17 @@ public sealed class ConfigStore
     /// 结构迁移：只补字段/盖章，绝不改用户已有值。
     /// v0 → v1 只加 schemaVersion：热点名与密码原样保留，避免升级时把正在上课的机器热点改名。
     /// v2 → v3 只加 lesson（课表联动）与 boardSave 的改名设置，同样不改任何已有值。
+    /// v3 → v4 只把「0.3.x 的默认自动安装窗口 02:00-05:00」改成不限（用户自己填过的窗口原样保留）。
     /// 改机器名/热点名的动作由用户显式触发（面板按钮 / rename-ssid）。
     /// </summary>
     private static void Migrate(AppConfig cfg)
     {
         if (cfg.SchemaVersion < 0) cfg.SchemaVersion = 0;
+        if (cfg.SchemaVersion < 4 && cfg.Update is { } update && update.InstallWindow == "02:00-05:00")
+        {
+            // 0.3.x 默认把升级锁在凌晨，教室机器一关机就永远等不到；改成不限，用户自填的窗口不动
+            update.InstallWindow = "";
+        }
         cfg.SchemaVersion = CurrentSchemaVersion;
     }
 

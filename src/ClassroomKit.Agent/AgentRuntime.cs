@@ -288,7 +288,7 @@ public sealed class AgentRuntime : IDisposable
         }
     }
 
-    /// <summary>自动安装的前置条件：在时间窗内，且（默认）没有设备连着热点。</summary>
+    /// <summary>自动安装的前置条件：时间窗打开（默认不限），且（默认）没有设备连着热点。</summary>
     private bool CanInstallNow(UpdateConfig cfg)
     {
         if (!InstallWindow.IsOpen(cfg.InstallWindow, TimeOnly.FromDateTime(DateTime.Now))) return false;
@@ -297,7 +297,7 @@ public sealed class AgentRuntime : IDisposable
         var clients = Guard.Clients.Count;
         if (clients > 0)
         {
-            Log.Info($"有 {clients} 台设备连着热点，自动升级推迟到现在之后（可设 update.installWithClients=true 强制）");
+            Log.Info($"有 {clients} 台设备连着热点，自动升级推迟到设备断开后（可设 update.installWithClients=true 强制）");
             return false;
         }
 

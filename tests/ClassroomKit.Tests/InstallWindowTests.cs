@@ -8,7 +8,7 @@ internal static class InstallWindowTests
 {
     public static async Task RunAsync()
     {
-        await Run("默认窗口 02:00-05:00 解析", () =>
+        await Run("显式时间窗解析（默认不限，只有用户填了才限制）", () =>
         {
             True(InstallWindow.TryParse("02:00-05:00", out var start, out var end), "应能解析默认窗口");
             Eq(new TimeOnly(2, 0), start, "开始");
@@ -45,7 +45,8 @@ internal static class InstallWindowTests
             Eq("02:00-05:00", InstallWindow.Normalize("2:00~5:00"), "波浪号与单位数小时");
             Eq("23:00-06:00", InstallWindow.Normalize("23:00 至 06:00"), "中文「至」");
             Eq("01:30-04:00", InstallWindow.Normalize("01:30:00-04:00:00"), "带秒");
-            Eq(InstallWindow.Default, InstallWindow.Normalize("坏数据"), "写歪了退回默认窗口");
+            Eq("", InstallWindow.Normalize("坏数据"), "写歪了按不限处理，别把机器卡死在不升级");
+            Eq("", InstallWindow.Default, "默认值必须是不限时间");
         });
 
         await Run("起止相同等于不限", () =>
