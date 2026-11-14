@@ -56,6 +56,10 @@ internal static class Program
         await ConflictDialogTests.RunAsync();
 
         Console.WriteLine();
+        Console.WriteLine("[课表与课前提醒]");
+        await LessonTests.RunAsync();
+
+        Console.WriteLine();
         Console.WriteLine("[HTTP API]");
         await ApiTestsAsync();
 

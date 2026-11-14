@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using ClassroomKit.Core.Board;
 using ClassroomKit.Core.Hosts;
+using ClassroomKit.Core.Lesson;
 using ClassroomKit.Core.Hotspot;
 using ClassroomKit.Core.Model;
 using ClassroomKit.Core.Update;
@@ -36,7 +37,7 @@ public sealed class ConfigStore
     }
 
     /// <summary>当前配置结构版本。</summary>
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 3;
 
     /// <summary>本次加载从哪个结构版本迁移过来；0 表示没有迁移。</summary>
     public int MigratedFrom { get; private set; }
@@ -44,7 +45,8 @@ public sealed class ConfigStore
     /// <summary>
     /// 结构迁移：只补字段/盖章，绝不改用户已有值。
     /// v0 → v1 只加 schemaVersion：热点名与密码原样保留，避免升级时把正在上课的机器热点改名。
-    /// 改机器名的动作由用户显式触发（面板按钮 / rename-ssid）。
+    /// v2 → v3 只加 lesson（课表联动）与 boardSave 的改名设置，同样不改任何已有值。
+    /// 改机器名/热点名的动作由用户显式触发（面板按钮 / rename-ssid）。
     /// </summary>
     private static void Migrate(AppConfig cfg)
     {
@@ -95,6 +97,10 @@ public sealed class ConfigStore
             cfg.Tray ??= new TrayConfig();
             cfg.BoardSave ??= new BoardSaveConfig();
             if (cfg.BoardSave.LaunchTimeoutSec is < 5 or > 600) cfg.BoardSave.LaunchTimeoutSec = 60;
+            if (string.IsNullOrWhiteSpace(cfg.BoardSave.NameTemplate))
+                cfg.BoardSave.NameTemplate = BoardFileName.DefaultTemplate;
+            cfg.Lesson ??= new LessonConfig();
+            cfg.Lesson.Normalize();
             cfg.Conflict ??= new ConflictConfig();
             if (cfg.Conflict.CooldownMinutes is < 1 or > 1440) cfg.Conflict.CooldownMinutes = 40;
             if (ConflictSnooze.Parse(cfg.Conflict.SnoozeDate) is null) cfg.Conflict.SnoozeDate = "";

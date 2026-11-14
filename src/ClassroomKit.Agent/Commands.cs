@@ -2,12 +2,15 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using ClassroomKit.Agent.Board;
+using ClassroomKit.Agent.Diagnose;
+using ClassroomKit.Agent.Lesson;
 using ClassroomKit.Agent.Shell;
 using ClassroomKit.Agent.Tasks;
 using ClassroomKit.Agent.Tethering;
 using ClassroomKit.Agent.Update;
 using ClassroomKit.Core.Board;
 using ClassroomKit.Core.Config;
+using ClassroomKit.Core.Lesson;
 using ClassroomKit.Core.Logging;
 
 namespace ClassroomKit.Agent;
@@ -46,8 +49,13 @@ ClassroomKit.Agent {Version}
   --update          检查 → 下载 → 静默安装（装了护航任务就不弹 UAC；--dry-run 只检查）
   --panel           用默认浏览器打开 Web 控制面板（带令牌）
   --uplinks         列出本机网卡并输出上行选择结果（JSON）
-  --save-classin-board  保存 ClassInX 板书（三种格式）并关闭 ClassInX；ClassInX 没开时会先自动拉起。
-                         --no-close 只保存不关；--no-launch 不自动启动 ClassInX
+  --save-board      保存 ClassInX 板书（三种格式）并按上一节课改名；默认不关闭 ClassInX
+                    --close 保存后关闭 ClassInX；--no-name 不改名；--no-launch 不自动启动 ClassInX
+  --save-classin-board  同 --save-board，但默认保存后关闭 ClassInX（旧行为）
+  --lesson-status   课表联动状态（JSON：当前/下一节/提醒判定）
+  --lesson-reminder-test 打印「现在会不会提醒、还差多久」（JSON；加 --show 直接弹窗）
+  --diagnose        一键自检（JSON：热点/上行/自启/护航/hosts/课表/升级）
+  --rotate-token    换一个面板令牌（已打开的页面需要重新用新链接）
   --probe-classin   重新探测 ClassInX 保存界面（更新 ui-recipe.json）
   --conflict-check  检查当前是否存在板书软件全屏冲突（JSON）
   --conflict-preview 预览冲突提示窗（无人值守时可加 --timeout 8）
@@ -158,26 +166,127 @@ ClassroomKit.Agent {Version}
     /// <summary>CLI：保存 ClassInX 板书。</summary>
     public static int SaveClassInBoardCli(string[] args)
     {
-        var close = !args.Any(a => a.Equals("--no-close", StringComparison.OrdinalIgnoreCase));
+        var oldStyle = args.Any(a => a.Equals("--save-classin-board", StringComparison.OrdinalIgnoreCase));
+        var close = oldStyle
+            ? !args.Any(a => a.Equals("--no-close", StringComparison.OrdinalIgnoreCase))
+            : args.Any(a => a.Equals("--close", StringComparison.OrdinalIgnoreCase));
         var launch = !args.Any(a => a.Equals("--no-launch", StringComparison.OrdinalIgnoreCase));
+        var nameWithLesson = !args.Any(a => a.Equals("--no-name", StringComparison.OrdinalIgnoreCase));
         var store = new ConfigStore(Paths.ConfigPath);
         var log = new AppLog(Paths.LogDir);
         var recipe = UiRecipe.Load(Paths.RecipePath);
         var saver = new ClassInBoardSaver(log, recipe, () => store.Current.BoardSave);
         var result = saver.Save(close, launch);
 
+        var files = result.Files.ToList();
+        BoardRenameResult? rename = null;
+        if (result.Ok && nameWithLesson && files.Count > 0)
+        {
+            var lesson = new LessonRuntime(log, () => store.Current.Lesson, Paths.LessonStatePath);
+            var now = DateTimeOffset.Now;
+            var baseName = BoardFileName.Render(store.Current.BoardSave.NameTemplate, lesson.NameHint(now), now,
+                lesson.State().Snapshot?.LessonIndex ?? 0);
+            rename = BoardFileName.ApplyTo(files, baseName);
+            files = rename.Files.ToList();
+        }
+
         Console.WriteLine(JsonSerializer.Serialize(new
         {
-            ok = result.Ok,
+            ok = result.Ok && (rename?.Failed ?? 0) == 0,
             launched = result.Launched,
-            message = result.Message,
+            message = result.Message + (rename is null ? "" : "｜" + rename.Message),
             elapsedMs = result.ElapsedMs,
-            files = result.Files,
+            files,
+            renamed = rename?.Renamed ?? 0,
+            renameFailed = rename?.Failed ?? 0,
             steps = result.Steps.Select(x => new { step = x.Name, atMs = x.ElapsedMs })
         }, new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
 
         _ = store;
         return result.Ok ? 0 : 1;
+    }
+
+    /// <summary>CLI：课表联动状态（读守护落盘的 lesson-state.json）。</summary>
+    public static int LessonStatusCli()
+    {
+        var store = new ConfigStore(Paths.ConfigPath);
+        var log = new AppLog(Paths.LogDir);
+        var lesson = new LessonRuntime(log, () => store.Current.Lesson, Paths.LessonStatePath);
+        Console.WriteLine(JsonSerializer.Serialize(lesson.Status(), new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+        }));
+        return 0;
+    }
+
+    /// <summary>CLI：现在会不会提醒？加 --show 直接弹窗（不保存，只演示）。</summary>
+    public static int LessonReminderTestCli(string[] args)
+    {
+        var store = new ConfigStore(Paths.ConfigPath);
+        var log = new AppLog(Paths.LogDir);
+        var lesson = new LessonRuntime(log, () => store.Current.Lesson, Paths.LessonStatePath);
+        var decision = lesson.Evaluate(DateTimeOffset.Now);
+        var cfg = store.Current.Lesson;
+
+        Console.WriteLine(JsonSerializer.Serialize(new
+        {
+            show = decision.Show,
+            reason = decision.Reason,
+            key = decision.Key,
+            remindAt = decision.RemindAt,
+            subject = decision.Subject,
+            secondsToStart = decision.SecondsToStart,
+            nameHint = lesson.NameHint(DateTimeOffset.Now),
+            config = new
+            {
+                enabled = cfg.Enabled,
+                minutesBefore = cfg.RemindMinutesBefore,
+                dialogSeconds = cfg.DialogSeconds,
+                timeoutAction = cfg.TimeoutAction,
+                onlyWhenClassInBoard = cfg.OnlyWhenClassInBoard
+            }
+        }, new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
+
+        if (!args.Any(a => a.Equals("--show", StringComparison.OrdinalIgnoreCase))) return 0;
+
+        var choice = BoardReminderDialog.Ask(decision.Subject ?? lesson.NameHint(DateTimeOffset.Now) ?? "语文",
+            Math.Max(decision.SecondsToStart, cfg.RemindMinutesBefore * 60), cfg.RemindMinutesBefore, cfg.DialogSeconds, cfg.TimeoutAction);
+        Console.WriteLine($"选择：{BoardReminderModel.Label(choice)}（演示不执行保存）");
+        return 0;
+    }
+
+    /// <summary>CLI：一键自检。</summary>
+    public static int DiagnoseCli()
+    {
+        using var runtime = new AgentRuntime();
+        Console.WriteLine(JsonSerializer.Serialize(Diagnostics.Build(runtime), new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+        }));
+        return 0;
+    }
+
+    /// <summary>CLI：换一个面板令牌。</summary>
+    public static int RotateTokenCli()
+    {
+        var store = new ConfigStore(Paths.ConfigPath);
+        var token = ConfigStore.NewToken();
+        store.Update(c =>
+        {
+            c.Token = token;
+            return 0;
+        });
+
+        Console.WriteLine(JsonSerializer.Serialize(new
+        {
+            ok = true,
+            token,
+            panel = $"http://127.0.0.1:{store.Current.Port}/?t={token}",
+            message = "已写入 config.json；守护每 2 秒读一次配置，面板会立刻改用新令牌，旧链接随即失效"
+        }, new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
+        return 0;
     }
 
     /// <summary>CLI：重新探测 ClassInX 保存界面。当前若正好开着对话框，会把尺寸写进配方。</summary>

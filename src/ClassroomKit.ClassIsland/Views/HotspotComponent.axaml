@@ -6,5 +6,7 @@
     <StackPanel Orientation="Horizontal" Spacing="8">
         <TextBlock x:Name="Headline" Text="热点" FontWeight="SemiBold" />
         <TextBlock x:Name="Detail" Text="读取中…" Opacity="0.8" />
+        <TextBlock x:Name="LessonLine" Text="" IsVisible="False" Opacity="0.7"
+                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="200" />
     </StackPanel>
 </ci:ComponentBase>

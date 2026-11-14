@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -5,6 +6,7 @@ using ClassroomKit.Core.Board;
 using ClassroomKit.Core.Config;
 using ClassroomKit.Core.Hotspot;
 using ClassroomKit.Core.Http;
+using ClassroomKit.Core.Lesson;
 using ClassroomKit.Core.Logging;
 using ClassroomKit.Core.Model;
 using ClassroomKit.Core.Update;
@@ -79,6 +81,20 @@ public sealed class ApiServer
     public Func<bool, CancellationToken, Task<(bool Ok, string Message)>>? RefreshHosts { get; set; }
     /// <summary>还原 hosts（删掉受管区块）。</summary>
     public Func<CancellationToken, Task<(bool Ok, string Message)>>? RestoreHosts { get; set; }
+    /// <summary>课表状态（GET /api/lesson）。</summary>
+    public Func<object>? GetLesson { get; set; }
+    /// <summary>ClassIsland 插件推送的课表快照。</summary>
+    public Func<LessonSnapshot, (bool Ok, string Message)>? AcceptLesson { get; set; }
+    /// <summary>清空课表状态（插件退出、课表被关掉）。</summary>
+    public Action? ClearLesson { get; set; }
+    /// <summary>保存板书并可选按上一节课改名（参数：保存后关闭、按课表改名）。</summary>
+    public Func<bool, bool, (bool Ok, string Message)>? SaveBoardNamed { get; set; }
+    /// <summary>预览课前提醒弹窗（不真的保存）。</summary>
+    public Func<(bool Ok, string Message)>? PreviewBoardReminder { get; set; }
+    /// <summary>稍后提醒 / 取消稍后（0 = 取消，其余 = 分钟）。</summary>
+    public Func<int, (bool Ok, string Message)>? SnoozeBoardReminder { get; set; }
+    /// <summary>一键自检报告（GET /api/diagnose）。</summary>
+    public Func<CancellationToken, Task<object>>? Diagnose { get; set; }
 
     public sealed record UserSettings(string Ssid, string Passphrase, int TargetClients, bool AllowWifiUplink, string UplinkMode, bool FallbackToLan);
 
@@ -184,6 +200,9 @@ public sealed class ApiServer
             case "/api/hosts":
                 return HttpResponse.Json(JsonSerializer.Serialize(GetHosts?.Invoke() ?? new { supported = false }, Json));
 
+            case "/api/lesson":
+                return await HandleLessonAsync(request);
+
             case "/api/update":
                 return await HandleUpdateAsync(request, ct);
 
@@ -229,6 +248,61 @@ public sealed class ApiServer
             default:
                 return HttpResponse.Text("unknown update action", 400);
         }
+    }
+
+    /// <summary>GET 取课表状态；POST 由 ClassIsland 插件推送快照，action=clear 清空。</summary>
+    private Task<HttpResponse> HandleLessonAsync(HttpRequest request)
+    {
+        if (request.Method == "GET")
+        {
+            var dto = GetLesson?.Invoke() ?? new { available = false };
+            return Task.FromResult(HttpResponse.Json(JsonSerializer.Serialize(dto, Json)));
+        }
+
+        if (request.Method != "POST") return Task.FromResult(HttpResponse.Text("method not allowed", 405));
+
+        var fields = ReadFields(request);
+        if (fields.TryGetValue("action", out var clearAction) &&
+            clearAction.Trim().Equals("clear", StringComparison.OrdinalIgnoreCase))
+        {
+            ClearLesson?.Invoke();
+            _log.Info("课表状态已清空（ClassIsland 插件退出或课表关闭）");
+            return Task.FromResult(HttpResponse.Json(JsonSerializer.Serialize(new { ok = true, action = "clear" }, Json)));
+        }
+
+        if (AcceptLesson is null) return Task.FromResult(HttpResponse.Text("not supported", 409));
+
+        var snapshot = ParseLessonSnapshot(fields);
+        var (ok, message) = AcceptLesson(snapshot);
+        return Task.FromResult(HttpResponse.Json(
+            JsonSerializer.Serialize(new { ok, message, state = snapshot.State }, Json), ok ? 200 : 400));
+    }
+
+    private static LessonSnapshot ParseLessonSnapshot(Dictionary<string, string> fields)
+    {
+        static string? Text(Dictionary<string, string> f, string key) =>
+            f.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) ? v.Trim() : null;
+        static int Int(Dictionary<string, string> f, string key, int fallback) =>
+            f.TryGetValue(key, out var v) && int.TryParse(v, out var n) ? n : fallback;
+        static bool Bool(Dictionary<string, string> f, string key) =>
+            f.TryGetValue(key, out var v) && v is "1" or "true" or "on" or "yes";
+        static DateTimeOffset? Moment(Dictionary<string, string> f, string key)
+        {
+            if (Text(f, key) is not { } raw) return null;
+            return DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeLocal, out var parsed) ? parsed : null;
+        }
+
+        return LessonSnapshot.FromClassIsland(
+            state: (Text(fields, "state") ?? LessonStates.None).ToLowerInvariant(),
+            currentSubject: Text(fields, "currentSubject"),
+            nextSubject: Text(fields, "nextSubject"),
+            previousSubject: Text(fields, "previousSubject"),
+            nextStartAt: Moment(fields, "nextStartAt"),
+            secondsToNext: Int(fields, "secondsToNext", 0),
+            lessonIndex: Int(fields, "lessonIndex", 0),
+            planLoaded: Bool(fields, "planLoaded"),
+            at: Moment(fields, "at") ?? DateTimeOffset.Now);
     }
 
     private static bool IsOn(string text) => text is "1" or "true" or "on" or "yes";
@@ -461,6 +535,132 @@ public sealed class ApiServer
                 }, Json));
             }
 
+            case "board-save":
+            {
+                var fields = ReadFields(request);
+                if (SaveBoardNamed is null && SaveBoard is null) return HttpResponse.Text("not supported", 409);
+
+                var close = _config.Current.BoardSave.CloseAfterSave;
+                if (fields.TryGetValue("closeAfterSave", out var closeValue)) close = IsOn(closeValue);
+
+                var named = _config.Current.BoardSave.NameWithLesson;
+                if (fields.TryGetValue("nameWithLesson", out var namedValue)) named = IsOn(namedValue);
+
+                var (ok, message) = SaveBoardNamed?.Invoke(close, named) ?? SaveBoard!(close, false);
+                _log.Info($"保存 ClassInX 板书：{message}");
+                return HttpResponse.Json(
+                    JsonSerializer.Serialize(new { ok, action, closeAfterSave = close, nameWithLesson = named, message }, Json),
+                    ok ? 200 : 500);
+            }
+
+            case "board-config":
+            {
+                var fields = ReadFields(request);
+                _config.Update(c =>
+                {
+                    if (fields.TryGetValue("nameWithLesson", out var named)) c.BoardSave.NameWithLesson = IsOn(named);
+                    if (fields.TryGetValue("nameTemplate", out var template))
+                        c.BoardSave.NameTemplate = string.IsNullOrWhiteSpace(template)
+                            ? BoardFileName.DefaultTemplate
+                            : template.Trim();
+                    if (fields.TryGetValue("closeAfterSave", out var close)) c.BoardSave.CloseAfterSave = IsOn(close);
+                    return 0;
+                });
+
+                var board = _config.Current.BoardSave;
+                _log.Info($"板书设置已保存：按课表改名={board.NameWithLesson}｜模板={board.NameTemplate}");
+                return HttpResponse.Json(JsonSerializer.Serialize(new
+                {
+                    ok = true,
+                    action,
+                    nameWithLesson = board.NameWithLesson,
+                    nameTemplate = board.NameTemplate,
+                    closeAfterSave = board.CloseAfterSave,
+                    message = "已保存"
+                }, Json));
+            }
+
+            case "board-reminder-preview":
+            {
+                if (PreviewBoardReminder is null) return HttpResponse.Text("not supported", 409);
+                var (ok, message) = PreviewBoardReminder();
+                return HttpResponse.Json(JsonSerializer.Serialize(new { ok, action, message }, Json), ok ? 200 : 500);
+            }
+
+            case "board-reminder-snooze":
+            {
+                if (SnoozeBoardReminder is null) return HttpResponse.Text("not supported", 409);
+                var minutes = 0;
+                if (ReadFields(request).TryGetValue("minutes", out var value) && int.TryParse(value, out var parsed))
+                    minutes = Math.Clamp(parsed, 0, 60);
+                var (ok, message) = SnoozeBoardReminder(minutes);
+                return HttpResponse.Json(JsonSerializer.Serialize(new { ok, action, minutes, message }, Json), ok ? 200 : 500);
+            }
+
+            case "lesson-config":
+            {
+                var fields = ReadFields(request);
+                _config.Update(c =>
+                {
+                    if (fields.TryGetValue("enabled", out var enabled)) c.Lesson.Enabled = IsOn(enabled);
+                    if (fields.TryGetValue("minutesBefore", out var minutes) && int.TryParse(minutes, out var m))
+                        c.Lesson.RemindMinutesBefore = m;
+                    if (fields.TryGetValue("dialogSeconds", out var dialog) && int.TryParse(dialog, out var d))
+                        c.Lesson.DialogSeconds = d;
+                    if (fields.TryGetValue("timeoutAction", out var action0) && !string.IsNullOrWhiteSpace(action0))
+                        c.Lesson.TimeoutAction = action0.Trim();
+                    if (fields.TryGetValue("snoozeMinutes", out var snooze) && int.TryParse(snooze, out var s))
+                        c.Lesson.SnoozeMinutes = s;
+                    if (fields.TryGetValue("onlyWhenClassInBoard", out var only))
+                        c.Lesson.OnlyWhenClassInBoard = IsOn(only);
+                    if (fields.TryGetValue("staleMinutes", out var stale) && int.TryParse(stale, out var st2))
+                        c.Lesson.StaleMinutes = st2;
+                    c.Lesson.Normalize();
+                    return 0;
+                });
+
+                var lesson = _config.Current.Lesson;
+                _log.Info($"课前提醒设置已保存：{(lesson.Enabled ? "开" : "关")}｜提前 {lesson.RemindMinutesBefore} 分钟｜{lesson.DialogSeconds} 秒后{DescTimeout(lesson.TimeoutAction)}");
+                return HttpResponse.Json(JsonSerializer.Serialize(new
+                {
+                    ok = true,
+                    action,
+                    enabled = lesson.Enabled,
+                    minutesBefore = lesson.RemindMinutesBefore,
+                    dialogSeconds = lesson.DialogSeconds,
+                    timeoutAction = lesson.TimeoutAction,
+                    snoozeMinutes = lesson.SnoozeMinutes,
+                    onlyWhenClassInBoard = lesson.OnlyWhenClassInBoard,
+                    staleMinutes = lesson.StaleMinutes,
+                    message = "已保存"
+                }, Json));
+            }
+
+            case "lesson-clear":
+                ClearLesson?.Invoke();
+                return HttpResponse.Json(JsonSerializer.Serialize(new { ok = true, action, message = "已清空课表状态" }, Json));
+
+            case "rotate-token":
+            {
+                var token = ConfigStore.NewToken();
+                _config.Update(c => { c.Token = token; return 0; });
+                _log.Warn("面板请求重置访问令牌：旧链接与插件里保存的令牌都需要更新");
+                return HttpResponse.Json(JsonSerializer.Serialize(new
+                {
+                    ok = true,
+                    action,
+                    token,
+                    message = "令牌已重置；当前页面需要改用带新令牌的链接重新打开"
+                }, Json));
+            }
+
+            case "diagnose":
+            {
+                if (Diagnose is null) return HttpResponse.Text("not supported", 409);
+                var report = await Diagnose(ct);
+                return HttpResponse.Json(JsonSerializer.Serialize(report, Json));
+            }
+
             case "exit":
                 RequestExit?.Invoke();
                 return HttpResponse.Json(JsonSerializer.Serialize(new { ok = true, action }, Json));
@@ -469,6 +669,15 @@ public sealed class ApiServer
                 return HttpResponse.Text("unknown action", 400);
         }
     }
+
+    /// <summary>弹窗超时动作的人话说明（写日志用）。</summary>
+    private static string DescTimeout(string action) => action switch
+    {
+        "save" => "自动保存板书（不关闭 ClassInX）",
+        "save-close" or "saveclose" => "自动保存并关闭 ClassInX",
+        "dismiss" or "ignore" => "自动忽略",
+        _ => "一直等到手动选择"
+    };
 
     private Task<HttpResponse> PostAsync(HttpRequest request, Func<JsonElement, object> work)
     {
@@ -531,7 +740,14 @@ public sealed class ApiServer
             lastError = _guard?.LastError,
             capacityWarning = _guard?.CapabilityWarning,
             bcu = new { enabled = cfg.Bcu.Enabled, path = cfg.Bcu.Path },
-            boardSave = new { enabled = cfg.BoardSave.Enabled, closeAfterSave = cfg.BoardSave.CloseAfterSave },
+            boardSave = new
+            {
+                enabled = cfg.BoardSave.Enabled,
+                closeAfterSave = cfg.BoardSave.CloseAfterSave,
+                nameWithLesson = cfg.BoardSave.NameWithLesson,
+                nameTemplate = cfg.BoardSave.NameTemplate
+            },
+            lesson = GetLesson?.Invoke(),
             conflict = new
             {
                 enabled = cfg.Conflict.Enabled,

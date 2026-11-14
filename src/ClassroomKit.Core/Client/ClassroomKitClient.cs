@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using ClassroomKit.Core.Lesson;
 
 namespace ClassroomKit.Core.Client;
 
@@ -60,6 +61,29 @@ public sealed class ClassroomKitClient : IDisposable
 
         using var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
         using var res = await SendAsync(HttpMethod.Post, "/api/action", content, ct).ConfigureAwait(false);
+        return await ReadAsync<ActionReply>(res, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>读守护记着的课表状态（ClassIsland 插件推上来的那一份）。</summary>
+    public async Task<LessonView> GetLessonAsync(CancellationToken ct = default)
+    {
+        using var res = await SendAsync(HttpMethod.Get, "/api/lesson", null, ct).ConfigureAwait(false);
+        return await ReadAsync<LessonView>(res, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>把 ClassIsland 的课表快照推给守护（每节课状态变化时调，别太频繁）。</summary>
+    public async Task<ActionReply> PushLessonAsync(LessonSnapshot snapshot, CancellationToken ct = default)
+    {
+        using var content = new StringContent(JsonSerializer.Serialize(snapshot, Json), Encoding.UTF8, "application/json");
+        using var res = await SendAsync(HttpMethod.Post, "/api/lesson", content, ct).ConfigureAwait(false);
+        return await ReadAsync<ActionReply>(res, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>插件退出或课表被关掉时告诉守护「课表没了」，别再按旧数据提醒。</summary>
+    public async Task<ActionReply> ClearLessonAsync(CancellationToken ct = default)
+    {
+        using var content = new StringContent("{\"action\":\"clear\"}", Encoding.UTF8, "application/json");
+        using var res = await SendAsync(HttpMethod.Post, "/api/lesson", content, ct).ConfigureAwait(false);
         return await ReadAsync<ActionReply>(res, ct).ConfigureAwait(false);
     }
 

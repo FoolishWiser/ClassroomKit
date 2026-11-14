@@ -5,6 +5,7 @@ using ClassroomKit.Agent.Shell;
 using ClassroomKit.Agent.Update;
 using ClassroomKit.Core.Board;
 using ClassroomKit.Core.Hotspot;
+using ClassroomKit.Core.Lesson;
 using ClassroomKit.Core.Model;
 using Forms = System.Windows.Forms;
 
@@ -53,7 +54,13 @@ public sealed class TrayController : IDisposable
         menu.Items.Add(new Forms.ToolStripMenuItem("打开控制面板", null, (_, _) => OpenPanel()));
         menu.Items.Add(_pauseMenu);
         menu.Items.Add(_resumeItem);
-        menu.Items.Add(new Forms.ToolStripMenuItem("保存 ClassInX 板书并关闭 ClassInX", null, (_, _) => SaveClassInBoard()));
+        var saveMenu = new Forms.ToolStripMenuItem("保存板书");
+        saveMenu.DropDownItems.Add(new Forms.ToolStripMenuItem("保存并关闭 ClassInX", null, (_, _) => SaveClassInBoard(true, closeAfter: true)));
+        saveMenu.DropDownItems.Add(new Forms.ToolStripMenuItem("保存，保留 ClassInX", null, (_, _) => SaveClassInBoard(true, closeAfter: false)));
+        saveMenu.DropDownItems.Add(new Forms.ToolStripMenuItem("保存（不按课表改名）", null, (_, _) => SaveClassInBoard(false, closeAfter: false)));
+        saveMenu.DropDownItems.Add(new Forms.ToolStripSeparator());
+        saveMenu.DropDownItems.Add(new Forms.ToolStripMenuItem("预览课前提醒窗", null, (_, _) => PreviewBoardReminder()));
+        menu.Items.Add(saveMenu);
         menu.Items.Add(new Forms.ToolStripMenuItem("检查板书软件冲突", null, (_, _) => CheckConflict()));
         menu.Items.Add(new Forms.ToolStripMenuItem("复制热点密码", null, (_, _) => CopyPassword()));
         menu.Items.Add(new Forms.ToolStripMenuItem("查看日志", null, (_, _) => OpenFolder(Paths.LogDir)));
@@ -74,6 +81,8 @@ public sealed class TrayController : IDisposable
         {
             if (e.Button == Forms.MouseButtons.Left) OpenPanel();
         };
+
+        _runtime.ReminderRequested = ShowBoardReminder;
 
         _timer = new Forms.Timer { Interval = 2000 };
         _timer.Tick += (_, _) => Update();
@@ -179,12 +188,9 @@ public sealed class TrayController : IDisposable
     }
 
     /// <summary>托盘菜单：保存 ClassInX 板书（后台线程跑，避免卡住托盘）。</summary>
-    private void SaveClassInBoard()
+    private void SaveClassInBoard(bool nameWithLesson, bool closeAfter)
     {
-        var cfg = _runtime.Config.Current.BoardSave;
-        var closeAfter = cfg.CloseAfterSave;
-        var launch = cfg.LaunchIfNeeded;
-        _runtime.Log.Info($"托盘触发：保存 ClassInX 板书（保存后关闭={closeAfter}，没开则启动={launch}）");
+        _runtime.Log.Info($"托盘触发：保存 ClassInX 板书（按课表改名={nameWithLesson}，保存后关闭={closeAfter}）");
 
         // 注意：保存过程中不能再弹托盘气泡。气泡固定在屏幕右下角，正好压在
         // ClassInX「保存至本地」面板的勾选框和「保存」按钮上（学校一体机 150% 缩放时
@@ -204,7 +210,8 @@ public sealed class TrayController : IDisposable
             BoardSaveResult result;
             try
             {
-                result = _runtime.BoardSaver.Save(closeAfter, launch);
+                var saved = _runtime.SaveBoardNamed(closeAfter, nameWithLesson);
+                result = new BoardSaveResult(saved.Ok, saved.Message, 0, Array.Empty<string>(), Array.Empty<BoardSaveStep>());
             }
             catch (Exception ex)
             {
@@ -216,6 +223,54 @@ public sealed class TrayController : IDisposable
             _runtime.Log.Info(result.Ok ? $"板书保存成功：{result.Message}" : $"板书保存失败：{result.Message}");
             ShowBalloon(result.Ok ? "板书已保存" : "保存板书失败", result.Message, result.Ok);
         });
+    }
+
+    /// <summary>到点该提醒时由守护回调：切到 UI 线程弹课前提醒窗，并按选择执行。</summary>
+    public void ShowBoardReminder(ReminderDecision decision)
+    {
+        void Run()
+        {
+            try
+            {
+                var cfg = _runtime.Config.Current.Lesson;
+                var choice = BoardReminderDialog.Ask(decision.Subject, decision.SecondsToStart, cfg.RemindMinutesBefore, cfg.DialogSeconds, cfg.TimeoutAction);
+                _runtime.Log.Info($"课前提醒窗结果：{BoardReminderModel.Label(choice)}");
+
+                switch (choice)
+                {
+                    case BoardReminderChoice.Save:
+                    case BoardReminderChoice.SaveAndClose:
+                        var closeAfter = choice == BoardReminderChoice.SaveAndClose;
+                        _ = Task.Run(() =>
+                        {
+                            var (ok, message) = _runtime.SaveBoardNamed(closeAfter, _runtime.Config.Current.BoardSave.NameWithLesson);
+                            ShowBalloon(ok ? "板书已保存" : "保存板书失败", message, ok);
+                        });
+                        break;
+                    case BoardReminderChoice.Snooze:
+                        _runtime.SnoozeBoardReminder(cfg.SnoozeMinutes);
+                        ShowBalloon("稍后提醒", $"再过 {cfg.SnoozeMinutes} 分钟提醒保存板书", true);
+                        break;
+                    default:
+                        _runtime.Log.Info("课前提醒：本次忽略");
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                _runtime.Log.Warn($"课前提醒窗失败：{ex.Message}");
+            }
+        }
+
+        if (_ui is not null) _ui.Post(_ => Run(), null);
+        else Run();
+    }
+
+    /// <summary>托盘菜单：只预览课前提醒窗，不执行任何保存动作。</summary>
+    public void PreviewBoardReminder()
+    {
+        var cfg = _runtime.Config.Current.Lesson;
+        ShowBoardReminder(new ReminderDecision(true, "preview", "preview", DateTimeOffset.Now, "数学", cfg.RemindMinutesBefore * 60));
     }
 
     /// <summary>托盘菜单：手动检查一次板书冲突（忽略冷却）。</summary>

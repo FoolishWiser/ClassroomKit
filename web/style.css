@@ -198,3 +198,31 @@ footer a { color: var(--muted); }
   white-space: pre-wrap;
   word-break: break-word;
 }
+/* ---- 课表（一体机助手的主卡片） ---- */
+.lesson {
+  background: linear-gradient(180deg, rgba(59,130,246,.12), rgba(59,130,246,0) 70%), var(--card);
+  border-color: rgba(59,130,246,.35);
+}
+.lesson-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+.lesson-main { min-width: 0; }
+.lesson-state {
+  font-size: 12px;
+  letter-spacing: .06em;
+  color: var(--blue);
+}
+.lesson-now { font-size: 20px; font-weight: 600; margin-top: 2px; }
+.lesson-next { color: var(--muted); font-size: 13px; margin-top: 4px; }
+.lesson-count { font-size: 24px; font-weight: 700; color: var(--amber); white-space: nowrap; }
+.lesson-form { margin-top: 6px; }
+.lesson-form .row { align-items: center; }
+
+/* ---- 一键自检 ---- */
+.diag-ok { color: var(--green); }
+.diag-warn { color: var(--amber); }
+.diag-fail { color: var(--red); }

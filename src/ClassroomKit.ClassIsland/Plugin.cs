@@ -2,6 +2,7 @@ using ClassIsland.Core.Abstractions;
 using ClassIsland.Core.Attributes;
 using ClassIsland.Core.Extensions.Registry;
 using ClassroomKit.ClassIsland.Actions;
+using ClassroomKit.ClassIsland.Lesson;
 using ClassroomKit.ClassIsland.Settings;
 using ClassroomKit.ClassIsland.Views;
 using Microsoft.Extensions.DependencyInjection;
@@ -18,11 +19,18 @@ public class ClassroomKitPlugin : PluginBase
 {
     public override void Initialize(HostBuilderContext context, IServiceCollection services)
     {
-        services.AddSingleton(new PluginSettingsStore(PluginConfigFolder));
+        var store = new PluginSettingsStore(PluginConfigFolder);
+        services.AddSingleton(store);
+
+        // 课表桥：自己先 new 出来，Initialize 里就有实例可用；它自己等宿主就绪后再从容器里取 ILessonsService。
+        var lessonBridge = new LessonBridge(store);
+        services.AddSingleton(lessonBridge);
+        lessonBridge.Start();
 
         services.AddSettingsPage<HotspotSettingsPage>();
         services.AddComponent<HotspotComponent>();
         services.AddAction<StartHotspotAction>();
         services.AddAction<StopHotspotAction>();
+        services.AddAction<SaveBoardAction>();
     }
 }

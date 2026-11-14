@@ -14,12 +14,16 @@ public sealed class PluginSettingsStore
     };
 
     private readonly string _filePath;
+
+    /// <summary>插件的配置目录（日志等文件也放这里）。</summary>
+    public string Folder { get; }
     private readonly object _gate = new();
     private PluginSettings _settings;
 
     public PluginSettingsStore(string pluginConfigFolder)
     {
         Directory.CreateDirectory(pluginConfigFolder);
+        Folder = pluginConfigFolder;
         _filePath = Path.Combine(pluginConfigFolder, "settings.json");
         _settings = Load();
     }
@@ -55,6 +59,7 @@ public sealed class PluginSettingsStore
             var parsed = JsonSerializer.Deserialize<PluginSettings>(File.ReadAllText(_filePath), JsonOptions);
             if (parsed is null) return new PluginSettings();
             if (string.IsNullOrWhiteSpace(parsed.BaseUrl)) parsed.BaseUrl = new PluginSettings().BaseUrl;
+            parsed.Normalize();
             return parsed;
         }
         catch

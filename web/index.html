@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>ClassroomKit 控制面板</title>
+<title>ClassroomKit 一体机助手</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -12,33 +12,69 @@
     <span class="logo">▣</span>
     <div>
       <h1>ClassroomKit</h1>
-      <p class="sub" id="subtitle">教室一体机热点</p>
+      <p class="sub" id="subtitle">教室一体机助手 · 板书 / 课表 / 热点</p>
     </div>
   </div>
   <span class="badge" id="badge">连接中…</span>
 </header>
 
-<section class="card hero">
-  <div class="hero-main">
-    <div class="ssid" id="ssid">—</div>
-    <div class="pass">密码 <code id="passphrase">—</code>
-      <button class="link" id="btn-copy">复制</button>
+<section class="card lesson" id="lesson-card">
+  <div class="lesson-head">
+    <div class="lesson-main">
+      <div class="lesson-state" id="lesson-state">课表未接入</div>
+      <div class="lesson-now" id="lesson-now">守护还没收到 ClassIsland 的课表</div>
+      <div class="lesson-next" id="lesson-next">装好插件、在 ClassIsland 里打开课表后，这里会显示下一节什么时候上课</div>
     </div>
+    <div class="lesson-count" id="lesson-count">—</div>
   </div>
-  <div class="hero-side">
-    <div class="clients"><span id="clients">0</span><small>/<span id="target">10</span> 台</small></div>
-    <div class="hint" id="state-hint">读取中</div>
+  <div class="row">
+    <button class="btn primary" id="btn-lesson-save">现在保存板书</button>
+    <button class="btn" id="btn-lesson-preview">预览课前提醒</button>
+    <button class="btn ghost" id="btn-lesson-snooze">取消稍后提醒</button>
+    <button class="btn ghost" id="btn-lesson-clear">清空课表数据</button>
   </div>
+  <form id="lesson-form" class="lesson-form">
+    <label class="check"><input type="checkbox" id="in-lesson-enabled"> 上课前自动提醒保存板书</label>
+    <label>提前
+      <select id="in-lesson-minutes">
+        <option value="1">1 分钟</option>
+        <option value="2">2 分钟</option>
+        <option value="3">3 分钟</option>
+        <option value="5">5 分钟</option>
+        <option value="10">10 分钟</option>
+        <option value="15">15 分钟</option>
+      </select>
+    </label>
+    <label>弹窗停留
+      <select id="in-lesson-dialog">
+        <option value="15">15 秒</option>
+        <option value="30">30 秒</option>
+        <option value="60">60 秒</option>
+        <option value="90">90 秒</option>
+      </select>
+    </label>
+    <label>超时后
+      <select id="in-lesson-timeout">
+        <option value="save">自动保存，保留 ClassInX</option>
+        <option value="save-close">自动保存并关闭 ClassInX</option>
+        <option value="wait">一直等我选</option>
+        <option value="dismiss">自动忽略</option>
+      </select>
+    </label>
+    <label class="check"><input type="checkbox" id="in-lesson-only"> 只在 ClassInX 运行时提醒</label>
+    <label class="check"><input type="checkbox" id="in-board-named"> 保存时按上一节课改名</label>
+    <label>命名模板
+      <input id="in-board-template" maxlength="80" autocomplete="off" placeholder="{科目}_{日期}_{时间}">
+    </label>
+    <p class="note">可用占位符：{科目} {日期}（2026-11-14）{时间}（10-05）{节次}（第3节）{周几}。留空恢复默认模板。</p>
+    <div class="row">
+      <button class="btn primary" type="submit" id="btn-lesson-save-config">保存课前提醒设置</button>
+      <span class="note" id="lesson-config-note"></span>
+    </div>
+  </form>
 </section>
 
-<section class="card grid">
-  <div class="cell"><label>热点状态</label><strong id="op-state">—</strong></div>
-  <div class="cell"><label>系统上限</label><strong id="max-clients">—</strong></div>
-  <div class="cell"><label>上行</label><strong id="uplink">—</strong></div>
-  <div class="cell"><label>无设备自动关</label><strong id="timeout">—</strong></div>
-  <div class="cell"><label>注册表放宽</label><strong id="registry-peers">—</strong></div>
-  <div class="cell"><label>已运行</label><strong id="uptime">—</strong></div>
-</section>
+<div class="alert hidden" id="alert"></div>
 
 <section class="card banner hidden" id="legacy-banner">
   <div>
@@ -48,17 +84,32 @@
   <button class="btn primary" id="btn-rename-ssid">改用电脑名</button>
 </section>
 
-<div class="alert hidden" id="alert"></div>
-
 <section class="card">
-  <div class="row">
+  <h2>课堂设备 <small>学生连这个热点</small></h2>
+  <div class="hero">
+    <div class="hero-main">
+      <div class="ssid" id="ssid">—</div>
+      <div class="pass">密码 <code id="passphrase">—</code>
+        <button class="link" id="btn-copy">复制</button>
+      </div>
+    </div>
+    <div class="hero-side">
+      <div class="clients"><span id="clients">0</span><small>/<span id="target">10</span> 台</small></div>
+      <div class="hint" id="state-hint">读取中</div>
+    </div>
+  </div>
+  <div class="grid" style="margin-top:16px">
+    <div class="cell"><label>热点状态</label><strong id="op-state">—</strong></div>
+    <div class="cell"><label>系统上限</label><strong id="max-clients">—</strong></div>
+    <div class="cell"><label>上行</label><strong id="uplink">—</strong></div>
+    <div class="cell"><label>无设备自动关</label><strong id="timeout">—</strong></div>
+    <div class="cell"><label>注册表放宽</label><strong id="registry-peers">—</strong></div>
+    <div class="cell"><label>已运行</label><strong id="uptime">—</strong></div>
+  </div>
+  <div class="row" style="margin-top:14px">
     <button class="btn primary" id="btn-on">开启热点</button>
     <button class="btn" id="btn-off">关闭热点</button>
     <button class="btn" id="btn-fix">修复设备上限</button>
-    <button class="btn" id="btn-bcu">强力卸载</button>
-  </div>
-  <div class="row">
-    <button class="btn ghost" id="btn-logs">刷新日志</button>
   </div>
 </section>
 
@@ -83,6 +134,38 @@
       <span class="note dirty" id="dirty-note" style="display:none">有未保存的修改</span>
     </div>
   </form>
+</section>
+
+<section class="card" id="conflict-card">
+  <h2>板书冲突提示与高级保存 <small id="conflict-badge"></small></h2>
+  <p class="note" id="conflict-status">读取中…</p>
+  <div class="row">
+    <button class="btn" id="btn-conflict-preview">预览冲突提示窗</button>
+    <button class="btn ghost" id="btn-conflict-snooze-clear">恢复冲突提醒</button>
+  </div>
+  <p class="note">希沃白板与 ClassInX 的悬浮窗同时存在、又进入全屏时会弹一次提示窗（默认 40 分钟冷却）。弹窗里勾了「今天不再提醒」后，可以在这里提前恢复。</p>
+</section>
+
+<section class="card" id="hosts-card">
+  <h2>GitHub 访问加速 <small id="hosts-badge"></small></h2>
+  <p class="note" id="hosts-status">读取中…</p>
+  <div class="row">
+    <button class="btn" id="btn-hosts-refresh">刷新 hosts</button>
+    <button class="btn ghost" id="btn-hosts-restore">还原 hosts</button>
+  </div>
+  <p class="note">只在直连 GitHub 不通时才改 hosts；写完全程校验，还是不通会自动还原。依赖 SYSTEM 护航任务（安装包已注册，绿色版需管理员运行一次 --install-service）。</p>
+</section>
+
+<section class="card" id="diagnose-card">
+  <h2>一键自检 <small id="diagnose-summary"></small></h2>
+  <div class="row">
+    <button class="btn" id="btn-diagnose">开始自检</button>
+    <span class="note" id="diagnose-note">检查热点、上行、自启、护航任务、hosts、板书目录、课表与升级设置。</span>
+  </div>
+  <table id="diagnose-table">
+    <thead><tr><th>项目</th><th>结果</th><th>说明 / 下一步</th></tr></thead>
+    <tbody id="diagnose-body"><tr><td colspan="3" class="empty">还没跑过自检</td></tr></tbody>
+  </table>
 </section>
 
 <section class="card" id="update-card">
@@ -120,35 +203,6 @@
   <p class="note">升级从 GitHub Releases 下载，由系统后台护航任务静默安装（不弹 UAC、不用点确认），热点会中断 1–2 分钟；没装护航任务时才退回管理员授权安装。</p>
 </section>
 
-<section class="card" id="hosts-card">
-  <h2>GitHub 访问加速 <small id="hosts-badge"></small></h2>
-  <p class="note" id="hosts-status">读取中…</p>
-  <div class="row">
-    <button class="btn" id="btn-hosts-refresh">刷新 hosts</button>
-    <button class="btn ghost" id="btn-hosts-restore">还原 hosts</button>
-  </div>
-  <p class="note">只在直连 GitHub 不通时才改 hosts；写完全程校验，还是不通会自动还原。依赖 SYSTEM 护航任务（安装包已注册，绿色版需管理员运行一次 --install-service）。</p>
-</section>
-
-<section class="card" id="conflict-card">
-  <h2>板书冲突提示 <small id="conflict-badge"></small></h2>
-  <p class="note" id="conflict-status">读取中…</p>
-  <div class="row">
-    <button class="btn" id="btn-conflict-preview">预览提示窗</button>
-    <button class="btn ghost" id="btn-conflict-snooze-clear">恢复提醒</button>
-  </div>
-  <p class="note">希沃白板与 ClassInX 的悬浮窗同时存在、又进入全屏时会弹一次提示窗（默认 40 分钟冷却）。弹窗里勾了「今天不再提醒」后，可以在这里提前恢复。</p>
-</section>
-
-<section class="card">
-  <h2>维护</h2>
-  <p class="note">卸载会先关热点，再删除登录自启、还原注册表放宽项并移除程序；需要点一次管理员授权（UAC）。</p>
-  <label class="check"><input type="checkbox" id="in-purge"> 同时删除配置与日志（<span id="data-dir">C:\ProgramData\ClassroomKit</span>）</label>
-  <div class="row">
-    <button class="btn danger" id="btn-uninstall">卸载 ClassroomKit</button>
-  </div>
-</section>
-
 <section class="card">
   <h2>在线设备 <small id="client-count"></small></h2>
   <table id="clients-table">
@@ -159,7 +213,22 @@
 
 <section class="card">
   <h2>日志</h2>
+  <div class="row" style="margin-bottom:10px">
+    <button class="btn ghost" id="btn-logs">刷新日志</button>
+  </div>
   <pre id="logs" class="logs">加载中…</pre>
+</section>
+
+<section class="card">
+  <h2>维护</h2>
+  <p class="note">卸载会先关热点，再删除登录自启、还原注册表放宽项并移除程序；需要点一次管理员授权（UAC）。</p>
+  <label class="check"><input type="checkbox" id="in-purge"> 同时删除配置与日志（<span id="data-dir">C:\ProgramData\ClassroomKit</span>）</label>
+  <div class="row">
+    <button class="btn danger" id="btn-uninstall">卸载 ClassroomKit</button>
+    <button class="btn ghost" id="btn-bcu">强力卸载（BCU）</button>
+    <button class="btn ghost" id="btn-rotate-token">重置面板令牌</button>
+  </div>
+  <p class="note">面板只监听本机 127.0.0.1，令牌只防同一台电脑上的其它网页乱调接口；换成新令牌后旧链接随即失效，ClassIsland 插件里保存的令牌也要一起改。</p>
 </section>
 
 <footer>

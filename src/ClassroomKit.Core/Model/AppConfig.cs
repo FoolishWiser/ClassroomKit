@@ -1,4 +1,5 @@
 using ClassroomKit.Core.Config;
+using ClassroomKit.Core.Lesson;
 
 namespace ClassroomKit.Core.Model;
 
@@ -17,6 +18,7 @@ public sealed class AppConfig
     public ConflictConfig Conflict { get; set; } = new();
     public UpdateConfig Update { get; set; } = new();
     public HostsConfig Hosts { get; set; } = new();
+    public LessonConfig Lesson { get; set; } = new();
     public string? InstalledVersion { get; set; }
 }
 
@@ -70,6 +72,54 @@ public sealed class BoardSaveConfig
     public int LaunchTimeoutSec { get; set; } = 60;
     /// <summary>手工指定 ClassIn X.exe 的完整路径；留空则自动查找。</summary>
     public string? ClassInPath { get; set; }
+
+    /// <summary>保存时按课表科目给文件改名（数学_2026-11-14_10-05）。</summary>
+    public bool NameWithLesson { get; set; } = true;
+
+    /// <summary>改名模板，占位符见 <see cref="BoardFileName"/>。</summary>
+    public string NameTemplate { get; set; } = BoardFileName.DefaultTemplate;
+}
+
+/// <summary>ClassIsland 课表联动：课前提醒保存板书。</summary>
+public sealed class LessonConfig
+{
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>上课前多少分钟弹提醒。</summary>
+    public int RemindMinutesBefore { get; set; } = 5;
+
+    /// <summary>弹窗停留多少秒。</summary>
+    public int DialogSeconds { get; set; } = 30;
+
+    /// <summary>超时动作：save（只保存）/ save-close（保存并关闭）/ dismiss（跳过）/ wait（不自动处理）。</summary>
+    public string TimeoutAction { get; set; } = "save";
+
+    /// <summary>点「稍后提醒」后隔多少分钟再弹。</summary>
+    public int SnoozeMinutes { get; set; } = 2;
+
+    /// <summary>ClassInX 没在运行时也弹（默认不弹：没板书可存）。</summary>
+    public bool OnlyWhenClassInBoard { get; set; } = true;
+
+    /// <summary>课表快照多久没更新就算过期（分钟）。过期不弹窗，面板提示「数据已过期」。</summary>
+    public int StaleMinutes { get; set; } = 120;
+
+    public void Normalize()
+    {
+        RemindMinutesBefore = Math.Clamp(RemindMinutesBefore, 1, 30);
+        DialogSeconds = Math.Clamp(DialogSeconds, 5, 600);
+        SnoozeMinutes = Math.Clamp(SnoozeMinutes, 1, 60);
+        StaleMinutes = Math.Clamp(StaleMinutes, 1, 1440);
+
+        var action = (TimeoutAction ?? "").Trim().ToLowerInvariant();
+        TimeoutAction = action switch
+        {
+            "save" => "save",
+            "save-close" or "saveclose" => "save-close",
+            "dismiss" or "ignore" => "dismiss",
+            "wait" => "wait",
+            _ => "save"
+        };
+    }
 }
 
 /// <summary>多板书软件全屏冲突提示。</summary>

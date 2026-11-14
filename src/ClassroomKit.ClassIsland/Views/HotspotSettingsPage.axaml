@@ -64,6 +64,70 @@
                 </StackPanel>
             </Border>
 
+            <Border BorderThickness="1" CornerRadius="8" Padding="20,16">
+                <StackPanel Spacing="10">
+                    <TextBlock Text="课表联动" FontSize="16" FontWeight="SemiBold" />
+                    <TextBlock TextWrapping="Wrap" Opacity="0.7"
+                               Text="ClassIsland 每秒把课表状态推给守护进程：现在上什么课、下一节是什么、上一节是什么。守护据此在上课前提醒你保存板书，保存时按上一节课的名字给板书改名。这一段显示的都是守护那边的实时状态。" />
+
+                    <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="6" ColumnSpacing="16">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="课表状态" Opacity="0.7" />
+                        <TextBlock Grid.Row="0" Grid.Column="1" x:Name="LessonStateText" Text="—" TextWrapping="Wrap" />
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="当前科目" Opacity="0.7" />
+                        <TextBlock Grid.Row="1" Grid.Column="1" x:Name="LessonCurrentText" Text="—" />
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="下一节" Opacity="0.7" />
+                        <TextBlock Grid.Row="2" Grid.Column="1" x:Name="LessonNextText" Text="—" />
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="上一节课" Opacity="0.7" />
+                        <TextBlock Grid.Row="3" Grid.Column="1" x:Name="LessonPreviousText" Text="—" />
+                        <TextBlock Grid.Row="4" Grid.Column="0" Text="板书会叫" Opacity="0.7" />
+                        <TextBlock Grid.Row="4" Grid.Column="1" x:Name="LessonNameHintText" Text="—" TextWrapping="Wrap" />
+                        <TextBlock Grid.Row="5" Grid.Column="0" Text="提醒判定" Opacity="0.7" />
+                        <TextBlock Grid.Row="5" Grid.Column="1" x:Name="LessonReminderText" Text="—" TextWrapping="Wrap" />
+                        <TextBlock Grid.Row="6" Grid.Column="0" Text="上次提醒" Opacity="0.7" />
+                        <TextBlock Grid.Row="6" Grid.Column="1" x:Name="LessonLastKeyText" Text="—" TextWrapping="Wrap" />
+                        <TextBlock Grid.Row="7" Grid.Column="0" Text="实际生效" Opacity="0.7" />
+                        <TextBlock Grid.Row="7" Grid.Column="1" x:Name="LessonEffectiveText" Text="—" TextWrapping="Wrap" />
+                    </Grid>
+
+                    <Grid ColumnDefinitions="Auto,150,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="12">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="提前多少分钟提醒" VerticalAlignment="Center" Opacity="0.7" />
+                        <TextBox Grid.Row="0" Grid.Column="1" x:Name="LessonMinutesBox" Watermark="5" Width="90" HorizontalAlignment="Left" />
+                        <TextBlock Grid.Row="0" Grid.Column="2" Text="1–30 分钟；越大学校给的准备时间越多" VerticalAlignment="Center" Opacity="0.55" TextWrapping="Wrap" />
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="弹窗停留秒数" VerticalAlignment="Center" Opacity="0.7" />
+                        <TextBox Grid.Row="1" Grid.Column="1" x:Name="LessonSecondsBox" Watermark="30" Width="90" HorizontalAlignment="Left" />
+                        <TextBlock Grid.Row="1" Grid.Column="2" Text="5–600 秒；超时后执行下面的动作" VerticalAlignment="Center" Opacity="0.55" TextWrapping="Wrap" />
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="超时动作" VerticalAlignment="Center" Opacity="0.7" />
+                        <ComboBox Grid.Row="2" Grid.Column="1" x:Name="LessonTimeoutBox" Width="140" HorizontalAlignment="Left">
+                            <ComboBoxItem Content="自动保存" Tag="save" />
+                            <ComboBoxItem Content="保存并关闭 ClassInX" Tag="save-close" />
+                            <ComboBoxItem Content="忽略本次" Tag="dismiss" />
+                            <ComboBoxItem Content="不自动关闭（一直等）" Tag="wait" />
+                        </ComboBox>
+                        <TextBlock Grid.Row="2" Grid.Column="2" Text="没人点弹窗时怎么办" VerticalAlignment="Center" Opacity="0.55" TextWrapping="Wrap" />
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="板书文件名模板" VerticalAlignment="Center" Opacity="0.7" />
+                        <TextBox Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" x:Name="LessonTemplateBox" Watermark="{}{科目}_{日期}_{时间}" />
+                        <TextBlock Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="3" TextWrapping="Wrap" Opacity="0.55"
+                                   Text="可用占位符：{科目} {日期} {时间} {节次} {周几}，例如「数学_2026-11-14_10-05」。" />
+                    </Grid>
+
+                    <CheckBox x:Name="LessonCloseAfterSaveBox" Content="保存板书后顺手关闭 ClassInX" IsChecked="True" />
+
+                    <TextBlock TextWrapping="Wrap" Opacity="0.6"
+                               Text="上面四项点「保存这些设置」时会一起发给守护（写入守护 config.json 的 lesson / boardSave 段）。守护版本较旧、没有 lesson-config 动作时只会写进板书配置，这里会如实提示「没写进去」。" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="LessonSaveButton" Content="保存这些设置" Click="OnLessonSaveClick" />
+                        <Button Content="预览提醒弹窗" Click="OnLessonPreviewClick" />
+                        <Button Content="稍后提醒" Click="OnLessonSnoozeClick" />
+                        <Button Content="取消稍后" Click="OnLessonUnsnoozeClick" />
+                    </StackPanel>
+                    <TextBlock x:Name="LessonMessage" TextWrapping="Wrap" Opacity="0.85" />
+                </StackPanel>
+            </Border>
+
             <TextBlock x:Name="StatusMessage" TextWrapping="Wrap" Opacity="0.85" />
         </StackPanel>
     </ScrollViewer>

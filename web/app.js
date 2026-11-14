@@ -117,6 +117,7 @@ function renderState(s) {
   $('legacy-banner').classList.toggle('hidden', !s.legacyDefaults);
   renderHosts(s.hosts);
   renderConflict(s.conflict);
+  renderLesson(s.lesson, s.boardSave);
 
   // 表单只在"没被用户改过"时回写，否则保持用户正在编辑的内容
   if (!formDirty) fillForm(s);
@@ -221,6 +222,219 @@ $('btn-conflict-snooze-clear').onclick = async () => {
     toast(r.message || '已恢复提醒');
     await refreshState();
   } catch (e) { toast(e.message, true); }
+};
+
+// ---- 课表与板书 ----
+// 课表数据由 ClassIsland 插件推给守护（/api/lesson），面板只读 /api/state.lesson。
+// 表单同样要防轮询覆盖：动过就置脏，保存或放弃后才回写。
+const lessonStateText = {
+  None: '课表未运行', Prepare: '准备上课', Class: '上课中', Breaking: '课间', AfterSchool: '已放学'
+};
+const lessonReasonText = {
+  disabled: '课前提醒已关闭',
+  'no-data': '还没收到课表（ClassIsland 插件没在跑？）',
+  'no-plan': '课表还没加载',
+  stale: '课表数据太久没更新',
+  'in-class': '正在上课',
+  'after-school': '已放学',
+  'no-next': '没有下一节课',
+  started: '下一节已经开始',
+  'too-early': '还没到提前量',
+  snoozed: '已稍后提醒',
+  already: '这节课已经提醒过',
+  ok: '正常'
+};
+const LESSON_FIELDS = ['in-lesson-enabled', 'in-lesson-minutes', 'in-lesson-dialog', 'in-lesson-timeout',
+  'in-lesson-only', 'in-board-named', 'in-board-template'];
+let lessonFormDirty = false;
+
+function setSelect(id, value) {
+  const sel = $(id);
+  if (!sel) return;
+  const text = String(value);
+  if (![...sel.options].some(o => o.value === text)) sel.add(new Option(text, text));
+  sel.value = text;
+}
+
+function fmtCountdown(sec) {
+  if (!(sec > 0)) return '—';
+  if (sec >= 3600) {
+    const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60);
+    return h + ' 小时' + (m ? ' ' + m + ' 分' : '');
+  }
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return m > 0 ? m + ' 分 ' + String(s).padStart(2, '0') + ' 秒' : s + ' 秒';
+}
+
+for (const id of LESSON_FIELDS) {
+  const el = $(id);
+  if (!el) continue;
+  el.addEventListener('input', () => { lessonFormDirty = true; });
+  el.addEventListener('change', () => { lessonFormDirty = true; });
+}
+
+function renderLesson(l, board) {
+  const stateEl = $('lesson-state'), nowEl = $('lesson-now'),
+    nextEl = $('lesson-next'), countEl = $('lesson-count');
+  if (!l || !l.available) {
+    stateEl.textContent = '课表未接入';
+    nowEl.textContent = '守护还没收到 ClassIsland 的课表';
+    nextEl.textContent = '装好插件、在 ClassIsland 里打开课表后，这里会显示下一节什么时候上课';
+    countEl.textContent = '—';
+  } else {
+    const label = lessonStateText[l.state] || l.stateText || l.state || '未知';
+    stateEl.textContent = l.state === 'Class'
+      ? label + ' · ' + (l.currentSubject || '未命名科目')
+      : label;
+    const bits = [];
+    if (l.planLoaded === false) bits.push('课表还没加载（先在 ClassIsland 里启用课表）');
+    if (l.currentSubject) bits.push('当前：' + l.currentSubject);
+    if (l.previousSubject) bits.push('上一节：' + l.previousSubject);
+    if (!bits.length && l.nameHint) bits.push('板书会命名成「' + l.nameHint + '」');
+    nowEl.textContent = bits.join(' · ') || '课表已接入';
+    if (l.nextSubject) {
+      const when = l.nextStartAt
+        ? new Date(l.nextStartAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+        : '';
+      nextEl.textContent = '下一节：' + l.nextSubject + (when ? ' · ' + when + ' 上课' : '') +
+        (l.secondsToNext > 0 ? '（还有 ' + fmtCountdown(l.secondsToNext) + '）' : '');
+    } else {
+      nextEl.textContent = l.state === 'AfterSchool' ? '今天的课已经上完' : '现在没有排下一节课';
+    }
+    countEl.textContent = l.secondsToNext > 0 ? fmtCountdown(l.secondsToNext) : '—';
+  }
+
+  const r = (l && l.reminder) || {};
+  if (!lessonFormDirty) {
+    $('in-lesson-enabled').checked = r.enabled !== false;
+    setSelect('in-lesson-minutes', r.minutesBefore ?? 5);
+    setSelect('in-lesson-dialog', r.dialogSeconds ?? 30);
+    setSelect('in-lesson-timeout', r.timeoutAction || 'save');
+    $('in-lesson-only').checked = r.onlyWhenClassInBoard !== false;
+    if (board) {
+      $('in-board-named').checked = board.nameWithLesson !== false;
+      $('in-board-template').value = board.nameTemplate || '';
+    }
+  }
+
+  const notes = [];
+  if (r.lastRemindedKey) notes.push('上次提醒：' + r.lastRemindedKey);
+  if (r.snoozedUntil) {
+    notes.push('已稍后到 ' + new Date(r.snoozedUntil).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }));
+  }
+  if (r.reason && r.reason !== 'ok' && r.enabled !== false) notes.push('当前不弹：' + (lessonReasonText[r.reason] || r.reason));
+  $('lesson-config-note').textContent = notes.join('；');
+}
+
+$('lesson-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const btn = $('btn-lesson-save-config');
+  btn.disabled = true;
+  try {
+    await api('/api/action', {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'lesson-config',
+        enabled: $('in-lesson-enabled').checked ? '1' : '0',
+        minutesBefore: $('in-lesson-minutes').value,
+        dialogSeconds: $('in-lesson-dialog').value,
+        timeoutAction: $('in-lesson-timeout').value,
+        onlyWhenClassInBoard: $('in-lesson-only').checked ? '1' : '0'
+      })
+    });
+    await api('/api/action', {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'board-config',
+        nameWithLesson: $('in-board-named').checked ? '1' : '0',
+        nameTemplate: $('in-board-template').value.trim()
+      })
+    });
+    lessonFormDirty = false;
+    toast('课前提醒设置已保存');
+    await refreshState();
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+$('btn-lesson-save').onclick = async () => {
+  const btn = $('btn-lesson-save');
+  btn.disabled = true; btn.textContent = '保存中…';
+  try {
+    const r = await api('/api/action', { method: 'POST', body: JSON.stringify({ action: 'board-save' }) });
+    toast(r.message || '板书已保存');
+    await refreshState();
+  } catch (err) { toast(err.message, true); }
+  finally { btn.disabled = false; btn.textContent = '现在保存板书'; }
+};
+
+$('btn-lesson-preview').onclick = async () => {
+  try {
+    const r = await api('/api/action', { method: 'POST', body: JSON.stringify({ action: 'board-reminder-preview' }) });
+    toast(r.message || '已弹出预览窗');
+  } catch (err) { toast(err.message, true); }
+};
+
+$('btn-lesson-snooze').onclick = async () => {
+  try {
+    const r = await api('/api/action', { method: 'POST', body: JSON.stringify({ action: 'board-reminder-snooze', minutes: '0' }) });
+    toast(r.message || '已取消稍后提醒');
+    await refreshState();
+  } catch (err) { toast(err.message, true); }
+};
+
+$('btn-lesson-clear').onclick = async () => {
+  if (!confirm('清空本机缓存的课表数据？（ClassIsland 插件下次推送时会自动补回来）')) return;
+  try {
+    const r = await api('/api/action', { method: 'POST', body: JSON.stringify({ action: 'lesson-clear' }) });
+    toast(r.message || '已清空课表数据');
+    await refreshState();
+  } catch (err) { toast(err.message, true); }
+};
+
+// ---- 一键自检 ----
+const diagStatusText = { ok: '正常', warn: '注意', fail: '有问题' };
+
+function renderDiagnose(rep) {
+  $('diagnose-summary').textContent = rep.summary || '';
+  $('diagnose-note').textContent = rep.ok ? '全部检查通过' : '有项目需要处理，见下表';
+  const body = $('diagnose-body');
+  const checks = rep.checks || [];
+  if (!checks.length) {
+    body.innerHTML = '<tr><td colspan="3" class="empty">没有检查项</td></tr>';
+    return;
+  }
+  body.innerHTML = checks.map(c =>
+    '<tr><td>' + escapeHtml(c.title || c.id || '') + '</td>' +
+    '<td class="diag-' + escapeHtml(c.status) + '">' + escapeHtml(diagStatusText[c.status] || c.status || '') + '</td>' +
+    '<td>' + escapeHtml(c.detail || '') +
+    (c.next ? '<br><span class="note">' + escapeHtml(c.next) + '</span>' : '') + '</td></tr>'
+  ).join('');
+}
+
+$('btn-diagnose').onclick = async () => {
+  const btn = $('btn-diagnose');
+  btn.disabled = true; btn.textContent = '检查中…';
+  try {
+    renderDiagnose(await api('/api/action', { method: 'POST', body: JSON.stringify({ action: 'diagnose' }) }));
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    btn.disabled = false; btn.textContent = '开始自检';
+  }
+};
+
+$('btn-rotate-token').onclick = async () => {
+  if (!confirm('重置面板令牌？旧链接会立即失效，ClassIsland 插件里保存的令牌也要重新填。')) return;
+  try {
+    const r = await api('/api/action', { method: 'POST', body: JSON.stringify({ action: 'rotate-token' }) });
+    sessionStorage.setItem('ck-token', r.token);
+    toast('令牌已重置，正在用新链接重新打开…');
+    setTimeout(() => { location.search = '?t=' + encodeURIComponent(r.token); }, 800);
+  } catch (err) { toast(err.message, true); }
 };
 
 function escapeHtml(text) {

@@ -1,6 +1,8 @@
 using System.Reflection;
 using ClassroomKit.Agent.Board;
+using ClassroomKit.Agent.Diagnose;
 using ClassroomKit.Agent.Hosts;
+using ClassroomKit.Agent.Lesson;
 using ClassroomKit.Agent.Bcu;
 using ClassroomKit.Agent.Shell;
 using ClassroomKit.Agent.Tethering;
@@ -10,6 +12,7 @@ using ClassroomKit.Core.Board;
 using ClassroomKit.Core.Config;
 using ClassroomKit.Core.Hotspot;
 using ClassroomKit.Core.Http;
+using ClassroomKit.Core.Lesson;
 using ClassroomKit.Core.Logging;
 using ClassroomKit.Core.Model;
 using ClassroomKit.Core.Update;
@@ -65,7 +68,17 @@ public sealed class AgentRuntime : IDisposable
         ConflictWatcher = new ConflictWatcher(Log, () => Config.Current.Conflict,
             () => Config.Current.Conflict.ExtraFullscreenProcesses, SaveConflictSnooze);
 
+        Lesson = new LessonRuntime(Log, () => Config.Current.Lesson, Paths.LessonStatePath);
+        Lesson.ReminderDue = decision => ReminderRequested?.Invoke(decision);
+
         Api.SaveBoard = SaveBoard;
+        Api.SaveBoardNamed = SaveBoardNamed;
+        Api.GetLesson = Lesson.Status;
+        Api.AcceptLesson = Lesson.Accept;
+        Api.ClearLesson = Lesson.Clear;
+        Api.PreviewBoardReminder = PreviewBoardReminder;
+        Api.SnoozeBoardReminder = SnoozeBoardReminder;
+        Api.Diagnose = _ => Task.FromResult(Diagnostics.Build(this));
         Api.ConflictCheck = ConflictWatcher.CheckNow;
         Api.GetBoard = BoardDto;
         Api.ConflictChoice = ApplyConflictChoice;
@@ -87,6 +100,10 @@ public sealed class AgentRuntime : IDisposable
     public ConflictWatcher ConflictWatcher { get; }
     public UpdateService Update { get; }
     public HostsService Hosts { get; }
+    public LessonRuntime Lesson { get; }
+
+    /// <summary>到点该弹课前提醒窗时触发（由托盘层切到 UI 线程）。</summary>
+    public Action<ReminderDecision>? ReminderRequested { get; set; }
 
     /// <summary>面板/接口请求预览冲突窗时触发（由托盘层弹到 UI 线程）。</summary>
     public Action? PreviewConflictRequested { get; set; }
@@ -138,6 +155,7 @@ public sealed class AgentRuntime : IDisposable
 
         ConflictWatcher.Start();
         _ = Task.Run(GuardLoopAsync);
+        _ = Task.Run(LessonLoopAsync);
         _ = Task.Run(HostsLoopAsync);
         _ = Task.Run(UpdateLoopAsync);
 
@@ -464,6 +482,91 @@ public sealed class AgentRuntime : IDisposable
 
         var result = BoardSaver.Save(closeAfterSave, launchIfNeeded);
         return (result.Ok, result.Message);
+    }
+
+    /// <summary>
+    /// 课前提醒巡检：每 5 秒看一次课表账本，到点就交给托盘弹窗。
+    /// 先 MarkReminded 再弹窗：弹窗本身是模态的，不先记账会在弹窗期间重复触发。
+    /// </summary>
+    private async Task LessonLoopAsync()
+    {
+        try { await Task.Delay(TimeSpan.FromSeconds(15), _cts.Token); }
+        catch (OperationCanceledException) { return; }
+
+        while (!_cts.IsCancellationRequested)
+        {
+            try
+            {
+                var cfg = Config.Current.Lesson;
+                if (cfg.Enabled)
+                {
+                    var decision = Lesson.Evaluate(DateTimeOffset.Now);
+                    if (decision.Show)
+                    {
+                        if (cfg.OnlyWhenClassInBoard && !ClassInBoardSaver.IsClassInRunning())
+                        {
+                            Log.Info("课前提醒：ClassInX 没有运行，这次不弹窗");
+                        }
+                        else
+                        {
+                            Lesson.MarkReminded(decision.Key);
+                            Log.Info($"课前提醒：{decision.Subject ?? "下一节"}{decision.SecondsToStart / 60} 分钟后上课，弹出保存板书提示");
+                            ReminderRequested?.Invoke(decision);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"课前提醒判定异常：{ex.Message}");
+            }
+
+            try { await Task.Delay(TimeSpan.FromSeconds(5), _cts.Token); }
+            catch (OperationCanceledException) { break; }
+        }
+    }
+
+    /// <summary>保存板书并按「上一节课」改名（nameWithLesson=false 时保持原样）。</summary>
+    internal (bool Ok, string Message) SaveBoardNamed(bool closeAfterSave, bool nameWithLesson)
+    {
+        if (!Config.Current.BoardSave.Enabled)
+            return (false, "「保存 ClassInX 板书」已在配置里关闭");
+
+        var result = BoardSaver.Save(closeAfterSave, null);
+        if (!result.Ok) return (false, result.Message);
+        if (!nameWithLesson || result.Files.Count == 0) return (true, result.Message);
+
+        var now = DateTimeOffset.Now;
+        var subject = Lesson.NameHint(now);
+        var baseName = BoardFileName.Render(
+            Config.Current.BoardSave.NameTemplate,
+            subject,
+            now,
+            Lesson.State().Snapshot?.LessonIndex ?? 0);
+        var rename = BoardFileName.ApplyTo(result.Files, baseName);
+        Log.Info($"板书改名：{baseName}｜成功 {rename.Renamed} 个｜失败 {rename.Failed} 个");
+
+        var message = result.Message + "｜" + rename.Message;
+        return (rename.Failed == 0, message);
+    }
+
+    private (bool Ok, string Message) PreviewBoardReminder()
+    {
+        var cfg = Config.Current.Lesson;
+        ReminderRequested?.Invoke(new ReminderDecision(
+            Show: true,
+            Reason: "preview",
+            Key: "preview",
+            RemindAt: DateTimeOffset.Now,
+            Subject: Lesson.NameHint(DateTimeOffset.Now) ?? "数学",
+            SecondsToStart: Math.Clamp(cfg.RemindMinutesBefore, 1, 30) * 60));
+        return (true, "已请求弹出课前提醒预览（不会保存或关闭任何软件）");
+    }
+
+    internal (bool Ok, string Message) SnoozeBoardReminder(int minutes)
+    {
+        Lesson.Snooze(DateTimeOffset.Now, minutes);
+        return (true, minutes <= 0 ? "已取消稍后提醒" : $"{minutes} 分钟内不再提醒");
     }
 
     /// <summary>面板“上行网卡”下拉框的数据：所有候选 + 当前选中 + 选择理由。</summary>
