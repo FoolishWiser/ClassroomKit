@@ -115,11 +115,18 @@ public sealed class HostsService
             _log.Warn($"hosts 源不可用，改用缓存：{result.Message}");
         }
 
-        var (applied, message) = await ApplyAsync(entries, ct).ConfigureAwait(false);
+        var (applied, message, pending) = await ApplyAsync(entries, ct).ConfigureAwait(false);
         if (!applied)
         {
             _lastError = message;
             return (false, message);
+        }
+        if (pending)
+        {
+            // 请求已进信箱，护航 5 分钟内会写；此处不刷 DNS、不校验，免得误判成「写了也没通」
+            _lastMessage = message;
+            _log.Info($"hosts 刷新请求已交给护航任务：{message}");
+            return (true, message);
         }
 
         HostsApplier.FlushDnsSafe();
@@ -144,7 +151,24 @@ public sealed class HostsService
 
     public Task<(bool Ok, string Message)> RestoreAsync(CancellationToken ct)
     {
-        var (ok, message) = HostsApplier.CanWrite() ? HostsApplier.Restore() : RestoreViaService(ct);
+        bool ok;
+        string message;
+        if (HostsApplier.CanWrite())
+        {
+            (ok, message) = HostsApplier.Restore();
+        }
+        else
+        {
+            var viaService = RestoreViaService(ct);
+            if (viaService.Pending)
+            {
+                // 护航任务每 5 分钟才醒一次，请求已经躺在信箱里了：别把它当成失败
+                _lastMessage = viaService.Message;
+                _log.Info($"hosts 还原请求已交给护航任务：{viaService.Message}");
+                return Task.FromResult((true, viaService.Message));
+            }
+            (ok, message) = (viaService.Ok, viaService.Message);
+        }
         if (ok)
         {
             _applied = false;
@@ -160,7 +184,7 @@ public sealed class HostsService
         return Task.FromResult((ok, message));
     }
 
-    private (bool Ok, string Message) RestoreViaService(CancellationToken ct)
+    private (bool Ok, string Message, bool Pending) RestoreViaService(CancellationToken ct)
     {
         var request = new HostsRequest(ServiceChannel.NewId(), "restore", Array.Empty<HostEntry>(), DateTimeOffset.Now);
         ServiceChannel.Write(ServiceChannel.HostsRequestPath, request);
@@ -169,16 +193,19 @@ public sealed class HostsService
         var status = ServiceChannel.WaitAsync<HostsStatus>(
             ServiceChannel.HostsStatusPath, s => s.Id == request.Id,
             TimeSpan.FromSeconds(installed ? 25 : 5), ct).GetAwaiter().GetResult();
-        return status is null
-            ? (false, installed
-                ? "护航服务没有响应：稍后再试，或在面板点「安装护航任务」重新注册"
-                : "护航任务未安装：在面板点「安装护航任务」，只需一次管理员授权")
-            : (status.Ok, status.Message);
+        if (status is not null) return (status.Ok, status.Message, false);
+        return installed
+            ? (true, PendingMessage, true)
+            : (false, "护航任务未安装：在面板点「安装护航任务」，只需一次管理员授权", false);
     }
 
-    private async Task<(bool Ok, string Message)> ApplyAsync(IReadOnlyList<HostEntry> entries, CancellationToken ct)
+    private async Task<(bool Ok, string Message, bool Pending)> ApplyAsync(IReadOnlyList<HostEntry> entries, CancellationToken ct)
     {
-        if (HostsApplier.CanWrite()) return HostsApplier.Apply(entries);
+        if (HostsApplier.CanWrite())
+        {
+            var direct = HostsApplier.Apply(entries);
+            return (direct.Ok, direct.Message, false);
+        }
 
         var request = new HostsRequest(ServiceChannel.NewId(), "apply", entries, DateTimeOffset.Now);
         ServiceChannel.Write(ServiceChannel.HostsRequestPath, request);
@@ -188,12 +215,13 @@ public sealed class HostsService
             ServiceChannel.HostsStatusPath, s => s.Id == request.Id,
             TimeSpan.FromSeconds(installed ? 25 : 5), ct).ConfigureAwait(false);
 
-        return status is null
-            ? (false, installed
-                ? "护航服务没有响应：稍后再试，或在面板点「安装护航任务」重新注册"
-                : "护航任务未安装：在面板点「安装护航任务」，只需一次管理员授权")
-            : (status.Ok, status.Message);
+        if (status is not null) return (status.Ok, status.Message, false);
+        return installed
+            ? (true, PendingMessage, true)
+            : (false, "护航任务未安装：在面板点「安装护航任务」，只需一次管理员授权", false);
     }
+
+    private const string PendingMessage = "已提交给护航任务，最多 5 分钟内写入（面板稍后刷新可见）";
 
     /// <summary>护航任务最近 20 分钟是否写过心跳。</summary>
     private static bool IsServiceAlive()

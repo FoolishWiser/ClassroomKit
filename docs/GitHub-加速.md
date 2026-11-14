@@ -53,6 +53,8 @@ ClassroomKit.Agent.exe --install-service
 
 面板「GitHub 访问加速」卡片：状态（已生效 / 未修改 / 已关闭）、记录条数、来源、最近成功时间，两个按钮「刷新 hosts」「还原 hosts」。
 
+守护是普通权限运行时写不了 hosts，会把请求投给 SYSTEM 护航任务：点完按钮可能先看到「已提交给护航任务，最多 5 分钟内写入」，等下一次巡检回来状态就变成「已生效」。
+
 ```text
 ClassroomKit.Agent.exe --hosts-status    打印状态 JSON
 ClassroomKit.Agent.exe --hosts-refresh   立即刷新（强制；加 --check 时若配置里关掉了 hosts 就直接跳过）

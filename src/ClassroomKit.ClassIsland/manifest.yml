@@ -3,7 +3,7 @@ name: ClassroomKit 助手
 description: 在 ClassIsland 里看课表联动与热点状态：课前提醒保存板书、板书按上一节课改名、上课/下课自动开关热点。热点与板书逻辑仍由 ClassroomKit 守护进程负责，ClassIsland 退出或崩溃都不影响上网。
 entranceAssembly: ClassroomKit.ClassIsland.dll
 url: https://github.com/FoolishWiser/ClassroomKit
-version: 0.4.1
+version: 0.4.2
 apiVersion: 2.0.0.0
 author: ClassroomKit
 readme: README.md
