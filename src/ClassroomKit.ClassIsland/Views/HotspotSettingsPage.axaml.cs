@@ -12,7 +12,7 @@ using ClassroomKit.Core.Client;
 
 namespace ClassroomKit.ClassIsland.Views;
 
-[SettingsPageInfo("classroomkit.hotspot.page", "ClassroomKit 热点", SettingsPageCategory.External)]
+[SettingsPageInfo("classroomkit.hotspot.page", "ClassroomKit 助手", SettingsPageCategory.External)]
 public partial class HotspotSettingsPage : SettingsPageBase
 {
     private readonly PluginSettingsStore _store;

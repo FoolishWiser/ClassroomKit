@@ -20,7 +20,7 @@ public class StartHotspotAction : ActionBase
         var (ok, message, _) = await AgentAccess.EnsureReachableAsync(_store);
         if (!ok)
         {
-            await CommonTaskDialogs.ShowDialog("ClassroomKit 热点", message, null);
+            await CommonTaskDialogs.ShowDialog("ClassroomKit 助手", message, null);
             return;
         }
 
@@ -30,7 +30,7 @@ public class StartHotspotAction : ActionBase
         }
         catch (Exception ex)
         {
-            await CommonTaskDialogs.ShowDialog("ClassroomKit 热点", "开启热点失败：" + ex.Message, null);
+            await CommonTaskDialogs.ShowDialog("ClassroomKit 助手", "开启热点失败：" + ex.Message, null);
         }
     }
 }
@@ -52,7 +52,7 @@ public class StopHotspotAction : ActionBase
         }
         catch (Exception ex)
         {
-            await CommonTaskDialogs.ShowDialog("ClassroomKit 热点", "关闭热点失败：" + ex.Message, null);
+            await CommonTaskDialogs.ShowDialog("ClassroomKit 助手", "关闭热点失败：" + ex.Message, null);
         }
     }
 }

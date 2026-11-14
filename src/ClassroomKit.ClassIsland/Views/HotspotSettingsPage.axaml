@@ -6,7 +6,7 @@
     <ScrollViewer>
         <StackPanel Margin="32,24,32,32" Spacing="16" MaxWidth="760" HorizontalAlignment="Left">
 
-            <TextBlock Text="ClassroomKit 热点" FontSize="24" FontWeight="SemiBold" />
+            <TextBlock Text="ClassroomKit 助手" FontSize="24" FontWeight="SemiBold" />
             <TextBlock TextWrapping="Wrap" Opacity="0.75"
                        Text="这里只做查看和开关。热点、网卡、升级都由独立运行的 ClassroomKit 守护进程负责：ClassIsland 退出、崩溃或没启动，教室里的网也不会断。" />
 

@@ -48,7 +48,7 @@ msiexec /i ClassroomKit-0.4.0-x64.msi /qn
 
 装完自动：落地到 `C:\Program Files\ClassroomKit` → 建 `C:\ProgramData\ClassroomKit` 并授权普通用户可写 → 放宽设备上限（`WifiMaxPeers=16`）→ 注册登录自启任务 → 注册 SYSTEM 护航任务 → 立刻拉起守护。开始菜单会多一项「ClassroomKit 控制面板」，点了直接带令牌打开面板（等价于 `--panel`）。
 
-再装插件：打开 ClassIsland → 设置 → 插件 → 从本地安装 → 选 `ClassroomKit-0.4.0.cipx` → 重启 ClassIsland。设置页里会出现「ClassroomKit 热点」，里面能看到课表联动状态。
+再装插件：打开 ClassIsland → 设置 → 插件 → 从本地安装 → 选 `ClassroomKit-0.4.0.cipx` → 重启 ClassIsland。设置页里会出现「ClassroomKit 助手」，里面能看到课表联动状态。
 
 ### 方式二：绿色目录（没有安装包时）
 

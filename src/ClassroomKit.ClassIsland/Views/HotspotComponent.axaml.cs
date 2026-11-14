@@ -5,7 +5,7 @@ using ClassroomKit.ClassIsland.Settings;
 
 namespace ClassroomKit.ClassIsland.Views;
 
-[ComponentInfo("0f5f4c8e-1b0e-4a5a-9d3c-6c1f6a2b7d21", "ClassroomKit 热点", "\uE701",
+[ComponentInfo("0f5f4c8e-1b0e-4a5a-9d3c-6c1f6a2b7d21", "ClassroomKit 助手", "\uE701",
     "显示教室热点是否开启、连了几台设备。")]
 public partial class HotspotComponent : ComponentBase
 {
