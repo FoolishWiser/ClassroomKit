@@ -1,0 +1,47 @@
+<UserControl x:Class="ClassroomKit.Agent.Desktop.Pages.HotspotPage"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Background="Transparent">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="0,0,0,24">
+            <TextBlock Text="热点" Style="{StaticResource H1}" />
+            <TextBlock Text="手机连的那张网；改完等一轮巡检（约 15 秒）生效" Style="{StaticResource Secondary}" Margin="0,4,0,20" />
+
+            <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="当前状态" Style="{StaticResource Caption}" />
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <TextBlock Text="{Binding Ssid}" FontSize="22" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" />
+                        <TextBlock Text="　在线 " Style="{StaticResource Secondary}" VerticalAlignment="Bottom" />
+                        <TextBlock Text="{Binding ClientsText}" Style="{StaticResource Secondary}" VerticalAlignment="Bottom" />
+                    </StackPanel>
+                    <TextBlock Style="{StaticResource Caption}" Margin="0,6,0,0">
+                        <Run Text="密码 " /><Run Text="{Binding Passphrase, Mode=OneWay}" />
+                    </TextBlock>
+                    <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                        <Button Content="复制密码" Style="{StaticResource SecondaryButton}" Command="{Binding CopyPasswordCommand}" />
+                        <Button Content="改用电脑名" Style="{StaticResource GhostButton}" Margin="8,0,0,0" Command="{Binding RenameToMachineCommand}" />
+                        <Button Content="突破 8 台限制" Style="{StaticResource GhostButton}" Margin="8,0,0,0" Command="{Binding FixPeersCommand}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <TextBlock Text="热点设置" Style="{StaticResource H2}" Margin="0,0,0,14" />
+                    <TextBlock Text="热点名称" Style="{StaticResource Caption}" />
+                    <TextBox Style="{StaticResource Input}" Text="{Binding EditSsid, UpdateSourceTrigger=PropertyChanged}" Margin="0,6,0,14" />
+                    <TextBlock Text="密码（至少 8 位）" Style="{StaticResource Caption}" />
+                    <TextBox Style="{StaticResource Input}" Text="{Binding EditPassphrase, UpdateSourceTrigger=PropertyChanged}" Margin="0,6,0,14" />
+                    <TextBlock Text="目标设备数" Style="{StaticResource Caption}" />
+                    <TextBox Style="{StaticResource Input}" Text="{Binding EditTargetClients, UpdateSourceTrigger=PropertyChanged}" Width="120" HorizontalAlignment="Left" Margin="0,6,0,18" />
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="保存" Style="{StaticResource PrimaryButton}" Command="{Binding SaveHotspotCommand}" />
+                        <TextBlock Text="设备上限（注册表）" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="14,0,0,0" />
+                        <TextBlock Text="{Binding MaxPeersText}" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="6,0,0,0" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

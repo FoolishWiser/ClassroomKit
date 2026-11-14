@@ -14,14 +14,16 @@ namespace ClassroomKit.Agent.Diagnose;
 /// </summary>
 public static class Diagnostics
 {
-    public static object Build(AgentRuntime rt)
+    public static object Build(AgentRuntime rt) => BuildReport(rt);
+
+    public static DiagReport BuildReport(AgentRuntime rt)
     {
         var config = rt.Config.Current;
         var snap = rt.Guard.LastSnapshot ?? TetheringSnapshot.Empty;
-        var checks = new List<object>();
+        var checks = new List<DiagCheck>();
 
         void Add(string id, string title, string status, string detail, string? next = null) =>
-            checks.Add(new { id, title, status, detail, next });
+            checks.Add(new DiagCheck(id, title, status, detail, next));
 
         var version = AgentRuntime.DisplayVersion();
         Add("version", "程序版本", "ok", $"v{version}｜配置 schema {config.SchemaVersion}");
@@ -100,16 +102,20 @@ public static class Diagnostics
                 $"当前 SSID {config.Hotspot.Ssid} 是所有机器共用的旧默认值，容易和隔壁教室串台",
                 "点面板「改用电脑名」，或 POST /api/action action=rename-ssid");
 
-        var fail = checks.Count(c => c.GetType().GetProperty("status")?.GetValue(c)?.ToString() == "fail");
-        var warn = checks.Count(c => c.GetType().GetProperty("status")?.GetValue(c)?.ToString() == "warn");
+        var fail = checks.Count(c => c.status == "fail");
+        var warn = checks.Count(c => c.status == "warn");
 
-        return new
-        {
-            ok = fail == 0,
+        return new DiagReport(
+            fail == 0,
             version,
-            generatedAt = DateTimeOffset.Now,
-            summary = fail == 0 ? $"没有致命问题（{warn} 项建议）" : $"{fail} 项需要处理，{warn} 项建议",
-            checks
-        };
+            DateTimeOffset.Now,
+            fail == 0 ? $"没有致命问题（{warn} 项建议）" : $"{fail} 项需要处理，{warn} 项建议",
+            checks);
     }
 }
+
+/// <summary>一条自检结果（小写成员名：序列化后就是面板/桌面端共用的 camelCase 字段）。</summary>
+public sealed record DiagCheck(string id, string title, string status, string detail, string? next);
+
+/// <summary>一次自检的完整报告。</summary>
+public sealed record DiagReport(bool ok, string version, DateTimeOffset generatedAt, string summary, IReadOnlyList<DiagCheck> checks);

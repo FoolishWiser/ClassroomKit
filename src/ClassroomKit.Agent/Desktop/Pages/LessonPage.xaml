@@ -1,0 +1,72 @@
+<UserControl x:Class="ClassroomKit.Agent.Desktop.Pages.LessonPage"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Background="Transparent">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="0,0,0,24">
+            <TextBlock Text="课表与板书" Style="{StaticResource H1}" />
+            <TextBlock Text="上课前提醒保存板书；存成「科目_日期_时间」" Style="{StaticResource Secondary}" Margin="0,4,0,20" />
+
+            <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="课表状态" Style="{StaticResource Caption}" />
+                        <TextBlock Text="{Binding LessonStateText}" FontSize="18" FontWeight="SemiBold" Margin="0,6,0,8" Foreground="{DynamicResource TextPrimary}" />
+                        <TextBlock Text="当前 / 上一节" Style="{StaticResource Caption}" />
+                        <TextBlock Text="{Binding LessonCurrentText}" Style="{StaticResource Body}" Margin="0,2,0,0" />
+                        <TextBlock Text="上一节科目（用于命名）" Style="{StaticResource Caption}" Margin="0,8,0,0" />
+                        <TextBlock Text="{Binding LessonNameHint}" Style="{StaticResource Body}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Text="下一节" Style="{StaticResource Caption}" />
+                        <TextBlock Text="{Binding LessonNextText}" FontSize="18" FontWeight="SemiBold" Margin="0,6,0,8" Foreground="{DynamicResource TextPrimary}" />
+                        <TextBlock Text="{Binding LessonCountdownText}" Style="{StaticResource Secondary}" />
+                        <TextBlock Text="保存后的文件名预览" Style="{StaticResource Caption}" Margin="0,12,0,0" />
+                        <TextBlock Text="{Binding BoardPreview}" Style="{StaticResource Body}" Margin="0,2,0,0" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <TextBlock Text="课前提醒" Style="{StaticResource H2}" Margin="0,0,0,14" />
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="16" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="提前几分钟（1–30）" Style="{StaticResource Caption}" />
+                            <TextBox Style="{StaticResource Input}" Text="{Binding EditRemindMinutes, UpdateSourceTrigger=PropertyChanged}" Margin="0,6,0,14" />
+                            <TextBlock Text="弹窗停留几秒（5–600）" Style="{StaticResource Caption}" />
+                            <TextBox Style="{StaticResource Input}" Text="{Binding EditDialogSeconds, UpdateSourceTrigger=PropertyChanged}" Margin="0,6,0,14" />
+                            <TextBlock Text="稍后提醒（分钟）" Style="{StaticResource Caption}" />
+                            <TextBox Style="{StaticResource Input}" Text="{Binding EditSnoozeMinutes, UpdateSourceTrigger=PropertyChanged}" Margin="0,6,0,14" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="超时动作" Style="{StaticResource Caption}" />
+                            <ComboBox ItemsSource="{Binding TimeoutActions}" SelectedItem="{Binding EditTimeoutAction}" Margin="0,6,0,4" />
+                            <TextBlock Text="save / save-close / wait / dismiss" Style="{StaticResource Caption}" Margin="0,0,0,10" />
+                            <CheckBox Content="启用课前提醒" IsChecked="{Binding EditLessonEnabled}" Foreground="{DynamicResource TextPrimary}" />
+                            <CheckBox Content="只在 ClassInX 运行时提醒" IsChecked="{Binding EditOnlyWhenClassInBoard}" Foreground="{DynamicResource TextPrimary}" Margin="0,8,0,0" />
+                            <CheckBox Content="保存板书时按课表改名" IsChecked="{Binding EditNameWithLesson}" Foreground="{DynamicResource TextPrimary}" Margin="0,8,0,0" />
+                            <TextBlock Text="板书命名模板" Style="{StaticResource Caption}" Margin="0,14,0,0" />
+                            <TextBox Style="{StaticResource Input}" Text="{Binding EditNameTemplate, UpdateSourceTrigger=PropertyChanged}" Margin="0,6,0,4" />
+                            <TextBlock Text="占位符：{科目} {日期} {时间} {节次} {周几}" Style="{StaticResource Caption}" />
+                        </StackPanel>
+                    </Grid>
+                    <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
+                        <Button Content="保存设置" Style="{StaticResource PrimaryButton}" Command="{Binding SaveLessonCommand}" />
+                        <Button Content="预览提醒窗" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" Command="{Binding PreviewReminderCommand}" />
+                        <Button Content="立即保存板书" Style="{StaticResource GhostButton}" Margin="8,0,0,0" Command="{Binding SaveBoardNamedCommand}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

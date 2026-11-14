@@ -1,3 +1,4 @@
+using System.Net.Http;
 using ClassroomKit.Agent.Service;
 using ClassroomKit.Agent.Shell;
 using ClassroomKit.Core.Hosts;
@@ -18,6 +19,15 @@ public sealed class HostsService
     private readonly Func<AppConfig> _config;
     private readonly HostsAccelerator _accelerator;
     private readonly HostsCache _cache;
+
+    // 桌面端直接读这几个只读属性，不用反射 StatusDto()
+    public bool Applied => _applied;
+    public int Count => _count;
+    public string? LastMessage => _lastMessage;
+    public string? LastError => _lastError;
+    public bool Writable => HostsApplier.CanWrite();
+    public bool ServiceInstalled => Tasks.ScheduledTaskInstaller.IsServiceInstalled();
+    public bool ServiceAlive => IsServiceAlive();
 
     private bool _applied;
     private int _count;

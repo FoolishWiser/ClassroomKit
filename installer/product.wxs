@@ -35,15 +35,14 @@
       <Directory Id="INSTALLFOLDER" Name="ClassroomKit" />
     </StandardDirectory>
 
-    <!-- 开始菜单：一键打开控制面板（panel 动词会带上令牌） -->
+    <!-- 开始菜单：打开桌面主界面（已有实例在跑时会把它叫到前台） -->
     <StandardDirectory Id="ProgramMenuFolder">
       <Directory Id="ProgramMenuDir" Name="ClassroomKit">
         <Component Id="MenuComponent" Guid="*">
           <Shortcut Id="PanelShortcut"
-                    Name="ClassroomKit 控制面板"
-                    Description="用浏览器打开热点控制面板（自动带登录令牌）"
+                    Name="ClassroomKit 助手"
+                    Description="打开 ClassroomKit 一体机助手主界面"
                     Target="[INSTALLFOLDER]ClassroomKit.Agent.exe"
-                    Arguments="--panel"
                     WorkingDirectory="INSTALLFOLDER" />
           <RemoveFolder Id="ProgramMenuDir" On="uninstall" />
           <RegistryValue Root="HKLM" Key="Software\ClassroomKit" Name="installed" Type="integer" Value="1" KeyPath="yes" />

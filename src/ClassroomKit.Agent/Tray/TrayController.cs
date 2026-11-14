@@ -21,6 +21,7 @@ public sealed class TrayController : IDisposable
 
     private readonly AgentRuntime _runtime;
     private readonly Forms.NotifyIcon _icon;
+    private readonly Forms.ContextMenuStrip _menu;
     private readonly Forms.Timer _timer;
     private readonly Forms.ToolStripMenuItem _statusItem;
     private readonly Forms.ToolStripMenuItem _pauseMenu;
@@ -49,9 +50,11 @@ public sealed class TrayController : IDisposable
         }));
 
         var menu = new Forms.ContextMenuStrip();
+        _menu = menu;
         menu.Items.Add(_statusItem);
         menu.Items.Add(new Forms.ToolStripSeparator());
-        menu.Items.Add(new Forms.ToolStripMenuItem("打开控制面板", null, (_, _) => OpenPanel()));
+        menu.Items.Add(new Forms.ToolStripMenuItem("打开主界面", null, (_, _) => OpenMainWindow()));
+        menu.Items.Add(new Forms.ToolStripMenuItem("打开网页面板", null, (_, _) => OpenPanel()));
         menu.Items.Add(_pauseMenu);
         menu.Items.Add(_resumeItem);
         var saveMenu = new Forms.ToolStripMenuItem("保存板书");
@@ -76,10 +79,13 @@ public sealed class TrayController : IDisposable
             Text = "ClassroomKit 正在启动…",
             Icon = TrayIcons.Build(Grey, null)
         };
-        _icon.DoubleClick += (_, _) => OpenPanel();
+        // 左右键都弹菜单；双击不再弹出窗口（菜单里点「打开主界面」）
         _icon.MouseClick += (_, e) =>
         {
-            if (e.Button == Forms.MouseButtons.Left) OpenPanel();
+            if (e.Button == Forms.MouseButtons.Left)
+            {
+                try { _menu.Show(Forms.Cursor.Position); } catch { /* 忽略 */ }
+            }
         };
 
         _runtime.ReminderRequested = ShowBoardReminder;
@@ -146,6 +152,15 @@ public sealed class TrayController : IDisposable
             GuardState.Failed => (Red, "异常"),
             _ => (Grey, "启动中")
         };
+    }
+
+    private void OpenMainWindow()
+    {
+        try { Desktop.UiHost.Show(); }
+        catch (Exception ex)
+        {
+            _runtime.Log.Warn($"打开主界面失败：{ex.Message}");
+        }
     }
 
     private void OpenPanel()

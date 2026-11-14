@@ -3,7 +3,7 @@
 装在教室一体机上的小工具，管三件老师每天都会碰到的事：**上课前提醒保存板书**、**把板书存成看得懂的文件名**、**学生手机连得上的热点**。此外还顺手处理了 GitHub 访问慢（hosts 护航）和静默升级。
 
 - 一个 **单文件 exe**（约 70 MB，自包含，目标机不需要装 .NET）
-- 托盘常驻 + 本地网页面板（`http://127.0.0.1:36037/?t=令牌`）
+- 原生桌面主界面（六页导航，关窗收进托盘）+ 托盘常驻 + 本地网页面板（`http://127.0.0.1:36037/?t=令牌`）
 - 上课前 **5 分钟**弹一次提醒窗（时间与提前量可改），不点也会替你保存
 - 板书按 **上一节课的科目** 改名：`数学_2026-11-14_10-05.png`
 - 热点由守护进程负责：开机就有、被关会自动恢复，学生上限从 8 台放到 16 台
@@ -11,7 +11,7 @@
 
 ![控制面板](docs/img/panel.png)
 
-> 上图是 0.3 的面板。0.4 把面板重排成「课表 → 课堂设备 → 热点设置 → 冲突 → hosts → 自检 → 升级 → 设备 → 日志 → 维护」，课表卡放在最上面。
+> 上图是 0.3 的网页面板。0.5.0 起主界面换成原生桌面窗口（概览 / 热点 / 课表与板书 / 升级 / 自检与日志 / 设置），网页面板仍然保留。
 
 ## 为什么热点不是插件、课表却是插件
 
@@ -26,13 +26,23 @@
 
 还在用 ClassIsland 1.6 / 1.7、或不想装插件的：课前提醒与按科目改名需要课表，这版用不了；热点、板书保存、hosts、升级仍然可用（零代码「自动化」喊 `--ensure`，见 [ClassIsland 接入](docs/ClassIsland-接入.md)）。
 
+## 桌面端（0.5.0 起）
+
+0.5.0 起日常操作在**原生窗口**里，不再必须开浏览器：
+
+- 双击 `ClassroomKit.Agent.exe`，或开始菜单「ClassroomKit 助手」，打开主界面。已经有实例在跑时再启动一次，不会开第二个进程，只会把主界面叫到前台。
+- 左侧六页：**概览**（热点 / 下一节课 / 升级 / hosts 一眼看完）、**热点**、**课表与板书**（课前提醒参数、命名模板与文件名预览）、**升级**、**自检与日志**、**设置**（关窗行为、主题、hosts 与护航任务、网页面板入口）。
+- 关窗口默认收进托盘、守护照常跑；托盘图标**左键或右键都弹菜单**（菜单里「打开主界面」）。真要退出用菜单里的「退出」。
+- 窗口大小/位置、最后停留页面、主题（跟随系统 / 浅色 / 深色）都会记住。
+- 网页面板没删：手机或另一台电脑仍可开 `http://127.0.0.1:36037/?t=令牌`，只是不再是唯一入口。
+
 ## 下载
 
 预编译安装包在 [Releases](https://github.com/FoolishWiser/ClassroomKit/releases)：
 
-- `ClassroomKit-0.4.3-x64.msi`（约 63 MB，推荐）
-- `ClassroomKit-0.4.3-win-x64.zip`（绿色版）
-- `ClassroomKit-0.4.3.cipx`（ClassIsland 2.1 插件，不是安装包，装到 ClassIsland 里）
+- `ClassroomKit-0.5.0-x64.msi`（约 63 MB，推荐）
+- `ClassroomKit-0.5.0-win-x64.zip`（绿色版）
+- `ClassroomKit-0.5.0.cipx`（ClassIsland 2.1 插件，不是安装包，装到 ClassIsland 里）
 
 前两个都是自包含单文件，目标机不需要装 .NET。从 0.3.0 起只发正式版，装了就自动收到后续正式版的升级提示。
 
@@ -41,14 +51,14 @@
 ### 方式一：MSI 安装包（推荐）
 
 ```text
-双击 ClassroomKit-0.4.3-x64.msi
+双击 ClassroomKit-0.5.0-x64.msi
 # 或者命令行静默安装：
-msiexec /i ClassroomKit-0.4.3-x64.msi /qn
+msiexec /i ClassroomKit-0.5.0-x64.msi /qn
 ```
 
-装完自动：落地到 `C:\Program Files\ClassroomKit` → 建 `C:\ProgramData\ClassroomKit` 并授权普通用户可写 → 放宽设备上限（`WifiMaxPeers=16`）→ 注册登录自启任务 → 注册 SYSTEM 护航任务 → 立刻拉起守护。开始菜单会多一项「ClassroomKit 控制面板」，点了直接带令牌打开面板（等价于 `--panel`）。
+装完自动：落地到 `C:\Program Files\ClassroomKit` → 建 `C:\ProgramData\ClassroomKit` 并授权普通用户可写 → 放宽设备上限（`WifiMaxPeers=16`）→ 注册登录自启任务 → 注册 SYSTEM 护航任务 → 立刻拉起守护。开始菜单会多一项「ClassroomKit 助手」，点了直接打开桌面主界面；网页面板在设置页一键打开（等价于 `--panel`）。
 
-再装插件：打开 ClassIsland → 设置 → 插件 → 从本地安装 → 选 `ClassroomKit-0.4.3.cipx` → 重启 ClassIsland。设置页里会出现「ClassroomKit 助手」，里面能看到课表联动状态。
+再装插件：打开 ClassIsland → 设置 → 插件 → 从本地安装 → 选 `ClassroomKit-0.5.0.cipx` → 重启 ClassIsland。设置页里会出现「ClassroomKit 助手」，里面能看到课表联动状态。
 
 ### 方式二：绿色目录（没有安装包时）
 
@@ -210,7 +220,7 @@ powershell -ExecutionPolicy Bypass -File get-bcu.ps1
 ## 命令行
 
 ```text
-ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
+ClassroomKit.Agent.exe            常驻守护 + 托盘 + 桌面主界面 + 网页面板
 --ensure                          确保守护在跑且热点开着（在跑则秒退；给 ClassIsland 调用）
 --on / --off                      开 / 关热点策略
 --status                          打印状态 JSON
@@ -323,7 +333,7 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
 
 ## 卸载
 
-- **MSI 装的**：控制面板「应用」里卸载，或 `msiexec /x ClassroomKit-0.4.3-x64.msi`；面板「维护 → 卸载本软件」也会调起同样的流程。
+- **MSI 装的**：控制面板「应用」里卸载，或 `msiexec /x ClassroomKit-0.5.0-x64.msi`；面板「维护 → 卸载本软件」也会调起同样的流程。
 - **绿色版**：面板「维护 → 卸载本软件」，或 `ClassroomKit.Agent.exe --uninstall`。
 - 卸载会停进程、删自启与护航任务、把 `WifiMaxPeers` 改回原值并重启共享服务、删安装目录（含 BCU）；**默认保留** `C:\ProgramData\ClassroomKit`（配置和日志，方便重装后沿用 SSID/密码）。想连配置日志一起删：面板勾「同时删除配置与日志」再点卸载，或 `--uninstall --purge-data`。
 - 需要管理员权限：没提权会弹一次 UAC。
@@ -345,11 +355,11 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
 
 ```text
 src/ClassroomKit.Core          纯逻辑：配置、课表、板书命名、状态机、HTTP、API（Linux 上可单测）
-src/ClassroomKit.Agent         WinRT 热点、托盘、提醒窗、自检、计划任务、护航任务
+src/ClassroomKit.Agent         WinRT 热点、托盘、桌面端（WPF）、提醒窗、自检、计划任务、护航任务
 src/ClassroomKit.ClassIsland   ClassIsland 2.1 插件（cipx）：课表桥 + 设置页 + 主界面组件 + 行动
-web/                           控制面板（无框架、无 CDN，离线可用）
+web/                           网页面板（无框架、无 CDN，离线可用；0.4 及更早的唯一入口）
 scripts/                       build / build-msi / install / uninstall / rebuild / probe / get-bcu / verify
-tests/ClassroomKit.Tests       零依赖测试（dotnet run，117 项）
+tests/ClassroomKit.Tests       零依赖测试（dotnet run，122 项）
 docs/                          部署手册、ClassIsland 接入、原理与限制、版本与发布
 installer/                     MSI 定义（product.wxs；文件清单 files.wxs 由 build-msi.ps1 生成）
 ```
@@ -360,7 +370,7 @@ installer/                     MSI 定义（product.wxs；文件清单 files.wxs
 dotnet run --project tests/ClassroomKit.Tests -c Release
 ```
 
-117 项，覆盖配置规范化与落盘（含旧配置迁移与机器名默认值）、上行网卡选择、守护状态机九条分支、窗口分类与冲突冷却、冲突提示窗、UI 配方匹配、GitHub Release 解析与 SemVer 预发布比较、hosts 区块合并 / 还原 / 挑最优 IP、升级时间窗（含跨午夜、默认不限）与 v3→v4 时间窗迁移、板书命名模板与改名冲突、课表提醒判定的十条原因分支与稍后提醒、提醒窗超时/暂停/快捷键、守护配置令牌的大小写不敏感读取、HTTP 端到端。
+122 项，覆盖配置规范化与落盘（含旧配置迁移与机器名默认值）、上行网卡选择、守护状态机九条分支、窗口分类与冲突冷却、冲突提示窗、UI 配方匹配、GitHub Release 解析与 SemVer 预发布比较、hosts 区块合并 / 还原 / 挑最优 IP、升级时间窗（含跨午夜、默认不限）与 v3→v4 时间窗迁移、板书命名模板与改名冲突、课表提醒判定的十条原因分支与稍后提醒、提醒窗超时/暂停/快捷键、守护配置令牌的大小写不敏感读取、HTTP 端到端。
 
 装到目标机之后，再跑一遍**整机验收**（43 项，含注册表、系统上限、策略开关、计划任务、改设置落盘、异常输入、网卡判别、板书/冲突接口、BCU 按钮）：
 

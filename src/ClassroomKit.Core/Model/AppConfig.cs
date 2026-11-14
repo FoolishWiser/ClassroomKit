@@ -19,6 +19,7 @@ public sealed class AppConfig
     public UpdateConfig Update { get; set; } = new();
     public HostsConfig Hosts { get; set; } = new();
     public LessonConfig Lesson { get; set; } = new();
+    public UiConfig Ui { get; set; } = new();
     public string? InstalledVersion { get; set; }
 }
 
@@ -179,4 +180,38 @@ public sealed class UpdateConfig
 
     /// <summary>有设备连着热点时也允许自动安装（默认要等没人连着）。</summary>
     public bool InstallWithClients { get; set; }
+}
+
+/// <summary>桌面窗口与托盘行为（0.5.0 起；只有桌面端读，守护逻辑不依赖）。</summary>
+public sealed class UiConfig
+{
+    /// <summary>关闭窗口时缩到托盘（false = 关窗即退出）。</summary>
+    public bool CloseToTray { get; set; } = true;
+
+    /// <summary>启动时只出托盘，不弹主窗口。</summary>
+    public bool StartMinimized { get; set; }
+
+    public int WindowWidth { get; set; } = 1120;
+    public int WindowHeight { get; set; } = 760;
+    public int WindowLeft { get; set; } = -1;
+    public int WindowTop { get; set; } = -1;
+    public string LastPage { get; set; } = "overview";
+
+    /// <summary>light | dark | system</summary>
+    public string Theme { get; set; } = "system";
+
+    public void Normalize()
+    {
+        WindowWidth = Math.Clamp(WindowWidth, 960, 3840);
+        WindowHeight = Math.Clamp(WindowHeight, 640, 2160);
+        if (WindowLeft is < -10000 or > 10000) WindowLeft = -1;
+        if (WindowTop is < -10000 or > 10000) WindowTop = -1;
+        if (string.IsNullOrWhiteSpace(LastPage)) LastPage = "overview";
+        Theme = (Theme ?? "").Trim().ToLowerInvariant() switch
+        {
+            "light" => "light",
+            "dark" => "dark",
+            _ => "system"
+        };
+    }
 }

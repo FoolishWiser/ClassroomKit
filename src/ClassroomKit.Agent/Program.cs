@@ -74,14 +74,29 @@ internal static class Program
         {
             // 已有实例在跑：不重复开热点、不抢端口，直接把策略确保为开就退出
             try { Commands.Ensure(); } catch { /* 已有实例可能刚起来，忽略 */ }
+            Desktop.UiHost.SignalShow();
             return 0;
         }
 
         Forms.Application.EnableVisualStyles();
         Forms.Application.SetCompatibleTextRenderingDefault(false);
 
-        using var context = new AgentContext();
-        Forms.Application.Run(context);
+        // WPF 负责消息循环与主窗口，WinForms 托盘挂同一个线程
+        var app = new System.Windows.Application { ShutdownMode = System.Windows.ShutdownMode.OnExplicitShutdown };
+        // 先装好 Dispatcher 同步上下文：托盘控制器在构造时就捕获它，否则弹窗会投递不出去
+        SynchronizationContext.SetSynchronizationContext(
+            new System.Windows.Threading.DispatcherSynchronizationContext(app.Dispatcher));
+        using var host = new Desktop.AgentHost();
+        Desktop.UiHost.Initialize(app, host.Runtime);
+        try
+        {
+            app.Run();
+        }
+        finally
+        {
+            Desktop.UiHost.Shutdown();
+        }
+
         return 0;
     }
 }

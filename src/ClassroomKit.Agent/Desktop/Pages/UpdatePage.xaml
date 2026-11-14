@@ -1,0 +1,58 @@
+<UserControl x:Class="ClassroomKit.Agent.Desktop.Pages.UpdatePage"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Background="Transparent">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="0,0,0,24">
+            <TextBlock Text="升级" Style="{StaticResource H1}" />
+            <TextBlock Text="从 GitHub Releases 静默升级；教室机器开机就检查" Style="{StaticResource Secondary}" Margin="0,4,0,20" />
+
+            <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                <StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="当前版本" Style="{StaticResource Caption}" />
+                            <TextBlock Text="{Binding VersionText}" FontSize="22" FontWeight="SemiBold" Margin="0,4,0,10"
+                                       Foreground="{DynamicResource TextPrimary}" />
+                            <TextBlock Text="{Binding UpdatePhaseText}" FontSize="15" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimary}" />
+                            <TextBlock Text="{Binding UpdateLatestText}" Style="{StaticResource Secondary}" Margin="0,4,0,0" />
+                            <TextBlock Text="{Binding UpdateError}" Foreground="{DynamicResource Danger}" TextWrapping="Wrap" Margin="0,6,0,0" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                            <Button Content="检查更新" Style="{StaticResource SecondaryButton}" Command="{Binding CheckUpdateCommand}" MinWidth="120" />
+                            <Button Content="立即升级" Style="{StaticResource PrimaryButton}" Margin="0,8,0,0" MinWidth="120"
+                                    Command="{Binding UpgradeCommand}" />
+                        </StackPanel>
+                    </Grid>
+                    <ProgressBar Height="6" Margin="0,16,0,0" Minimum="0" Maximum="100" Value="{Binding UpdateProgress, Mode=OneWay}"
+                                 Foreground="{DynamicResource Accent}" Background="{DynamicResource ControlBackground}" BorderThickness="0" />
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="本版说明" Style="{StaticResource H2}" Margin="0,0,0,10" />
+                    <TextBlock Text="{Binding UpdateNotes}" Style="{StaticResource Secondary}" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <TextBlock Text="自动升级" Style="{StaticResource H2}" Margin="0,0,0,12" />
+                    <CheckBox Content="发现新版本自动安装" IsChecked="{Binding EditAutoInstall}" Foreground="{DynamicResource TextPrimary}" />
+                    <CheckBox Content="开机检查更新" IsChecked="{Binding EditCheckOnBoot}" Margin="0,8,0,0" Foreground="{DynamicResource TextPrimary}" />
+                    <TextBlock Text="安装时间窗（留空 = 全天）" Style="{StaticResource Caption}" Margin="0,14,0,0" />
+                    <TextBox Style="{StaticResource Input}" Text="{Binding EditInstallWindow, UpdateSourceTrigger=PropertyChanged}"
+                             Width="180" HorizontalAlignment="Left" Margin="0,6,0,0" />
+                    <Button Content="保存升级设置" Style="{StaticResource PrimaryButton}" Margin="0,16,0,0" HorizontalAlignment="Left"
+                            Command="{Binding SaveUiCommand}" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

@@ -1,0 +1,85 @@
+<UserControl x:Class="ClassroomKit.Agent.Desktop.Pages.DiagnosePage"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Background="Transparent">
+    <UserControl.Resources>
+        <Style x:Key="DiagStatusText" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Status}" Value="ok">
+                    <Setter Property="Foreground" Value="{DynamicResource Success}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="warn">
+                    <Setter Property="Foreground" Value="{DynamicResource Warning}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="fail">
+                    <Setter Property="Foreground" Value="{DynamicResource Danger}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Resources>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <StackPanel Grid.Row="0" Margin="0,0,0,16">
+            <TextBlock Text="诊断" Style="{StaticResource H1}" />
+            <TextBlock Text="一键自检覆盖版本、热点、上行、开机自启、护航任务、hosts、板书目录、课表与升级" Style="{StaticResource Secondary}" Margin="0,4,0,16" />
+            <StackPanel Orientation="Horizontal">
+                <Button Content="开始自检" Style="{StaticResource PrimaryButton}" Command="{Binding DiagnoseCommand}" />
+                <Button Content="打开日志目录" Style="{StaticResource GhostButton}" Margin="8,0,0,0" Command="{Binding OpenLogsCommand}" />
+                <TextBlock Text="{Binding DiagnoseSummary}" Style="{StaticResource Secondary}" VerticalAlignment="Center" Margin="16,0,0,0" />
+            </StackPanel>
+        </StackPanel>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="3*" />
+                <ColumnDefinition Width="16" />
+                <ColumnDefinition Width="2*" />
+            </Grid.ColumnDefinitions>
+            <Border Grid.Column="0" Style="{StaticResource Card}" VerticalAlignment="Stretch">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="自检结果" Style="{StaticResource H2}" Margin="0,0,0,10" />
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding DiagnoseRows}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border BorderThickness="0,0,0,1" BorderBrush="{DynamicResource CardBorder}" Padding="0,9">
+                                        <StackPanel>
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="{Binding Title}" Style="{StaticResource Body}" Foreground="{DynamicResource TextPrimary}" />
+                                                <TextBlock Text="{Binding StatusText}" Style="{StaticResource DiagStatusText}" Margin="10,0,0,0" VerticalAlignment="Center" />
+                                            </StackPanel>
+                                            <TextBlock Text="{Binding Detail}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,3,0,0" />
+                                            <TextBlock Text="{Binding Next}" Style="{StaticResource Caption}" Foreground="{DynamicResource Accent}"
+                                                       TextWrapping="Wrap" Margin="0,2,0,0" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+
+            <Border Grid.Column="2" Style="{StaticResource Card}">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="最近日志" Style="{StaticResource H2}" Margin="0,0,0,10" />
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding LogLines}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,0,0,4" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>
