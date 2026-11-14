@@ -176,4 +176,6 @@ jobs:
             ClassroomKit-*-win-x64.zip
             ClassroomKit-*.cipx
           draft: false
+          # 重发同一版本时要覆盖同名资产（见 docs/版本与发布.md）
+          overwrite_files: true
           prerelease: ${{ contains(needs.windows.outputs.version, '-') }}
