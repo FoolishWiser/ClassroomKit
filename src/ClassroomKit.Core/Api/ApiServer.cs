@@ -625,12 +625,15 @@ public sealed class ApiServer
                         c.Lesson.OnlyWhenClassInBoard = IsOn(only);
                     if (fields.TryGetValue("staleMinutes", out var stale) && int.TryParse(stale, out var st2))
                         c.Lesson.StaleMinutes = st2;
+                    if (fields.TryGetValue("subjects", out var subjects))
+                        c.Lesson.Subjects = SplitSubjects(subjects);
                     c.Lesson.Normalize();
                     return 0;
                 });
 
                 var lesson = _config.Current.Lesson;
-                _log.Info($"课前提醒设置已保存：{(lesson.Enabled ? "开" : "关")}｜提前 {lesson.RemindMinutesBefore} 分钟｜{lesson.DialogSeconds} 秒后{DescTimeout(lesson.TimeoutAction)}");
+                var scope = lesson.Subjects.Count == 0 ? "所有科目" : string.Join("、", lesson.Subjects);
+                _log.Info($"课前提醒设置已保存：{(lesson.Enabled ? "开" : "关")}｜提前 {lesson.RemindMinutesBefore} 分钟｜{lesson.DialogSeconds} 秒后{DescTimeout(lesson.TimeoutAction)}｜生效科目：{scope}");
                 return HttpResponse.Json(JsonSerializer.Serialize(new
                 {
                     ok = true,
@@ -642,6 +645,7 @@ public sealed class ApiServer
                     snoozeMinutes = lesson.SnoozeMinutes,
                     onlyWhenClassInBoard = lesson.OnlyWhenClassInBoard,
                     staleMinutes = lesson.StaleMinutes,
+                    subjects = lesson.Subjects,
                     message = "已保存"
                 }, Json));
             }
@@ -679,6 +683,10 @@ public sealed class ApiServer
                 return HttpResponse.Text("unknown action", 400);
         }
     }
+
+    /// <summary>面板/插件把「生效科目」按逗号分隔的文本传上来；中英文逗号、分号、顿号都认。</summary>
+    private static List<string> SplitSubjects(string text) =>
+        LessonSubjects.Normalize((text ?? "").Split(new[] { ',', '，', ';', '；', '、' }, StringSplitOptions.RemoveEmptyEntries));
 
     /// <summary>弹窗超时动作的人话说明（写日志用）。</summary>
     private static string DescTimeout(string action) => action switch

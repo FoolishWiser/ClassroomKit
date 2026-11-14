@@ -103,12 +103,20 @@ public sealed class LessonConfig
     /// <summary>课表快照多久没更新就算过期（分钟）。过期不弹窗，面板提示「数据已过期」。</summary>
     public int StaleMinutes { get; set; } = 120;
 
+    /// <summary>
+    /// 只在哪些科目上生效（课表里的科目名，如 ["物理"]）。空列表 = 所有科目都生效，也是旧配置没有这个字段时的默认行为。
+    /// 匹配规则见 <see cref="LessonSubjects"/>：去空白、忽略大小写，允许「物理」匹配「物理实验」这类包含关系。
+    /// 只约束课前提醒（自动保存板书由这个提醒触发，所以也就等于「只听物理课的」）；板书文件名的科目照旧按课表取，不受这里影响。
+    /// </summary>
+    public List<string> Subjects { get; set; } = new();
+
     public void Normalize()
     {
         RemindMinutesBefore = Math.Clamp(RemindMinutesBefore, 1, 30);
         DialogSeconds = Math.Clamp(DialogSeconds, 5, 600);
         SnoozeMinutes = Math.Clamp(SnoozeMinutes, 1, 60);
         StaleMinutes = Math.Clamp(StaleMinutes, 1, 1440);
+        Subjects = LessonSubjects.Normalize(Subjects);
 
         var action = (TimeoutAction ?? "").Trim().ToLowerInvariant();
         TimeoutAction = action switch

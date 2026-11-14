@@ -25,6 +25,9 @@ public sealed class PluginSettings
     /// <summary>点「稍后提醒」后隔多少分钟再弹（1–60）。</summary>
     public int LessonSnoozeMinutes { get; set; } = 2;
 
+    /// <summary>只在哪些科目上提醒（逗号分隔，如「物理,化学」；留空 = 所有科目）。匹配规则与守护一致。</summary>
+    public string LessonSubjects { get; set; } = "";
+
     /// <summary>板书改名模板，占位符 {科目} {日期} {时间} {节次} {周几}。</summary>
     public string BoardNameTemplate { get; set; } = "{科目}_{日期}_{时间}";
 
@@ -37,6 +40,7 @@ public sealed class PluginSettings
         LessonRemindMinutes = Math.Clamp(LessonRemindMinutes <= 0 ? 5 : LessonRemindMinutes, 1, 30);
         LessonDialogSeconds = Math.Clamp(LessonDialogSeconds <= 0 ? 30 : LessonDialogSeconds, 5, 600);
         LessonSnoozeMinutes = Math.Clamp(LessonSnoozeMinutes <= 0 ? 2 : LessonSnoozeMinutes, 1, 60);
+        LessonSubjects = (LessonSubjects ?? "").Trim();
         if (string.IsNullOrWhiteSpace(BoardNameTemplate)) BoardNameTemplate = "{科目}_{日期}_{时间}";
         BoardNameTemplate = BoardNameTemplate.Trim();
         LessonTimeoutAction = (LessonTimeoutAction ?? "").Trim().ToLowerInvariant() switch
@@ -57,6 +61,7 @@ public sealed class PluginSettings
         LessonDialogSeconds = LessonDialogSeconds,
         LessonTimeoutAction = LessonTimeoutAction,
         LessonSnoozeMinutes = LessonSnoozeMinutes,
+        LessonSubjects = LessonSubjects,
         BoardNameTemplate = BoardNameTemplate,
         BoardCloseAfterSave = BoardCloseAfterSave,
     };

@@ -47,6 +47,9 @@ public sealed record LessonReminderView
 
     public int DialogSeconds { get; init; }
 
+    /// <summary>生效科目白名单；空 = 所有科目都提醒。</summary>
+    public List<string> Subjects { get; init; } = new();
+
     /// <summary>save / save-close / dismiss-ignore / wait。</summary>
     public string TimeoutAction { get; init; } = "save";
 

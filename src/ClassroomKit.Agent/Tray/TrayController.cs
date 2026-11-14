@@ -258,7 +258,7 @@ public sealed class TrayController : IDisposable
             }
             catch (Exception ex)
             {
-                _runtime.Log.Warn($"课前提醒窗失败：{ex.Message}");
+                _runtime.Log.Warn($"课前提醒窗失败：{ex.ToString()}");
             }
         }
 
@@ -294,7 +294,10 @@ public sealed class TrayController : IDisposable
             }
             catch (Exception ex)
             {
-                _runtime.Log.Warn($"预览冲突窗失败：{ex.Message}");
+                // 完整堆栈入日志（预览失败时界面本来就没反应，只有日志能定位）；
+                // 同时弹气泡，避免用户点了「预览」却什么都看不到。
+                _runtime.Log.Warn($"预览冲突窗失败：{ex.ToString()}");
+                ShowBalloon("预览冲突窗失败", ex.Message, false);
             }
         }
 
@@ -315,7 +318,7 @@ public sealed class TrayController : IDisposable
             }
             catch (Exception ex)
             {
-                _runtime.Log.Warn($"板书冲突弹窗失败：{ex.Message}");
+                _runtime.Log.Warn($"板书冲突弹窗失败：{ex.ToString()}");
             }
         }
 

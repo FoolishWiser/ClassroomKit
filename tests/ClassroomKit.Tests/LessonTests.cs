@@ -28,6 +28,7 @@ internal static class LessonTests
         BoardNaming();
         LedgerRules();
         ReminderWindow();
+        SubjectScope();
         return Task.CompletedTask;
     }
 
@@ -217,6 +218,69 @@ internal static class LessonTests
             Eq("下节课 5 分钟后开始 · 数学", model.Title);
             var noSubject = new BoardReminderModel(subject: null, secondsToStart: 300);
             Eq("下节课 5 分钟后开始", noSubject.Title);
+        });
+    }
+
+    /// <summary>「只在物理课上提醒」这类科目定向：白名单匹配、空列表 = 全部、不匹配时 Evaluate 拒绝。</summary>
+    private static void SubjectScope()
+    {
+        Run("生效科目：空列表 = 所有科目都生效（旧配置行为）", () =>
+        {
+            True(LessonSubjects.Matches("数学", Array.Empty<string>()), "空列表不限制");
+            True(LessonSubjects.Matches("物理", null), "null 也不限制");
+            True(LessonSubjects.IsUnrestricted(new[] { "  ", "" }), "只有空白项等于没配");
+        });
+
+        Run("生效科目：整理时去空白、去空项、忽略大小写去重", () =>
+        {
+            var list = LessonSubjects.Normalize(new[] { " 物理 ", "", "物理", " 化学 ", "  " });
+            Eq(2, list.Count, "重复项应合并");
+            Eq("物理", list[0], "保留第一次出现的写法");
+            Eq("化学", list[1], "去掉两端空白");
+        });
+
+        Run("生效科目：宽松匹配（去空格、忽略大小写、包含关系）", () =>
+        {
+            True(LessonSubjects.Matches("物理", new[] { "物理" }), "同名命中");
+            True(LessonSubjects.Matches(" 物理 ", new[] { "物 理" }), "两边空白都忽略");
+            True(LessonSubjects.Matches("物理实验", new[] { "物理" }), "配置「物理」能匹配「物理实验」");
+            True(LessonSubjects.Matches("物理", new[] { "物理/实验" }), "课表写「物理/实验」也能匹配");
+            True(LessonSubjects.Matches("Physics", new[] { "physics" }), "英文不区分大小写");
+            False(LessonSubjects.Matches("数学", new[] { "物理" }), "不同科目不命中");
+            False(LessonSubjects.Matches(null, new[] { "物理" }), "课表没给科目名不算命中");
+        });
+
+        Run("生效科目：下一节不在白名单时 Evaluate 返回 subject-skipped", () =>
+        {
+            var cfg = new LessonConfig { Subjects = new List<string> { "物理" } };
+
+            var math = LessonLedger.FromState(null);
+            math.Accept(Snapshot(next: "数学", nextStart: Now.AddMinutes(4)));
+            var skipped = math.Evaluate(Now, cfg);
+            Eq("subject-skipped", skipped.Reason);
+            False(skipped.Show, "不匹配的科目不该弹窗");
+            Eq("", skipped.Key, "没有进入提醒流程，也就没有去重 key");
+
+            var physics = LessonLedger.FromState(null);
+            physics.Accept(Snapshot(next: "物理实验", nextStart: Now.AddMinutes(4)));
+            var ok = physics.Evaluate(Now, cfg);
+            True(ok.Show, "物理实验应算命中「物理」");
+            Eq("ok", ok.Reason);
+        });
+
+        Run("生效科目不影响板书命名", () =>
+        {
+            var cfg = new LessonConfig { Subjects = new List<string> { "物理" } };
+
+            // 课间：下一节是数学，提醒被跳过……
+            var breaking = LessonLedger.FromState(null);
+            breaking.Accept(Snapshot(next: "数学"));
+            Eq("subject-skipped", breaking.Evaluate(Now, cfg).Reason, "数学课不提醒");
+
+            // ……但命名不看白名单：上课取当前科目，照旧是「数学」
+            var inClass = LessonLedger.FromState(null);
+            inClass.Accept(Snapshot(state: LessonStates.Class, current: "数学", nextStart: Now.AddMinutes(40)));
+            Eq("数学", inClass.NameHint(Now), "板书文件名照旧按当前科目命名");
         });
     }
 

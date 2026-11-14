@@ -72,7 +72,8 @@ public sealed class BoardReminderDialog : Forms.Form
 
     private void AddButton(string text, BoardReminderChoice choice, Drawing.Color accent, bool filled)
     {
-        var button = new ReminderButton(text, accent, filled) { TabStop = false };
+        // 自绘圆角按钮的四角要压在弹窗底色上：Control 默认底色是系统灰，会露出灰角。
+        var button = new ReminderButton(text, accent, filled) { TabStop = false, BackColor = this.BackColor };
         button.Clicked += (_, _) => Select(choice);
         _buttons.Add(button);
         Controls.Add(button);

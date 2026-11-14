@@ -90,7 +90,7 @@
                         <TextBlock Grid.Row="7" Grid.Column="1" x:Name="LessonEffectiveText" Text="—" TextWrapping="Wrap" />
                     </Grid>
 
-                    <Grid ColumnDefinitions="Auto,150,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="12">
+                    <Grid ColumnDefinitions="Auto,150,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="12">
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="提前多少分钟提醒" VerticalAlignment="Center" Opacity="0.7" />
                         <TextBox Grid.Row="0" Grid.Column="1" x:Name="LessonMinutesBox" Watermark="5" Width="90" HorizontalAlignment="Left" />
                         <TextBlock Grid.Row="0" Grid.Column="2" Text="1–30 分钟；越大学校给的准备时间越多" VerticalAlignment="Center" Opacity="0.55" TextWrapping="Wrap" />
@@ -112,12 +112,18 @@
                         <TextBox Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" x:Name="LessonTemplateBox" Watermark="{}{科目}_{日期}_{时间}" />
                         <TextBlock Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="3" TextWrapping="Wrap" Opacity="0.55"
                                    Text="可用占位符：{科目} {日期} {时间} {节次} {周几}，例如「数学_2026-11-14_10-05」。" />
+
+                        <TextBlock Grid.Row="5" Grid.Column="0" Text="生效科目" VerticalAlignment="Center" Opacity="0.7" />
+                        <TextBox Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="2" x:Name="LessonSubjectsBox"
+                                 Watermark="如 物理,化学；留空 = 所有科目都提醒" />
+                        <TextBlock Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="3" TextWrapping="Wrap" Opacity="0.55"
+                                   Text="逗号分隔；不区分大小写，「物理」也能匹配课表里的「物理实验」。只影响课前提醒（也就决定哪节课后会自动保存），板书文件名仍按课表科目取。" />
                     </Grid>
 
                     <CheckBox x:Name="LessonCloseAfterSaveBox" Content="保存板书后顺手关闭 ClassInX" IsChecked="True" />
 
                     <TextBlock TextWrapping="Wrap" Opacity="0.6"
-                               Text="上面四项点「保存这些设置」时会一起发给守护（写入守护 config.json 的 lesson / boardSave 段）。守护版本较旧、没有 lesson-config 动作时只会写进板书配置，这里会如实提示「没写进去」。" />
+                               Text="上面五项点「保存这些设置」时会一起发给守护（写入守护 config.json 的 lesson / boardSave 段）。守护版本较旧、没有 lesson-config 动作时只会写进板书配置，这里会如实提示「没写进去」。" />
 
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <Button x:Name="LessonSaveButton" Content="保存这些设置" Click="OnLessonSaveClick" />

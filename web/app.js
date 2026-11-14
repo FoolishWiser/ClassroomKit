@@ -262,12 +262,13 @@ const lessonReasonText = {
   'no-next': '没有下一节课',
   started: '下一节已经开始',
   'too-early': '还没到提前量',
+  'subject-skipped': '这节课不在生效科目里',
   snoozed: '已稍后提醒',
   already: '这节课已经提醒过',
   ok: '正常'
 };
 const LESSON_FIELDS = ['in-lesson-enabled', 'in-lesson-minutes', 'in-lesson-dialog', 'in-lesson-timeout',
-  'in-lesson-only', 'in-board-named', 'in-board-template'];
+  'in-lesson-only', 'in-lesson-subjects', 'in-board-named', 'in-board-template'];
 let lessonFormDirty = false;
 
 function setSelect(id, value) {
@@ -333,6 +334,7 @@ function renderLesson(l, board) {
     setSelect('in-lesson-dialog', r.dialogSeconds ?? 30);
     setSelect('in-lesson-timeout', r.timeoutAction || 'save');
     $('in-lesson-only').checked = r.onlyWhenClassInBoard !== false;
+    $('in-lesson-subjects').value = (r.subjects || []).join('，');
     if (board) {
       $('in-board-named').checked = board.nameWithLesson !== false;
       $('in-board-template').value = board.nameTemplate || '';
@@ -361,7 +363,8 @@ $('lesson-form').onsubmit = async (e) => {
         minutesBefore: $('in-lesson-minutes').value,
         dialogSeconds: $('in-lesson-dialog').value,
         timeoutAction: $('in-lesson-timeout').value,
-        onlyWhenClassInBoard: $('in-lesson-only').checked ? '1' : '0'
+        onlyWhenClassInBoard: $('in-lesson-only').checked ? '1' : '0',
+        subjects: $('in-lesson-subjects').value.trim()
       })
     });
     await api('/api/action', {

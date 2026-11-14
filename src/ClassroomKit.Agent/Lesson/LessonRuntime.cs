@@ -107,6 +107,7 @@ public sealed class LessonRuntime
                 timeoutAction = cfg.TimeoutAction,
                 snoozeMinutes = cfg.SnoozeMinutes,
                 staleMinutes = cfg.StaleMinutes,
+                subjects = LessonSubjects.Normalize(cfg.Subjects),
                 lastRemindedKey = _ledger.LastRemindedKey,
                 snoozedUntil = _ledger.SnoozedUntil,
                 reason = decision.Reason,

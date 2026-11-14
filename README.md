@@ -30,9 +30,9 @@
 
 预编译安装包在 [Releases](https://github.com/FoolishWiser/ClassroomKit/releases)：
 
-- `ClassroomKit-0.4.2-x64.msi`（约 63 MB，推荐）
-- `ClassroomKit-0.4.2-win-x64.zip`（绿色版）
-- `ClassroomKit-0.4.2.cipx`（ClassIsland 2.1 插件，不是安装包，装到 ClassIsland 里）
+- `ClassroomKit-0.4.3-x64.msi`（约 63 MB，推荐）
+- `ClassroomKit-0.4.3-win-x64.zip`（绿色版）
+- `ClassroomKit-0.4.3.cipx`（ClassIsland 2.1 插件，不是安装包，装到 ClassIsland 里）
 
 前两个都是自包含单文件，目标机不需要装 .NET。从 0.3.0 起只发正式版，装了就自动收到后续正式版的升级提示。
 
@@ -41,14 +41,14 @@
 ### 方式一：MSI 安装包（推荐）
 
 ```text
-双击 ClassroomKit-0.4.2-x64.msi
+双击 ClassroomKit-0.4.3-x64.msi
 # 或者命令行静默安装：
-msiexec /i ClassroomKit-0.4.2-x64.msi /qn
+msiexec /i ClassroomKit-0.4.3-x64.msi /qn
 ```
 
 装完自动：落地到 `C:\Program Files\ClassroomKit` → 建 `C:\ProgramData\ClassroomKit` 并授权普通用户可写 → 放宽设备上限（`WifiMaxPeers=16`）→ 注册登录自启任务 → 注册 SYSTEM 护航任务 → 立刻拉起守护。开始菜单会多一项「ClassroomKit 控制面板」，点了直接带令牌打开面板（等价于 `--panel`）。
 
-再装插件：打开 ClassIsland → 设置 → 插件 → 从本地安装 → 选 `ClassroomKit-0.4.2.cipx` → 重启 ClassIsland。设置页里会出现「ClassroomKit 助手」，里面能看到课表联动状态。
+再装插件：打开 ClassIsland → 设置 → 插件 → 从本地安装 → 选 `ClassroomKit-0.4.3.cipx` → 重启 ClassIsland。设置页里会出现「ClassroomKit 助手」，里面能看到课表联动状态。
 
 ### 方式二：绿色目录（没有安装包时）
 
@@ -92,6 +92,8 @@ powershell -ExecutionPolicy Bypass -File get-bcu.ps1
 - 同一节课只提醒一次（按「下一节开始时刻」去重）；稍后提醒只挡住那几分钟，过窗还没上课会再问；
 - 默认只在 **ClassInX 正在运行**时提醒（`lesson.onlyWhenClassInBoard=true`），避免每节课都弹一个「没有板书可存」；
 - 课表数据超过 2 小时没更新（`lesson.staleMinutes=120`）就不提醒 —— ClassIsland 被关了、或插件没在跑时不会瞎猜；
+- 可以只让**某几门课**生效（`lesson.subjects`，面板「课表」卡片里的「生效科目」填 `物理` 即可，留空 = 所有科目）：只有这些课的课前提醒会弹，自动保存也跟着只在这些课后发生；匹配宽松（去空格、不分大小写，「物理」也命中「物理实验」），板书文件名不受影响；
+- 可以只让**某几门课**生效（`lesson.subjects`，面板「课表」卡片里的「生效科目」填 `物理` 即可，留空 = 所有科目）：只有这些课的课前提醒会弹，自动保存也跟着只在这些课后发生；匹配宽松（去空格、不分大小写，「物理」也命中「物理实验」），板书文件名不受影响；
 - 面板「课表」卡片可以改提前量、弹窗秒数、超时动作（保存 / 保存并关闭 / 一直等 / 忽略），也可以点「预览课前提醒」当场看效果。
 
 ## 板书存成「科目_日期_时间」
@@ -295,6 +297,7 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
     "timeoutAction": "save",
     "snoozeMinutes": 2,
     "onlyWhenClassInBoard": true,
+    "subjects": [],
     "staleMinutes": 120
   },
   "conflict": { "enabled": true, "cooldownMinutes": 40, "extraFullscreenProcesses": [] },
@@ -320,7 +323,7 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 面板
 
 ## 卸载
 
-- **MSI 装的**：控制面板「应用」里卸载，或 `msiexec /x ClassroomKit-0.4.2-x64.msi`；面板「维护 → 卸载本软件」也会调起同样的流程。
+- **MSI 装的**：控制面板「应用」里卸载，或 `msiexec /x ClassroomKit-0.4.3-x64.msi`；面板「维护 → 卸载本软件」也会调起同样的流程。
 - **绿色版**：面板「维护 → 卸载本软件」，或 `ClassroomKit.Agent.exe --uninstall`。
 - 卸载会停进程、删自启与护航任务、把 `WifiMaxPeers` 改回原值并重启共享服务、删安装目录（含 BCU）；**默认保留** `C:\ProgramData\ClassroomKit`（配置和日志，方便重装后沿用 SSID/密码）。想连配置日志一起删：面板勾「同时删除配置与日志」再点卸载，或 `--uninstall --purge-data`。
 - 需要管理员权限：没提权会弹一次 UAC。

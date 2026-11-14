@@ -83,16 +83,18 @@ public sealed class ConflictDialog : Forms.Form
         }
 
         _bar = new CountdownBar(_theme);
-        _countdown = new Forms.Label { AutoSize = true, ForeColor = _theme.Muted, Font = _smallFont, BackColor = Color.Transparent };
+        _countdown = new Forms.Label { AutoSize = true, ForeColor = _theme.Muted, Font = _smallFont };
+        // 弹窗背景是纯色，子控件一律用同色代替透明：视觉等价，也不依赖控件是否支持透明。
+        DialogSurface.FillWith(_countdown, _theme.Back);
         _snooze = new Forms.CheckBox
         {
             Text = "今天不再提醒",
             AutoSize = true,
             ForeColor = _theme.Muted,
             Font = _smallFont,
-            BackColor = Color.Transparent,
             Cursor = Forms.Cursors.Hand
         };
+        DialogSurface.FillWith(_snooze, _theme.Back);
         _snooze.CheckedChanged += (_, _) => _model.SetSnooze(_snooze.Checked);
         _close = new CloseButton(this, _theme);
 
@@ -365,7 +367,8 @@ public sealed class ConflictDialog : Forms.Form
             _hintFont = hintFont;
             _badgeFont = smallFont;
             _icon = icon;
-            BackColor = Color.Transparent;
+            // 圆角卡片外的四角本来就是弹窗底色；用同色代替透明，视觉等价且不依赖控件是否支持透明。
+            DialogSurface.FillWith(this, owner._theme.Back);
             Cursor = Forms.Cursors.Hand;
             SetStyle(Forms.ControlStyles.OptimizedDoubleBuffer | Forms.ControlStyles.AllPaintingInWmPaint | Forms.ControlStyles.UserPaint, true);
             Click += (_, _) => owner.Pick(choice);
@@ -455,7 +458,8 @@ public sealed class ConflictDialog : Forms.Form
         {
             _theme = theme;
             SetStyle(Forms.ControlStyles.OptimizedDoubleBuffer | Forms.ControlStyles.AllPaintingInWmPaint | Forms.ControlStyles.UserPaint, true);
-            BackColor = Color.Transparent;
+            // 自定义 Control 默认不支持透明背景；父级是纯色，用同色等价替代。
+            DialogSurface.FillWith(this, theme.Back);
             TabStop = false;
         }
 
@@ -495,7 +499,8 @@ public sealed class ConflictDialog : Forms.Form
         {
             _owner = owner;
             _theme = theme;
-            BackColor = Color.Transparent;
+            // 同上：用弹窗底色代替透明，四角与弹窗一致。
+            DialogSurface.FillWith(this, theme.Back);
             Cursor = Forms.Cursors.Hand;
             SetStyle(Forms.ControlStyles.OptimizedDoubleBuffer | Forms.ControlStyles.AllPaintingInWmPaint | Forms.ControlStyles.UserPaint, true);
             Click += (_, _) => owner.Pick(ConflictChoice.KeepBoth);

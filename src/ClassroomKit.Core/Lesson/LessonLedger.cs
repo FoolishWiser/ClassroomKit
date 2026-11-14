@@ -113,6 +113,10 @@ public sealed class LessonLedger
         if (snapshot.State == LessonStates.AfterSchool) return ReminderDecision.No("after-school");
         if (!snapshot.HasNext) return ReminderDecision.No("no-next");
 
+        // 科目定向：只看下一节是什么课；空列表不限制，配了科目但课表没给科目名也算不匹配
+        if (!LessonSubjects.Matches(snapshot.NextSubject, config.Subjects))
+            return ReminderDecision.No("subject-skipped");
+
         var key = KeyOf(snapshot);
         var start = snapshot.NextStartAt!.Value;
         var seconds = (int)Math.Round((start - now).TotalSeconds);

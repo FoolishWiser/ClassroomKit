@@ -38,6 +38,7 @@ public partial class HotspotSettingsPage : SettingsPageBase
         LessonMinutesBox.Text = settings.LessonRemindMinutes.ToString(CultureInfo.InvariantCulture);
         LessonSecondsBox.Text = settings.LessonDialogSeconds.ToString(CultureInfo.InvariantCulture);
         LessonTemplateBox.Text = settings.BoardNameTemplate;
+        LessonSubjectsBox.Text = settings.LessonSubjects;
         LessonCloseAfterSaveBox.IsChecked = settings.BoardCloseAfterSave;
         SelectTimeoutAction(settings.LessonTimeoutAction);
     }
@@ -260,6 +261,7 @@ public partial class HotspotSettingsPage : SettingsPageBase
         LessonLastKeyText.Text = string.IsNullOrWhiteSpace(reminder.LastRemindedKey) ? "还没提醒过" : reminder.LastRemindedKey;
         LessonEffectiveText.Text = "守护实际生效：提前 " + reminder.MinutesBefore + " 分钟 · 弹窗 " + reminder.DialogSeconds
             + " 秒 · 超时" + DescribeTimeout(reminder.TimeoutAction)
+            + " · 生效科目：" + (reminder.Subjects is { Count: > 0 } subjects ? string.Join("、", subjects) : "全部")
             + (reminder.SnoozedUntil is { } snooze ? " · 已推迟到 " + snooze.ToString("HH:mm") : "");
     }
 
@@ -319,6 +321,7 @@ public partial class HotspotSettingsPage : SettingsPageBase
         settings.LessonDialogSeconds = ParseInt(LessonSecondsBox.Text, settings.LessonDialogSeconds, 5, 600);
         settings.LessonTimeoutAction = CurrentTimeoutAction();
         settings.BoardNameTemplate = LessonTemplateBox.Text?.Trim() ?? "";
+        settings.LessonSubjects = LessonSubjectsBox.Text?.Trim() ?? "";
         settings.BoardCloseAfterSave = LessonCloseAfterSaveBox.IsChecked == true;
         settings.Normalize();
         _store.Save(settings);
@@ -327,6 +330,7 @@ public partial class HotspotSettingsPage : SettingsPageBase
         LessonMinutesBox.Text = settings.LessonRemindMinutes.ToString(CultureInfo.InvariantCulture);
         LessonSecondsBox.Text = settings.LessonDialogSeconds.ToString(CultureInfo.InvariantCulture);
         LessonTemplateBox.Text = settings.BoardNameTemplate;
+        LessonSubjectsBox.Text = settings.LessonSubjects;
         SelectTimeoutAction(settings.LessonTimeoutAction);
 
         var lines = new List<string> { "插件设置已保存" };
@@ -344,6 +348,7 @@ public partial class HotspotSettingsPage : SettingsPageBase
             ["minutesBefore"] = settings.LessonRemindMinutes.ToString(CultureInfo.InvariantCulture),
             ["dialogSeconds"] = settings.LessonDialogSeconds.ToString(CultureInfo.InvariantCulture),
             ["timeoutAction"] = settings.LessonTimeoutAction,
+            ["subjects"] = settings.LessonSubjects,
         });
         lines.Add("课前提醒：" + lesson);
 

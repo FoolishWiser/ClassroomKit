@@ -62,6 +62,10 @@
       </select>
     </label>
     <label class="check"><input type="checkbox" id="in-lesson-only"> 只在 ClassInX 运行时提醒</label>
+    <label>生效科目
+      <input id="in-lesson-subjects" maxlength="120" autocomplete="off" placeholder="如 物理；留空 = 所有科目">
+    </label>
+    <p class="note">只在这些科目上提醒并自动保存（逗号分隔，不区分大小写，“物理”也能匹配“物理实验”）。板书文件名仍按课表科目命名，不受这里影响。</p>
     <label class="check"><input type="checkbox" id="in-board-named"> 保存时按上一节课改名</label>
     <label>命名模板
       <input id="in-board-template" maxlength="80" autocomplete="off" placeholder="{科目}_{日期}_{时间}">
