@@ -152,8 +152,9 @@
   <div class="row">
     <button class="btn" id="btn-hosts-refresh">刷新 hosts</button>
     <button class="btn ghost" id="btn-hosts-restore">还原 hosts</button>
+    <button class="btn" id="btn-service-install" hidden>安装护航任务</button>
   </div>
-  <p class="note">全天生效：有可用记录就写进 hosts（直连也走加速），按刷新间隔自动更新；写完全程校验，还是不通会自动还原。依赖 SYSTEM 护航任务（安装包已注册，绿色版需管理员运行一次 --install-service）。</p>
+  <p class="note">全天生效：有可用记录就写进 hosts（直连也走加速），按刷新间隔自动更新；写完全程校验，还是不通会自动还原。依赖 SYSTEM 护航任务（安装包会注册；万一没注册，点「安装护航任务」即可，只需一次管理员授权）。</p>
 </section>
 
 <section class="card" id="diagnose-card">

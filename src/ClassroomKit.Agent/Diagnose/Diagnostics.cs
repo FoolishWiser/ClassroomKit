@@ -59,7 +59,7 @@ public static class Diagnostics
         var serviceTask = ScheduledTaskInstaller.IsServiceInstalled();
         Add("service", "系统护航任务", serviceTask ? "ok" : "warn",
             serviceTask ? "ClassroomKit-Service 已注册（SYSTEM，每 5 分钟自检）" : "没有找到护航任务：hosts 加速与静默升级会退化成手动",
-            serviceTask ? null : "用管理员运行一次 ClassroomKit.Agent.exe --install-service");
+            serviceTask ? null : "在面板点「安装护航任务」，只需一次管理员授权（不用敲命令行）");
 
         // hosts
         var hosts = rt.Hosts.StatusDto();

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
+using ClassroomKit.Agent.Service;
 
 namespace ClassroomKit.Agent.Tasks;
 
@@ -59,9 +60,11 @@ public static class ScheduledTaskInstaller
             var temp = Path.Combine(Path.GetTempPath(), "classroomkit-service-task.xml");
             File.WriteAllText(temp, BuildServiceXml(exePath), Encoding.Unicode);
             var (code, output) = Run("schtasks.exe", $"/Create /TN \"{ServiceTaskName}\" /XML \"{temp}\" /F");
-            return code == 0
-                ? (true, "护航任务已注册（SYSTEM，每 5 分钟一次）")
-                : (false, $"护航任务注册失败（{code}）：{output}（需要管理员权限）");
+            if (code != 0) return (false, $"护航任务注册失败（{code}）：{output}（需要管理员权限）");
+
+            // 只挂开机触发的话，装在开机之后的任务永远不会自己跑；注册完立刻叫醒一次。
+            var (woke, wakeMessage) = RunServiceNow();
+            return (true, "护航任务已注册（SYSTEM，每 5 分钟一次）" + (woke ? "；已立即运行一次" : $"；首次触发失败：{wakeMessage}"));
         }
         catch (Exception ex)
         {
@@ -83,6 +86,17 @@ public static class ScheduledTaskInstaller
     }
 
     public static bool IsServiceInstalled()
+    {
+        if (IsServiceTaskPresent()) return true;
+
+        // 普通（过滤）令牌下 schtasks 查 SYSTEM 任务可能被拒；护航任务每次执行都会写心跳，
+        // 心跳新鲜就说明它真的在跑，不必依赖计划任务的 ACL。
+        var heartbeat = ServiceChannel.ReadHeartbeat();
+        return heartbeat is not null && DateTimeOffset.Now - heartbeat.At < TimeSpan.FromMinutes(20);
+    }
+
+    /// <summary>只看计划任务本身是否注册（需要能读该任务的权限）。</summary>
+    public static bool IsServiceTaskPresent()
     {
         var (code, _) = Run("schtasks.exe", $"/Query /TN \"{ServiceTaskName}\"");
         return code == 0;
@@ -227,6 +241,7 @@ public static class ScheduledTaskInstaller
     private static string BuildServiceXml(string exePath)
     {
         var escaped = System.Security.SecurityElement.Escape(exePath) ?? exePath;
+        var startBoundary = DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss");
         return $"""
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
@@ -235,6 +250,14 @@ public static class ScheduledTaskInstaller
     <URI>\{ServiceTaskName}</URI>
   </RegistrationInfo>
   <Triggers>
+    <TimeTrigger>
+      <StartBoundary>{startBoundary}</StartBoundary>
+      <Enabled>true</Enabled>
+      <Repetition>
+        <Interval>PT5M</Interval>
+        <StopAtDurationEnd>false</StopAtDurationEnd>
+      </Repetition>
+    </TimeTrigger>
     <BootTrigger>
       <Enabled>true</Enabled>
       <Delay>PT1M</Delay>

@@ -226,7 +226,9 @@ public sealed class LessonBridge : IDisposable
         {
             // 守护没启动是常态：安静失败，下一拍再试，绝不弹窗。
             _lastPushOk = false;
-            SetError("推送课表失败（稍后自动重试）：" + ex.Message);
+            SetError(ex.Message.Contains("401", StringComparison.Ordinal)
+                ? "推送课表失败（稍后自动重试）：" + ex.Message + " —— 令牌为空或有误，先看设置页的「令牌来源」"
+                : "推送课表失败（稍后自动重试）：" + ex.Message);
         }
     }
 

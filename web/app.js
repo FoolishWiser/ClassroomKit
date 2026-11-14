@@ -149,7 +149,8 @@ function renderClients(data) {
 function renderHosts(h) {
   const badge = $('hosts-badge');
   const text = $('hosts-status');
-  if (!h) { badge.textContent = ''; text.textContent = '未启用'; return; }
+  const installBtn = $('btn-service-install');
+  if (!h) { badge.textContent = ''; text.textContent = '未启用'; if (installBtn) installBtn.hidden = true; return; }
   if (h.enabled === false) {
     badge.textContent = '已关闭';
     badge.style.color = 'var(--muted)';
@@ -166,8 +167,15 @@ function renderHosts(h) {
     badge.style.color = 'var(--muted)';
     text.textContent = h.lastError ? h.lastError : '还没有写入记录：守护会按刷新间隔自动写，也可点「立即刷新」。';
   }
-  if (h.serviceInstalled === false) text.textContent += '（护航任务未注册：管理员运行 --install-service 才能自动写 hosts）';
-  else if (h.writable === false && h.applied === false) text.textContent += '（守护没有写权限，会交给护航任务执行）';
+  const needsInstall = h.serviceInstalled === false;
+  if (installBtn) installBtn.hidden = !needsInstall;
+  if (needsInstall) {
+    text.textContent += '（护航任务未注册：点「安装护航任务」，只需一次管理员授权）';
+  } else if (h.writable === false && h.applied === false) {
+    text.textContent += h.serviceAlive
+      ? '（守护没有写权限，由正在运行的护航任务写 hosts）'
+      : '（守护没有写权限；护航任务还没写出心跳，点「安装护航任务」可重新注册）';
+  }
 }
 
 $('btn-hosts-refresh').onclick = async () => {
@@ -180,6 +188,20 @@ $('btn-hosts-refresh').onclick = async () => {
     await refreshState();
   } catch (e) { toast(e.message, true); }
   finally { btn.disabled = false; btn.textContent = '刷新 hosts'; }
+};
+
+const serviceInstallBtn = $('btn-service-install');
+if (serviceInstallBtn) serviceInstallBtn.onclick = async () => {
+  if (!confirm('安装/修复 SYSTEM 护航任务？\n\n随后会弹一次 Windows 管理员授权，允许后 hosts 加速与静默升级就能自动执行。')) return;
+  serviceInstallBtn.disabled = true;
+  const label = serviceInstallBtn.textContent;
+  serviceInstallBtn.textContent = '等待授权…';
+  try {
+    const r = await api('/api/action', { method: 'POST', body: JSON.stringify({ action: 'install-service' }) });
+    toast(r.message || '护航任务已安装');
+    await refreshState();
+  } catch (e) { toast(e.message, true); }
+  finally { serviceInstallBtn.disabled = false; serviceInstallBtn.textContent = label; }
 };
 
 $('btn-hosts-restore').onclick = async () => {

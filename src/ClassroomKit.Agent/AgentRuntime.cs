@@ -62,6 +62,7 @@ public sealed class AgentRuntime : IDisposable
         Api.GetHosts = () => Hosts.StatusDto();
         Api.RefreshHosts = Hosts.RefreshAsync;
         Api.RestoreHosts = Hosts.RestoreAsync;
+        Api.InstallService = InstallServiceTask;
 
         Recipe = UiRecipe.Load(Paths.RecipePath);
         BoardSaver = new ClassInBoardSaver(Log, Recipe, () => Config.Current.BoardSave);
@@ -527,6 +528,43 @@ public sealed class AgentRuntime : IDisposable
     }
 
     /// <summary>保存板书并按「上一节课」改名（nameWithLesson=false 时保持原样）。</summary>
+    /// <summary>安装/修复 SYSTEM 护航任务：只弹一次 UAC，装完立刻跑一次。</summary>
+    internal (bool Ok, string Message) InstallServiceTask()
+    {
+        if (Tasks.ScheduledTaskInstaller.IsServiceTaskPresent())
+        {
+            var (woke, wakeMessage) = Tasks.ScheduledTaskInstaller.RunServiceNow();
+            return woke
+                ? (true, "护航任务已存在，已让它立即运行一次")
+                : (false, "护航任务已存在，但触发失败：" + wakeMessage);
+        }
+
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo(Paths.ExePath, "--install-service")
+            {
+                UseShellExecute = true,
+                Verb = "runas",
+                WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
+            };
+            using var process = System.Diagnostics.Process.Start(psi);
+            if (process is null) return (false, "无法启动安装进程");
+            process.WaitForExit(120000);
+
+            return Tasks.ScheduledTaskInstaller.IsServiceInstalled()
+                ? (true, "护航任务已安装并运行")
+                : (false, "安装未完成：可能取消了管理员授权，可再点一次");
+        }
+        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
+        {
+            return (false, "已取消管理员授权，护航任务没有安装");
+        }
+        catch (Exception ex)
+        {
+            return (false, "安装护航任务失败：" + ex.Message);
+        }
+    }
+
     internal (bool Ok, string Message) SaveBoardNamed(bool closeAfterSave, bool nameWithLesson)
     {
         if (!Config.Current.BoardSave.Enabled)

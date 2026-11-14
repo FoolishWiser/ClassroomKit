@@ -32,6 +32,7 @@ public partial class HotspotSettingsPage : SettingsPageBase
         var settings = _store.Current;
         BaseUrlBox.Text = settings.BaseUrl;
         TokenBox.Text = settings.Token;
+        TokenSourceText.Text = AgentAccess.DescribeTokenSource(settings);
 
         // 课表联动：先填本地存的值，刷新时再用守护的实际生效值覆盖显示
         LessonMinutesBox.Text = settings.LessonRemindMinutes.ToString(CultureInfo.InvariantCulture);

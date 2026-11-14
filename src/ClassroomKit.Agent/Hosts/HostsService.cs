@@ -59,6 +59,8 @@ public sealed class HostsService
             lastMessage = _lastMessage,
             writable = HostsApplier.CanWrite(),
             serviceInstalled = Tasks.ScheduledTaskInstaller.IsServiceInstalled(),
+            serviceAlive = IsServiceAlive(),
+            heartbeatAt = ServiceChannel.ReadHeartbeat()?.At,
             backup = HostsPatcher.DefaultPath + HostsPatcher.BackupSuffix
         };
     }
@@ -162,10 +164,15 @@ public sealed class HostsService
     {
         var request = new HostsRequest(ServiceChannel.NewId(), "restore", Array.Empty<HostEntry>(), DateTimeOffset.Now);
         ServiceChannel.Write(ServiceChannel.HostsRequestPath, request);
+        var installed = Tasks.ScheduledTaskInstaller.IsServiceInstalled();
+        if (installed) Tasks.ScheduledTaskInstaller.RunServiceNow();   // 护航平时每 5 分钟才醒，顺手叫它一次
         var status = ServiceChannel.WaitAsync<HostsStatus>(
-            ServiceChannel.HostsStatusPath, s => s.Id == request.Id, TimeSpan.FromSeconds(25), ct).GetAwaiter().GetResult();
+            ServiceChannel.HostsStatusPath, s => s.Id == request.Id,
+            TimeSpan.FromSeconds(installed ? 25 : 5), ct).GetAwaiter().GetResult();
         return status is null
-            ? (false, "护航服务没有响应：请用管理员运行一次 ClassroomKit.Agent.exe --install-service")
+            ? (false, installed
+                ? "护航服务没有响应：稍后再试，或在面板点「安装护航任务」重新注册"
+                : "护航任务未安装：在面板点「安装护航任务」，只需一次管理员授权")
             : (status.Ok, status.Message);
     }
 
@@ -175,12 +182,24 @@ public sealed class HostsService
 
         var request = new HostsRequest(ServiceChannel.NewId(), "apply", entries, DateTimeOffset.Now);
         ServiceChannel.Write(ServiceChannel.HostsRequestPath, request);
+        var installed = Tasks.ScheduledTaskInstaller.IsServiceInstalled();
+        if (installed) Tasks.ScheduledTaskInstaller.RunServiceNow();   // 护航平时每 5 分钟才醒，顺手叫它一次
         var status = await ServiceChannel.WaitAsync<HostsStatus>(
-            ServiceChannel.HostsStatusPath, s => s.Id == request.Id, TimeSpan.FromSeconds(25), ct).ConfigureAwait(false);
+            ServiceChannel.HostsStatusPath, s => s.Id == request.Id,
+            TimeSpan.FromSeconds(installed ? 25 : 5), ct).ConfigureAwait(false);
 
         return status is null
-            ? (false, "护航服务没有响应：请用管理员运行一次 ClassroomKit.Agent.exe --install-service")
+            ? (false, installed
+                ? "护航服务没有响应：稍后再试，或在面板点「安装护航任务」重新注册"
+                : "护航任务未安装：在面板点「安装护航任务」，只需一次管理员授权")
             : (status.Ok, status.Message);
+    }
+
+    /// <summary>护航任务最近 20 分钟是否写过心跳。</summary>
+    private static bool IsServiceAlive()
+    {
+        var heartbeat = ServiceChannel.ReadHeartbeat();
+        return heartbeat is not null && DateTimeOffset.Now - heartbeat.At < TimeSpan.FromMinutes(20);
     }
 
     public static async Task<bool> GitHubReachableAsync(CancellationToken ct)

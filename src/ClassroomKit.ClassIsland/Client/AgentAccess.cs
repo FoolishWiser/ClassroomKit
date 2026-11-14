@@ -1,6 +1,6 @@
 using System.Diagnostics;
-using System.Text.Json;
 using ClassroomKit.ClassIsland.Settings;
+using ClassroomKit.Core.Config;
 using ClassroomKit.Core.Client;
 
 namespace ClassroomKit.ClassIsland.Client;
@@ -17,23 +17,19 @@ public static class AgentAccess
         return ReadAgentConfigToken() ?? "";
     }
 
-    /// <summary>读 %ProgramData%\ClassroomKit\config.json 里的访问令牌（只读，失败就返回 null）。</summary>
-    public static string? ReadAgentConfigToken()
+    /// <summary>
+    /// 读 %ProgramData%\ClassroomKit\config.json 里的访问令牌（只读，失败就返回 null）。
+    /// 大小写不敏感的匹配放在 Core 的 AgentConfigReader 里：守护写的是 camelCase 的 token。
+    /// </summary>
+    public static string? ReadAgentConfigToken() => AgentConfigReader.ReadTokenFromDefaultPath();
+
+    /// <summary>给设置页看的一句话：令牌从哪儿来的。</summary>
+    public static string DescribeTokenSource(PluginSettings settings)
     {
-        try
-        {
-            var configPath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-                "ClassroomKit",
-                "config.json");
-            if (!File.Exists(configPath)) return null;
-            using var document = JsonDocument.Parse(File.ReadAllText(configPath));
-            return document.RootElement.TryGetProperty("Token", out var token) ? token.GetString() : null;
-        }
-        catch
-        {
-            return null;
-        }
+        if (!string.IsNullOrWhiteSpace(settings.Token)) return "令牌来源：插件设置";
+        return ReadAgentConfigToken() is null
+            ? "令牌来源：空 —— 课表不会推送。请填令牌，或确认守护已按默认位置安装"
+            : "令牌来源：已自动读取守护配置（%ProgramData%\\ClassroomKit\\config.json）";
     }
 
     /// <summary>找 ClassroomKit.Agent.exe：环境变量 → 默认安装目录。</summary>

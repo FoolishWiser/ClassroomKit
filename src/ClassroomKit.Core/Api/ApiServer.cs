@@ -81,6 +81,8 @@ public sealed class ApiServer
     public Func<bool, CancellationToken, Task<(bool Ok, string Message)>>? RefreshHosts { get; set; }
     /// <summary>还原 hosts（删掉受管区块）。</summary>
     public Func<CancellationToken, Task<(bool Ok, string Message)>>? RestoreHosts { get; set; }
+    /// <summary>安装/修复 SYSTEM 护航任务（会弹一次管理员授权）。</summary>
+    public Func<(bool Ok, string Message)>? InstallService { get; set; }
     /// <summary>课表状态（GET /api/lesson）。</summary>
     public Func<object>? GetLesson { get; set; }
     /// <summary>ClassIsland 插件推送的课表快照。</summary>
@@ -499,6 +501,14 @@ public sealed class ApiServer
                 if (RestoreHosts is null) return HttpResponse.Text("not supported", 409);
                 var (ok, message) = await RestoreHosts(ct);
                 _log.Info($"hosts 还原：{message}");
+                return HttpResponse.Json(JsonSerializer.Serialize(new { ok, action, message }, Json), ok ? 200 : 500);
+            }
+
+            case "install-service":
+            {
+                if (InstallService is null) return HttpResponse.Text("not supported", 409);
+                var (ok, message) = InstallService();
+                _log.Info($"安装护航任务：{message}");
                 return HttpResponse.Json(JsonSerializer.Serialize(new { ok, action, message }, Json), ok ? 200 : 500);
             }
 

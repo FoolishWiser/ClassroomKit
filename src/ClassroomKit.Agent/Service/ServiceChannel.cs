@@ -12,6 +12,9 @@ public sealed record InstallRequest(string Id, string MsiPath, DateTimeOffset At
 
 public sealed record InstallStatus(string Id, bool Ok, string Message, DateTimeOffset At);
 
+/// <summary>护航任务的心跳：每次 --service-tick 都写一次，守护据此判断它是否真的在跑（不依赖 schtasks 的 ACL）。</summary>
+public sealed record ServiceHeartbeat(DateTimeOffset At, string Version, bool Ok);
+
 /// <summary>
 /// 普通权限的守护 ↔ SYSTEM 护航任务之间的文件信箱。
 /// 为什么不用 socket/管道：护航任务每 5 分钟才醒一次，信箱天然容忍「对方不在」，
@@ -31,6 +34,12 @@ public static class ServiceChannel
     public static string HostsStatusPath => Path.Combine(Dir, "hosts.status.json");
     public static string InstallRequestPath => Path.Combine(Dir, "install.request.json");
     public static string InstallStatusPath => Path.Combine(Dir, "install.status.json");
+    public static string HeartbeatPath => Path.Combine(Dir, "heartbeat.json");
+
+    public static void WriteHeartbeat(string version, bool ok) =>
+        Write(HeartbeatPath, new ServiceHeartbeat(DateTimeOffset.Now, version, ok));
+
+    public static ServiceHeartbeat? ReadHeartbeat() => Read<ServiceHeartbeat>(HeartbeatPath);
 
     public static string NewId() => Guid.NewGuid().ToString("N")[..12];
 

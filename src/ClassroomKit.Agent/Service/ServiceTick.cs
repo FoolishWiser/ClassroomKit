@@ -14,6 +14,9 @@ public static class ServiceTick
     {
         var log = new AppLog(Paths.LogDir);
 
+        // 先打心跳：哪怕下面处理请求时出错，守护也能看到「护航任务确实在跑」。
+        ServiceChannel.WriteHeartbeat(AgentRuntime.DisplayVersion(), true);
+
         try
         {
             HandleHosts(log);
@@ -32,6 +35,7 @@ public static class ServiceTick
             log.Warn($"护航任务处理安装请求失败：{ex.Message}");
         }
 
+        ServiceChannel.WriteHeartbeat(AgentRuntime.DisplayVersion(), true);
         return 0;
     }
 

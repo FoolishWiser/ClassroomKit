@@ -60,6 +60,7 @@
                         <TextBox x:Name="TokenBox" Watermark="访问令牌（可留空）" Width="240" PasswordChar="●" />
                         <Button Content="保存" Click="OnSaveSettingsClick" />
                     </StackPanel>
+                    <TextBlock x:Name="TokenSourceText" Opacity="0.6" FontSize="12" TextWrapping="Wrap" />
                     <TextBlock x:Name="VersionText" Opacity="0.6" />
                 </StackPanel>
             </Border>

@@ -48,6 +48,10 @@ internal static class Program
         await HostsTests.RunAsync();
 
         Console.WriteLine();
+        Console.WriteLine("[配置读取]");
+        await AgentConfigTests.RunAsync();
+
+        Console.WriteLine();
         Console.WriteLine("[升级时间窗]");
         await InstallWindowTests.RunAsync();
 
@@ -430,6 +434,21 @@ internal static class Program
                 var start = await http.SendAsync(startReq);
                 Eq(200, (int)start.StatusCode, "JSON 动作状态码");
                 Eq("on", policy, "JSON 动作应传到守护");
+            }
+
+            using (var noService = new HttpRequestMessage(HttpMethod.Post, $"/api/action?t={token}"))
+            {
+                noService.Content = new StringContent("{\"action\":\"install-service\"}", Encoding.UTF8, "application/json");
+                Eq(409, (int)(await http.SendAsync(noService)).StatusCode, "没接线时安装护航返回 409");
+            }
+
+            api.InstallService = () => (true, "护航任务已安装并运行");
+            using (var installReq = new HttpRequestMessage(HttpMethod.Post, $"/api/action?t={token}"))
+            {
+                installReq.Content = new StringContent("{\"action\":\"install-service\"}", Encoding.UTF8, "application/json");
+                var install = await http.SendAsync(installReq);
+                Eq(200, (int)install.StatusCode, "安装护航动作状态码");
+                Contains(await install.Content.ReadAsStringAsync(), "已安装", "安装护航返回文案");
             }
 
             using (var client = new ClassroomKitClient($"http://127.0.0.1:{port}", token))
