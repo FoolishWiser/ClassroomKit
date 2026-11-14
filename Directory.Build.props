@@ -2,14 +2,15 @@
 <!--
   ClassroomKit 唯一的版本来源。
   - 从 0.3.0 起只发正式版（SemVer 三段：0.3.0、0.3.1、0.4.0）；需要时可以临时用 -pre.N，但不进正式流程。
-  - AssemblyVersion / FileVersion 必须是三段数字（Windows 资源与 MSI 都认这个）。
+  - AssemblyVersion / FileVersion 由 Version 自动算成四段数字（Windows 资源与 MSI 都认这个），
+    所以发版只改 Version 一行，别再手改后两个。
   - 规则见 docs/版本与发布.md：版本只在这里改，插件 manifest 由 CI 同步。
 -->
 <Project>
   <PropertyGroup>
     <Version>0.4.0</Version>
-    <AssemblyVersion>0.3.0.0</AssemblyVersion>
-    <FileVersion>0.3.0.0</FileVersion>
+    <AssemblyVersion>$(Version.Split('-')[0]).0</AssemblyVersion>
+    <FileVersion>$(Version.Split('-')[0]).0</FileVersion>
     <Product>ClassroomKit</Product>
     <Company>ClassroomKit</Company>
     <Authors>ClassroomKit</Authors>
