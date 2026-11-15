@@ -246,20 +246,30 @@ public sealed class AgentRuntime : IDisposable
         catch (OperationCanceledException) { return; }
 
         var first = true;
+        var nextCheckAt = DateTimeOffset.UtcNow;
+        string? lastPendingNote = null;
         while (!_cts.IsCancellationRequested)
         {
             var cfg = Config.Current.Update ?? new UpdateConfig();
+            var bootCheck = false;
+            var dueCheck = false;
             try
             {
-                // 上次升级时 ClassIsland 正开着、插件没写进去：每轮巡检补装一次
+                // 上次升级时 ClassIsland 正开着、插件没写进去：每 5 分钟补装一次，消息没变就不重复刷日志
                 if (Update.HasPendingPlugin)
                 {
                     var (pluginOk, pluginMessage) = Update.TryApplyPendingPlugin();
-                    Log.Info(pluginOk ? "补装 ClassIsland 插件：" + pluginMessage : pluginMessage);
+                    if (pluginOk || pluginMessage != lastPendingNote)
+                        Log.Info(pluginOk ? "补装 ClassIsland 插件：" + pluginMessage : pluginMessage);
+                    lastPendingNote = pluginOk ? null : pluginMessage;
                 }
 
-                var shouldCheck = cfg.Enabled && (first ? cfg.CheckOnBoot : cfg.CheckIntervalHours > 0);
-                if (shouldCheck)
+                var now = DateTimeOffset.UtcNow;
+                bootCheck = first && cfg.Enabled && cfg.CheckOnBoot;
+                dueCheck = !first && cfg.Enabled && now >= nextCheckAt;
+                if (first && !bootCheck)
+                    nextCheckAt = now.AddHours(cfg.CheckIntervalHours <= 0 ? 6 : Math.Clamp(cfg.CheckIntervalHours, 1, 168));
+                if (bootCheck || dueCheck)
                 {
                     var status = await Update.CheckAsync(false, _cts.Token).ConfigureAwait(false);
                     if (first) Log.Info($"开机自检更新：{status.PhaseText}{(status.Latest is null ? "" : $"（远端 v{status.Latest}）")}");
@@ -289,9 +299,24 @@ public sealed class AgentRuntime : IDisposable
                 Log.Warn("更新巡检异常：" + ex.Message);
             }
 
+            var finishedAt = DateTimeOffset.UtcNow;
+            if (bootCheck || dueCheck)
+                nextCheckAt = finishedAt.AddHours(cfg.CheckIntervalHours <= 0 ? 6 : Math.Clamp(cfg.CheckIntervalHours, 1, 168));
             first = false;
-            // 插件没写进去时每 5 分钟补装一次，别等下一个 6 小时巡检
-            var delay = Update.HasPendingPlugin ? TimeSpan.FromMinutes(5) : TimeSpan.FromHours(cfg.CheckIntervalHours <= 0 ? 6 : Math.Clamp(cfg.CheckIntervalHours, 1, 168));
+
+            // 最多睡 5 分钟：待装插件随时可能出现（比如手动更新插件时 ClassIsland 正开着），不能等下一个 6 小时巡检
+            TimeSpan delay;
+            if (Update.HasPendingPlugin)
+                delay = TimeSpan.FromMinutes(5);
+            else if (!cfg.Enabled)
+                delay = TimeSpan.FromMinutes(5);
+            else
+            {
+                var remain = nextCheckAt - finishedAt;
+                delay = remain < TimeSpan.FromSeconds(30) ? TimeSpan.FromSeconds(30)
+                    : remain > TimeSpan.FromMinutes(5) ? TimeSpan.FromMinutes(5)
+                    : remain;
+            }
             try { await Task.Delay(delay, _cts.Token); }
             catch (OperationCanceledException) { return; }
         }
