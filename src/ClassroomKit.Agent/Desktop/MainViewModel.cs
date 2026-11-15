@@ -193,7 +193,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             Toast("已清除课表数据，等插件下次推送");
             _ = RefreshAsync(true);
         });
-        CheckUpdateCommand = new RelayCommand(() => RunAsync(() => { _ = _rt.Update.DownloadAsync(); return Task.FromResult("已开始检查/下载"); }));
+        CheckUpdateCommand = new RelayCommand(() => RunAsync(async () =>
+        {
+            var status = await _rt.Update.CheckAsync(true);
+            if (!status.HasUpdate) return status.PhaseText;
+            var after = await _rt.Update.DownloadAsync();
+            return after.Phase == UpdatePhase.Ready ? $"发现新版本 v{status.Latest}，安装包已下载" : after.PhaseText;
+        }));
         UpgradeCommand = new RelayCommand(() => RunAsync(async () =>
         {
             var s = await _rt.Update.DownloadAsync();
