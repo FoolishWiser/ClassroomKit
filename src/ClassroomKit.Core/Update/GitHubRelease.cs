@@ -229,6 +229,28 @@ public static class ReleaseFeed
             a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) && a.Url.Length > 0);
     }
 
+    /// <summary>
+    /// 选 ClassIsland 插件包（.cipx）。优先文件名里带该版本号的那个
+    /// （如 tag v0.5.1 + ClassroomKit-0.5.1.cipx），其次任意 .cipx；没有返回 null。
+    /// </summary>
+    public static ReleaseAsset? PickPlugin(GitHubRelease release)
+    {
+        var plugins = release.Assets
+            .Where(a => a.Name.EndsWith(".cipx", StringComparison.OrdinalIgnoreCase) && a.Url.Length > 0)
+            .ToList();
+        if (plugins.Count == 0) return null;
+
+        var version = UpdateVersion.Normalize(release.Tag);
+        if (version.Length == 0) version = UpdateVersion.Normalize(release.Version);
+        if (version.Length > 0)
+        {
+            var exact = plugins.FirstOrDefault(a => a.Name.Contains(version, StringComparison.OrdinalIgnoreCase));
+            if (exact is not null) return exact;
+        }
+
+        return plugins[0];
+    }
+
     private static string Str(JsonElement element, string name) =>
         element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
             ? value.GetString() ?? ""

@@ -251,6 +251,13 @@ public sealed class AgentRuntime : IDisposable
             var cfg = Config.Current.Update ?? new UpdateConfig();
             try
             {
+                // 上次升级时 ClassIsland 正开着、插件没写进去：每轮巡检补装一次
+                if (Update.HasPendingPlugin)
+                {
+                    var (pluginOk, pluginMessage) = Update.TryApplyPendingPlugin();
+                    Log.Info(pluginOk ? "补装 ClassIsland 插件：" + pluginMessage : pluginMessage);
+                }
+
                 var shouldCheck = cfg.Enabled && (first ? cfg.CheckOnBoot : cfg.CheckIntervalHours > 0);
                 if (shouldCheck)
                 {
@@ -283,8 +290,9 @@ public sealed class AgentRuntime : IDisposable
             }
 
             first = false;
-            var hours = cfg.CheckIntervalHours <= 0 ? 6 : Math.Clamp(cfg.CheckIntervalHours, 1, 168);
-            try { await Task.Delay(TimeSpan.FromHours(hours), _cts.Token); }
+            // 插件没写进去时每 5 分钟补装一次，别等下一个 6 小时巡检
+            var delay = Update.HasPendingPlugin ? TimeSpan.FromMinutes(5) : TimeSpan.FromHours(cfg.CheckIntervalHours <= 0 ? 6 : Math.Clamp(cfg.CheckIntervalHours, 1, 168));
+            try { await Task.Delay(delay, _cts.Token); }
             catch (OperationCanceledException) { return; }
         }
     }
@@ -673,6 +681,15 @@ public sealed class AgentRuntime : IDisposable
         installWindow = Config.Current.Update.InstallWindow,
         installWindowText = InstallWindow.Describe(Config.Current.Update.InstallWindow),
         checkIntervalHours = Config.Current.Update.CheckIntervalHours,
+        updatePlugin = Config.Current.Update.UpdatePlugin,
+        pluginDetected = status.PluginDetected,
+        pluginCurrent = status.PluginCurrent,
+        pluginLatest = status.PluginLatest,
+        pluginAvailable = status.PluginAvailable,
+        pluginProgress = Math.Round(status.PluginProgress, 1),
+        pluginError = status.PluginError,
+        pluginText = status.PluginText,
+        pluginCanUpdate = status.PluginCanUpdate,
         serviceInstalled = Tasks.ScheduledTaskInstaller.IsServiceInstalled()
     };
 

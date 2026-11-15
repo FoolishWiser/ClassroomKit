@@ -59,6 +59,20 @@ public sealed class BcuConfig
 public sealed class TrayConfig
 {
     public bool Enabled { get; set; } = true;
+
+    /// <summary>托盘菜单里显示「保存，保留 ClassInX」（默认收起；「保存并关闭」始终保留）。</summary>
+    public bool SaveKeepOpen { get; set; }
+
+    /// <summary>托盘菜单里显示「保存（不按课表改名）」。</summary>
+    public bool SaveWithoutRename { get; set; }
+
+    /// <summary>托盘菜单里显示「预览课前提醒窗」。</summary>
+    public bool ShowPreviewReminder { get; set; } = true;
+
+    public void Normalize()
+    {
+        // 「保存并关闭」是主路径，始终保留；其余动作默认收起，由设置页显式打开。
+    }
 }
 
 /// <summary>托盘「保存 ClassInX 板书并关闭 ClassInX」。</summary>
@@ -180,6 +194,9 @@ public sealed class UpdateConfig
 
     /// <summary>有设备连着热点时也允许自动安装（默认要等没人连着）。</summary>
     public bool InstallWithClients { get; set; }
+
+    /// <summary>升级 ClassroomKit 时顺带更新 ClassIsland 插件（cipx）。</summary>
+    public bool UpdatePlugin { get; set; } = true;
 }
 
 /// <summary>桌面窗口与托盘行为（0.5.0 起；只有桌面端读，守护逻辑不依赖）。</summary>

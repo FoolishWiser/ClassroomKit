@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Windows.Data;
 using System.Windows.Threading;
 using ClassroomKit.Agent.Diagnose;
 using ClassroomKit.Agent.Update;
@@ -12,7 +14,33 @@ using ClassroomKit.Core.Update;
 
 namespace ClassroomKit.Agent.Desktop;
 
-public sealed record NavItem(string Key, string Title, string Glyph);
+public sealed record NavItem(string Key, string Title, string Glyph, string Group);
+
+/// <summary>「生效科目」里的一枚可勾选胶囊。</summary>
+public sealed class SubjectOption : ObservableObject
+{
+    private readonly Action<SubjectOption> _toggled;
+    private bool _selected;
+
+    public SubjectOption(string name, bool selected, Action<SubjectOption> toggled)
+    {
+        Name = name;
+        _selected = selected;
+        _toggled = toggled;
+    }
+
+    public string Name { get; }
+
+    public bool IsSelected
+    {
+        get => _selected;
+        set
+        {
+            if (!Set(ref _selected, value)) return;
+            _toggled(this);
+        }
+    }
+}
 
 public sealed record DiagRow(string Title, string Status, string Detail, string Next)
 {
@@ -99,6 +127,19 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private bool _editAutoInstall;
     private bool _editCheckOnBoot = true;
     private string _editInstallWindow = "";
+    private bool _editUpdatePlugin = true;
+    private bool _editTraySaveKeepOpen;
+    private bool _editTraySaveWithoutRename;
+    private bool _editTrayShowPreviewReminder = true;
+    private readonly List<string> _editSubjects = new();
+    private bool _syncingSubjects;
+    private string _newSubjectText = "";
+    private string _subjectHint = "未勾选 = 所有科目都提醒";
+    private string _updatePluginText = "";
+    private string _updatePluginDetail = "";
+    private double _updatePluginProgress;
+    private string _updatePluginError = "";
+    private bool _updatePluginCanUpdate;
 
     public MainViewModel(AgentRuntime runtime)
     {
@@ -106,13 +147,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var ui = runtime.Config.Current.Ui;
         Pages = new[]
         {
-            new NavItem(PageOverview, "概览", "\uE80F"),
-            new NavItem(PageHotspot, "热点与网络", "\uE701"),
-            new NavItem(PageLesson, "课表与板书", "\uE787"),
-            new NavItem(PageUpdate, "升级", "\uE895"),
-            new NavItem(PageDiagnose, "自检与日志", "\uE9D9"),
-            new NavItem(PageSettings, "设置", "\uE713")
+            new NavItem(PageOverview, "概览", "\uE80F", "监控"),
+            new NavItem(PageHotspot, "热点与网络", "\uE701", "监控"),
+            new NavItem(PageLesson, "课表与板书", "\uE787", "监控"),
+            new NavItem(PageUpdate, "升级", "\uE895", "维护"),
+            new NavItem(PageDiagnose, "自检与日志", "\uE9D9", "维护"),
+            new NavItem(PageSettings, "设置", "\uE713", "维护")
         };
+        PagesView = new ListCollectionView(Pages.ToList());
+        PagesView.GroupDescriptions.Add(new PropertyGroupDescription(nameof(NavItem.Group)));
         _pageKey = ui.LastPage is { Length: > 0 } p && Pages.Any(x => x.Key == p) ? p : PageOverview;
         _pageTitle = Pages.First(x => x.Key == _pageKey).Title;
 
@@ -161,6 +204,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             }
             return s.PhaseText;
         }));
+        UpdatePluginCommand = new RelayCommand(() => RunAsync(async () =>
+        {
+            var s = await _rt.Update.UpdatePluginAsync();
+            return string.IsNullOrWhiteSpace(s.PluginText) ? "ClassIsland 插件已处理" : s.PluginText;
+        }));
         DiagnoseCommand = new RelayCommand(() => { _ = RunDiagnoseAsync(); });
         InstallServiceCommand = new RelayCommand(() => RunBackground(() => _rt.InstallServiceTask().Message));
         RefreshHostsCommand = new RelayCommand(() => RunAsync(async () =>
@@ -199,6 +247,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return "热点名已改为：" + name;
         }));
         DismissToastCommand = new RelayCommand(DismissToast);
+        AddSubjectCommand = new RelayCommand(AddSubject);
+        ClearSubjectSelectionCommand = new RelayCommand(ClearSubjectSelection);
+        SaveTrayCommand = new RelayCommand(SaveTray);
 
         LoadEditFields();
         _toastTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher.CurrentDispatcher)
@@ -231,6 +282,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public IReadOnlyList<NavItem> Pages { get; }
 
+    /// <summary>左侧导航（按「监控 / 维护」分组）。</summary>
+    public ICollectionView PagesView { get; }
+
     public string PageKey
     {
         get => _pageKey;
@@ -238,12 +292,24 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             if (!Set(ref _pageKey, value)) return;
             PageTitle = Pages.FirstOrDefault(x => x.Key == value)?.Title ?? "概览";
+            Raise(nameof(PageSubtitle));
             var key = value;
             _ = Task.Run(() => _rt.Config.Update(c => c.Ui.LastPage = key));
         }
     }
 
     public string PageTitle { get => _pageTitle; private set => Set(ref _pageTitle, value); }
+
+    public string PageSubtitle => _pageKey switch
+    {
+        PageOverview => "守护状态、下一节课与加速一览",
+        PageHotspot => "热点开关、密码与设备容量",
+        PageLesson => "课表提醒、生效科目与板书命名",
+        PageUpdate => "版本、安装包与 ClassIsland 插件",
+        PageDiagnose => "一键体检与实时日志",
+        PageSettings => "界面、托盘、升级与护航",
+        _ => ""
+    };
     public string HealthStatus { get => _healthStatus; private set => Set(ref _healthStatus, value); }
 
     public RelayCommand ToggleHotspotCommand { get; }
@@ -259,6 +325,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public RelayCommand ClearLessonCommand { get; }
     public RelayCommand CheckUpdateCommand { get; }
     public RelayCommand UpgradeCommand { get; }
+    public RelayCommand UpdatePluginCommand { get; }
     public RelayCommand DiagnoseCommand { get; }
     public RelayCommand InstallServiceCommand { get; }
     public RelayCommand RefreshHostsCommand { get; }
@@ -269,8 +336,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public RelayCommand FixPeersCommand { get; }
     public RelayCommand RenameToMachineCommand { get; }
     public RelayCommand DismissToastCommand { get; }
+    public RelayCommand AddSubjectCommand { get; }
+    public RelayCommand ClearSubjectSelectionCommand { get; }
+    public RelayCommand SaveTrayCommand { get; }
 
     public ObservableCollection<DiagRow> DiagnoseRows { get; } = new();
+    public ObservableCollection<SubjectOption> SubjectOptions { get; } = new();
     public ObservableCollection<UiLogLine> LogEntries { get; } = new();
 
     /// <summary>日志追加后触发（页面据此决定要不要滚到底）。</summary>
@@ -315,6 +386,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     /// <summary>护航任务还没装：界面上显示「安装护航任务」。</summary>
     public bool ServiceMissing => !_serviceInstalled;
     public string BoardPreview { get => _boardPreview; private set => Set(ref _boardPreview, value); }
+    public string SubjectHint { get => _subjectHint; private set => Set(ref _subjectHint, value); }
+    public string NewSubjectText { get => _newSubjectText; set => Set(ref _newSubjectText, value); }
+    public string UpdatePluginText { get => _updatePluginText; private set => Set(ref _updatePluginText, value); }
+    public string UpdatePluginDetail { get => _updatePluginDetail; private set => Set(ref _updatePluginDetail, value); }
+    public double UpdatePluginProgress { get => _updatePluginProgress; private set => Set(ref _updatePluginProgress, value); }
+    public string UpdatePluginError { get => _updatePluginError; private set => Set(ref _updatePluginError, value); }
+    public bool UpdatePluginCanUpdate { get => _updatePluginCanUpdate; private set => Set(ref _updatePluginCanUpdate, value); }
     public string ToastText { get => _toastText; private set => Set(ref _toastText, value); }
     public bool ToastVisible { get => _toastVisible; private set => Set(ref _toastVisible, value); }
     public bool ToastError { get => _toastError; private set => Set(ref _toastError, value); }
@@ -356,6 +434,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public bool EditAutoInstall { get => _editAutoInstall; set => SetDirty(ref _editAutoInstall, value); }
     public bool EditCheckOnBoot { get => _editCheckOnBoot; set => SetDirty(ref _editCheckOnBoot, value); }
     public string EditInstallWindow { get => _editInstallWindow; set => SetDirty(ref _editInstallWindow, value); }
+    public bool EditUpdatePlugin { get => _editUpdatePlugin; set => SetDirty(ref _editUpdatePlugin, value); }
+    public bool EditTraySaveKeepOpen { get => _editTraySaveKeepOpen; set => SetDirty(ref _editTraySaveKeepOpen, value); }
+    public bool EditTraySaveWithoutRename { get => _editTraySaveWithoutRename; set => SetDirty(ref _editTraySaveWithoutRename, value); }
+    public bool EditTrayShowPreviewReminder { get => _editTrayShowPreviewReminder; set => SetDirty(ref _editTrayShowPreviewReminder, value); }
 
     public IReadOnlyList<UiOption> TimeoutOptions { get; } = UiOptions.TimeoutActions;
 
@@ -422,6 +504,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         LessonNextText = s.Lesson.Next;
         LessonCountdownText = s.Lesson.Countdown;
         LessonNameHint = s.Lesson.NameHint;
+        SyncSubjects(s.Lesson.Subjects);
         UpdateCurrentText = "v" + s.Update.Current;
         UpdatePhaseText = s.Update.PhaseText;
         UpdateLatestText = string.IsNullOrEmpty(s.Update.Latest) || s.Update.Latest == "-" ? "暂无" : s.Update.Latest;
@@ -429,6 +512,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         UpdateError = s.Update.Error;
         UpdateProgress = s.Update.Progress;
         HasUpdate = s.Update.HasUpdate;
+        UpdatePluginText = s.Update.PluginText;
+        UpdatePluginDetail = s.Update.PluginDetail;
+        UpdatePluginProgress = s.Update.PluginProgress;
+        UpdatePluginError = s.Update.PluginError;
+        UpdatePluginCanUpdate = s.Update.PluginCanUpdate;
         HostsText = s.Hosts.Message;
         HostsApplied = s.Hosts.Applied;
         HostsCountText = s.Hosts.Count > 0 ? $"{s.Hosts.Count} 条加速记录" : "还没有写入记录";
@@ -525,6 +613,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         EditAutoInstall = c.Update.AutoInstall;
         EditCheckOnBoot = c.Update.CheckOnBoot;
         EditInstallWindow = c.Update.InstallWindow;
+        EditUpdatePlugin = c.Update.UpdatePlugin;
+        EditTraySaveKeepOpen = c.Tray.SaveKeepOpen;
+        EditTraySaveWithoutRename = c.Tray.SaveWithoutRename;
+        EditTrayShowPreviewReminder = c.Tray.ShowPreviewReminder;
+        _editSubjects.Clear();
+        _editSubjects.AddRange(c.Lesson.Subjects ?? new List<string>());
+        RebuildSubjectHint();
+        SyncSubjects(Array.Empty<string>());
         _settingsDirty = false;
     }
 
@@ -553,6 +649,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             c.Lesson.OnlyWhenClassInBoard = EditOnlyWhenClassInBoard;
             c.BoardSave.NameWithLesson = EditNameWithLesson;
             c.BoardSave.NameTemplate = string.IsNullOrWhiteSpace(EditNameTemplate) ? BoardFileName.DefaultTemplate : EditNameTemplate.Trim();
+            c.Lesson.Subjects = LessonSubjects.Normalize(_editSubjects);
             c.Lesson.Normalize();
         });
         _settingsDirty = false;
@@ -582,10 +679,106 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             c.Update.AutoInstall = EditAutoInstall;
             c.Update.CheckOnBoot = EditCheckOnBoot;
             c.Update.InstallWindow = EditInstallWindow ?? "";
+            c.Update.UpdatePlugin = EditUpdatePlugin;
         });
         _settingsDirty = false;
         Toast("升级设置已保存");
         _ = RefreshAsync(true);
+    }
+
+    private void SaveTray()
+    {
+        _rt.Config.Mutate(c =>
+        {
+            c.Tray.SaveKeepOpen = EditTraySaveKeepOpen;
+            c.Tray.SaveWithoutRename = EditTraySaveWithoutRename;
+            c.Tray.ShowPreviewReminder = EditTrayShowPreviewReminder;
+        });
+        _settingsDirty = false;
+        Toast("托盘菜单已保存，下次打开菜单生效");
+        _ = RefreshAsync(true);
+    }
+
+    private void AddSubject()
+    {
+        var name = (NewSubjectText ?? "").Trim();
+        if (name.Length == 0) return;
+        if (!_editSubjects.Any(x => string.Equals(x, name, StringComparison.OrdinalIgnoreCase)))
+        {
+            _editSubjects.Add(name);
+            _editSubjects.Sort(StringComparer.CurrentCulture);
+            _settingsDirty = true;
+            SyncSubjects(Array.Empty<string>(), force: true);
+            Toast($"已添加科目「{name}」，点保存生效");
+        }
+        NewSubjectText = "";
+    }
+
+    private void ClearSubjectSelection()
+    {
+        if (_editSubjects.Count == 0) return;
+        _editSubjects.Clear();
+        _settingsDirty = true;
+        SyncSubjects(Array.Empty<string>(), force: true);
+        Toast("已清空勾选：所有科目都会提醒时，记得保存");
+    }
+
+    private void ToggleSubject(SubjectOption option)
+    {
+        if (_syncingSubjects) return;
+        if (option.IsSelected)
+        {
+            if (!_editSubjects.Any(x => string.Equals(x, option.Name, StringComparison.OrdinalIgnoreCase)))
+                _editSubjects.Add(option.Name);
+        }
+        else
+        {
+            _editSubjects.RemoveAll(x => string.Equals(x, option.Name, StringComparison.OrdinalIgnoreCase));
+        }
+        _settingsDirty = true;
+        RebuildSubjectHint();
+    }
+
+    private void RebuildSubjectHint() =>
+        SubjectHint = _editSubjects.Count == 0 ? "未勾选 = 所有科目都提醒" : $"已勾选 {_editSubjects.Count} 个科目";
+
+    /// <summary>候选科目 = 课表推送 ∪ 配置里已勾选 ∪ 手动添加；只在候选变化时重排，别每秒清空勾选。</summary>
+    public void SyncSubjects(IReadOnlyList<string> fromSchedule, bool force = false)
+    {
+        var candidates = new List<string>();
+        void Add(string? name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return;
+            var trimmed = name.Trim();
+            if (!candidates.Any(x => string.Equals(x, trimmed, StringComparison.OrdinalIgnoreCase))) candidates.Add(trimmed);
+        }
+
+        foreach (var name in fromSchedule ?? Array.Empty<string>()) Add(name);
+        foreach (var name in _editSubjects) Add(name);
+        foreach (var name in _rt.Config.Current.Lesson.Subjects ?? new List<string>()) Add(name);
+
+        var current = SubjectOptions.Select(x => x.Name).ToList();
+        if (!force && current.Count == candidates.Count && current.SequenceEqual(candidates, StringComparer.OrdinalIgnoreCase))
+        {
+            RebuildSubjectHint();
+            return;
+        }
+
+        _syncingSubjects = true;
+        try
+        {
+            SubjectOptions.Clear();
+            foreach (var name in candidates)
+            {
+                var selected = _editSubjects.Any(x => string.Equals(x, name, StringComparison.OrdinalIgnoreCase));
+                SubjectOptions.Add(new SubjectOption(name, selected, ToggleSubject));
+            }
+        }
+        finally
+        {
+            _syncingSubjects = false;
+        }
+        RebuildSubjectHint();
     }
 
     private void SaveBoardNow()
@@ -648,6 +841,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public void Toast(string text, bool error = false)
     {
+        // 只排最近 4 条，避免批量失败时刷屏。
+        while (_toastQueue.Count >= 4) _toastQueue.Dequeue();
         _toastQueue.Enqueue((text, error));
         if (!ToastVisible) NextToast();
     }
@@ -665,6 +860,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         ToastError = error;
         ToastGlyph = error ? "\uEA39" : "\uE73E";
         ToastVisible = true;
+        // 错误要留够阅读时间，其余轻提示不要挡住视线。
+        _toastTimer.Interval = TimeSpan.FromSeconds(error ? 6.0 : 3.4);
         _toastTimer.Start();
     }
 

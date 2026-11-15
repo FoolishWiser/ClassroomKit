@@ -85,7 +85,13 @@
 
                         <TextBlock Text="倒计时结束后的动作" Style="{StaticResource FieldLabel}" Margin="0,16,0,6" />
                         <ComboBox ItemsSource="{Binding TimeoutOptions}" SelectedValue="{Binding EditTimeoutAction}"
-                                  SelectedValuePath="Value" DisplayMemberPath="Label" />
+                                  SelectedValuePath="Value">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Label}" Foreground="{DynamicResource TextPrimary}" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
 
                         <TextBlock Text="稍后提醒间隔" Style="{StaticResource FieldLabel}" Margin="0,16,0,6" />
                         <controls:NumericInput Value="{Binding EditSnoozeMinutes, Mode=TwoWay}" Minimum="1" Maximum="60" Suffix="分钟" />
@@ -95,6 +101,46 @@
                     </StackPanel>
                 </Border>
             </Grid>
+
+            <Border Style="{StaticResource Card}" Margin="0,16,0,0">
+                <StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="生效科目" Style="{StaticResource H2}" />
+                            <TextBlock Text="{Binding SubjectHint}" Style="{StaticResource Caption}" Margin="0,4,0,0" />
+                        </StackPanel>
+                        <Button Grid.Column="1" Content="清空勾选" Style="{StaticResource GhostButton}"
+                                VerticalAlignment="Center" Command="{Binding ClearSubjectSelectionCommand}" />
+                    </Grid>
+                    <ItemsControl ItemsSource="{Binding SubjectOptions}" Margin="0,16,0,0">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <WrapPanel />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <CheckBox Style="{StaticResource SubjectChip}" Content="{Binding Name}"
+                                          IsChecked="{Binding IsSelected, Mode=TwoWay}" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Text="候选科目来自 ClassIsland 课表、配置和手动添加。不勾选任何一项 = 所有科目都提醒；保存后下一节课生效。"
+                               Style="{StaticResource Caption}" Margin="0,4,0,0" TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                        <TextBox Style="{StaticResource Input}" Width="220" Text="{Binding NewSubjectText, UpdateSourceTrigger=PropertyChanged}"
+                                 Tag="手动添加科目名，例如 物理" />
+                        <Button Content="添加科目" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0"
+                                Command="{Binding AddSubjectCommand}" />
+                        <Button Content="保存科目设置" Style="{StaticResource PrimaryButton}" Margin="8,0,0,0"
+                                Command="{Binding SaveLessonCommand}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
 
             <Border Style="{StaticResource Card}" Margin="0,16,0,0">
                 <StackPanel>

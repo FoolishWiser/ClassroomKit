@@ -48,10 +48,31 @@
 
             <Border Style="{StaticResource Card}" Margin="0,16,0,0">
                 <StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="ClassIsland 插件" Style="{StaticResource H2}" />
+                            <TextBlock Text="{Binding UpdatePluginText}" Style="{StaticResource Secondary}" Margin="0,6,0,0" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding UpdatePluginError}" Style="{StaticResource Caption}" Margin="0,4,0,0"
+                                       Foreground="{DynamicResource Danger}" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <Button Grid.Column="1" Content="立即更新插件" Style="{StaticResource SecondaryButton}"
+                                VerticalAlignment="Center" Command="{Binding UpdatePluginCommand}" />
+                    </Grid>
+                    <ProgressBar Margin="0,14,0,0" Maximum="1" Value="{Binding UpdatePluginProgress, Mode=OneWay}" Height="5" />
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource Card}" Margin="0,16,0,0">
+                <StackPanel>
                     <TextBlock Text="自动升级" Style="{StaticResource H2}" />
                     <TextBlock Text="护航任务在后台检查并安装，装完不会打断上课；没有设备连着热点时才动手。" Style="{StaticResource Caption}" Margin="0,4,0,0" TextWrapping="Wrap" />
                     <CheckBox Content="自动下载并安装新版本（静默）" Margin="0,16,0,0" IsChecked="{Binding EditAutoInstall}" />
                     <CheckBox Content="开机后检查一次更新" Margin="0,10,0,0" IsChecked="{Binding EditCheckOnBoot}" />
+                    <CheckBox Content="升级时同步更新 ClassIsland 插件" Margin="0,10,0,0" IsChecked="{Binding EditUpdatePlugin}" />
                     <Grid Margin="0,18,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />

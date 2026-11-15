@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using ClassroomKit.Agent.Service;
 using ClassroomKit.Agent.Shell;
 using ClassroomKit.Agent.Tasks;
@@ -57,6 +58,24 @@ public sealed record UpdateStatus
     public bool Silent { get; init; }
 
     public bool HasUpdate => Phase is UpdatePhase.Available or UpdatePhase.Downloading or UpdatePhase.Ready or UpdatePhase.Installing;
+
+    // ── ClassIsland 插件（cipx）随升级一起更新的状态 ──
+    /// <summary>本机是否检测到 ClassIsland 插件目录。</summary>
+    public bool PluginDetected { get; init; }
+    /// <summary>本机已装的插件版本（读不到为空串）。</summary>
+    public string PluginCurrent { get; init; } = "";
+    /// <summary>远端最新插件版本（读不到为空串）。</summary>
+    public string PluginLatest { get; init; } = "";
+    /// <summary>远端插件比本机新，可以更新。</summary>
+    public bool PluginAvailable { get; init; }
+    /// <summary>插件下载进度 0–1（安装包占 0–0.9，插件占 0.9–1.0）。</summary>
+    public double PluginProgress { get; init; }
+    /// <summary>插件更新失败的原因（成功/未开始时为空串）。</summary>
+    public string PluginError { get; init; } = "";
+    /// <summary>给面板直接显示的一句话（未检测到 ClassIsland / 已是最新 / 可更新 x → y / 更新失败原因）。</summary>
+    public string PluginText { get; init; } = "";
+    /// <summary>现在就能更新插件（检测到插件 + 远端有新版本 + 已拿到 cipx 资产）。</summary>
+    public bool PluginCanUpdate { get; init; }
 }
 
 /// <summary>
@@ -84,6 +103,19 @@ public sealed class UpdateService
     private string? _installerPath;
     private DateTimeOffset? _checkedAt;
 
+    // ClassIsland 插件（cipx）状态：全部在 _lock 里改，由 Decorate() 投影进 UpdateStatus。
+    private PluginLocation? _pluginLocation;
+    private DateTimeOffset _pluginDetectedAt;
+    private ReleaseAsset? _pluginRelease;
+    private string? _pluginPath;
+    private bool _pluginDetected;
+    private string _pluginCurrent = "";
+    private string _pluginLatest = "";
+    private bool _pluginAvailable;
+    private string _pluginError = "";
+    private string _pluginText = "";
+    private double _pluginProgress;
+
     public UpdateService(AppLog log, Func<AppConfig> config, string currentVersion, Action requestExit)
     {
         _log = log;
@@ -92,6 +124,8 @@ public sealed class UpdateService
         _requestExit = requestExit;
         _status = new UpdateStatus { Current = _current };
         CleanupOldPackages();
+        if (File.Exists(PendingPluginPath))
+            _log.Info("发现上次没装完的 ClassIsland 插件：退出 ClassIsland 后会自动重试");
     }
 
     /// <summary>
@@ -151,11 +185,20 @@ public sealed class UpdateService
 
     public static string UpdateRoot => Path.Combine(Paths.DataDir, "update");
 
+    /// <summary>插件装不上（ClassIsland 正在运行）时先落在这里，等巡检补装。</summary>
+    public static string PendingPluginPath => Path.Combine(UpdateRoot, "pending-plugin.cipx");
+
+    /// <summary>有没有等着补装的插件包。</summary>
+    public bool HasPendingPlugin => File.Exists(PendingPluginPath);
+
     private UpdateConfig Config => _config().Update ?? new UpdateConfig();
 
     /// <summary>检查 GitHub 上是否有更新版本；10 分钟内重复调用直接返回缓存。</summary>
     public async Task<UpdateStatus> CheckAsync(bool force = false, CancellationToken ct = default)
     {
+        // 插件检测与远端检查互相独立：没有 ClassIsland 也要能正常升级应用本身
+        DetectPlugin();
+
         var cfg = Config;
         if (!cfg.Enabled)
             return Set(new UpdateStatus { Current = _current, Phase = UpdatePhase.Failed, Error = "自动更新已在配置里关闭（update.enabled=false）" });
@@ -206,6 +249,7 @@ public sealed class UpdateService
             _release = release;
             _checkedAt = DateTimeOffset.Now;
             _installerPath = null;
+            ApplyReleasePlugin(release);
 
             if (!UpdateVersion.IsNewer(release.Version, _current))
             {
@@ -272,80 +316,55 @@ public sealed class UpdateService
             var target = Path.Combine(dir, asset.Name);
             _installerPath = target;
 
-            if (File.Exists(target) && asset.Size > 0 && new FileInfo(target).Length == asset.Size &&
-                (asset.Digest is null || VerifyDigest(target, asset.Digest) is { Ok: true }))
+            // 插件包是不是也要一起下：决定进度条 0–0.9 / 0.9–1.0 的切分
+            ReleaseAsset? pluginAsset;
+            lock (_lock) pluginAsset = _pluginAvailable ? _pluginRelease : null;
+            var hasPlugin = pluginAsset is not null;
+
+            if (IsAssetComplete(target, asset))
             {
                 _log.Info($"安装包已存在，跳过下载：{target}");
-                return Set(Ready());
             }
-
-            Set(new UpdateStatus
+            else
             {
-                Current = _current,
-                Latest = _release.Version,
-                Notes = _release.Notes,
-                HtmlUrl = _release.HtmlUrl,
-                AssetName = asset.Name,
-                AssetSize = asset.Size,
-                Phase = UpdatePhase.Downloading,
-                CheckedAt = _checkedAt
-            });
-
-            _log.Info($"下载安装包：{asset.Name}（{asset.Size / 1024 / 1024.0:F1} MB）");
-
-            // 先直连；国内不少学校/运营商到 objects.githubusercontent.com 会 504 或超时，
-            // 再依次走配置里的镜像前缀。镜像只负责搬运字节，落地后一律按 GitHub API
-            // 给的 sha256 校验，校验不过就换下一个源。
-            // api.github.com 的资产接口能 302 到可用的对象存储，比 releases/download 稳；
-            // 用它打头，再直连，最后才是镜像。
-            var apiUrl = asset.Id > 0
-                ? $"https://api.github.com/repos/{_config().Update.Repo}/releases/assets/{asset.Id}"
-                : null;
-            var urls = UpdateUrls.Candidates(asset.Url, _config().Update.Mirrors, apiUrl);
-            var directIndex = apiUrl is null ? 0 : 1;
-            Exception? lastError = null;
-            for (var i = 0; i < urls.Count; i++)
-            {
-                var url = urls[i];
-                var via = i == directIndex ? "直连" : (apiUrl is not null && i == 0 ? "GitHub API" : "镜像 " + UriHost(url));
-                for (var attempt = 1; attempt <= 2; attempt++)
+                Set(new UpdateStatus
                 {
-                    try
-                    {
-                        // 学校网络到 GitHub 的单连接经常只有几十 KB/s，先试分段并发下载；
-                        // 服务器不支持 Range（或分片失败）时自动回退单连接，不影响可靠性。
-                        if (!await TryParallelDownloadAsync(url, asset, target, ct).ConfigureAwait(false))
-                            await DownloadToFileAsync(url, asset, target, ct).ConfigureAwait(false);
+                    Current = _current,
+                    Latest = _release.Version,
+                    Notes = _release.Notes,
+                    HtmlUrl = _release.HtmlUrl,
+                    AssetName = asset.Name,
+                    AssetSize = asset.Size,
+                    Phase = UpdatePhase.Downloading,
+                    CheckedAt = _checkedAt
+                });
 
-                        var info = new FileInfo(target);
-                        if (asset.Size > 0 && info.Length != asset.Size)
-                            throw new InvalidDataException($"下载不完整（{info.Length}/{asset.Size} 字节）");
-                        if (asset.Digest is not null)
-                        {
-                            var (digestOk, message) = VerifyDigest(target, asset.Digest);
-                            if (!digestOk) throw new InvalidDataException("安装包校验不通过：" + message);
-                        }
+                _log.Info($"下载安装包：{asset.Name}（{asset.Size / 1024 / 1024.0:F1} MB）");
 
-                        _log.Info($"安装包下载完成（{via}）：{target}（{info.Length} 字节）");
-                        return Set(Ready());
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        throw;
-                    }
-                    catch (Exception ex)
-                    {
-                        lastError = ex;
-                        _log.Warn($"下载失败（{via}，第 {attempt} 次）：{ex.Message}");
-                        TryDelete(target + ".part");
-                        if (attempt < 2) await Task.Delay(800, ct).ConfigureAwait(false);
-                    }
+                try
+                {
+                    await DownloadAssetAsync(asset, target,
+                        p => Set(Status with { Phase = UpdatePhase.Downloading, Progress = hasPlugin ? p * 0.9 : p }),
+                        ct).ConfigureAwait(false);
                 }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    var hint = "：" + ex.Message;
+                    return Fail("下载安装包失败（直连和镜像都不通，学校网络可能屏蔽了 GitHub）："
+                        + "可以用浏览器手动下载安装包再双击安装" + hint);
+                }
+
+                _log.Info($"安装包下载完成：{target}（{new FileInfo(target).Length} 字节）");
             }
 
-            var hint = lastError is null ? "" : "：" + lastError.Message;
-            return Fail("下载安装包失败（直连和镜像都不通，学校网络可能屏蔽了 GitHub）："
-                + "可以用浏览器手动下载安装包再双击安装" + hint);
+            if (pluginAsset is not null)
+                await DownloadPluginPackageAsync(pluginAsset, dir, ct).ConfigureAwait(false);
+
+            return Set(Ready());
         }
         catch (OperationCanceledException)
         {
@@ -369,6 +388,9 @@ public sealed class UpdateService
     /// </summary>
     public (bool Ok, string Message) Install()
     {
+        // 先把已经下载好的 ClassIsland 插件装上；插件失败只记状态，绝不阻断 MSI 升级
+        MaybeApplyPlugin();
+
         var path = _installerPath;
         if (path is null || !File.Exists(path))
             return (false, "安装包还没下载好，请先下载");
@@ -468,6 +490,542 @@ public sealed class UpdateService
         }
     }
 
+    // ── ClassIsland 插件（cipx）────────────────────────────────────────────────
+    // 状态都在 _lock 里改，UpdateStatus 由 Decorate() 投影出去；
+    // 插件只是「顺带更新」，任何失败都只写 PluginError，绝不阻断 MSI 升级。
+
+    private static readonly TimeSpan PluginDetectTtl = TimeSpan.FromMinutes(5);
+
+    private bool PluginAvailableNow
+    {
+        get { lock (_lock) return _pluginAvailable; }
+    }
+
+    private string PluginErrorNow
+    {
+        get { lock (_lock) return _pluginError; }
+    }
+
+    /// <summary>探测本机 ClassIsland 插件目录（5 分钟缓存），更新 Detected/Current/Available。</summary>
+    private PluginLocation DetectPlugin(bool force = false)
+    {
+        lock (_lock)
+        {
+            if (!force && _pluginLocation is not null && DateTimeOffset.Now - _pluginDetectedAt < PluginDetectTtl)
+                return _pluginLocation;
+        }
+
+        PluginLocation location;
+        try
+        {
+            location = new PluginInstaller(_log).Detect();
+        }
+        catch (Exception ex)
+        {
+            _log.Warn("查找 ClassIsland 插件目录失败：" + ex.Message);
+            location = new PluginLocation(null, null, "", null);
+        }
+
+        lock (_lock)
+        {
+            _pluginLocation = location;
+            _pluginDetectedAt = DateTimeOffset.Now;
+            _pluginDetected = location.CanInstall;
+            _pluginCurrent = location.Version;
+            _pluginAvailable = ComputePluginAvailableLocked();
+            RefreshPluginTextLocked();
+            TouchLocked();
+        }
+
+        if (location.CanInstall)
+            _log.Info($"ClassIsland 插件：v{location.Version}（{location.Dir}，来源：{location.Source}）");
+        else
+            _log.Info("没有找到 ClassIsland 插件目录（这台机器可能没装 ClassIsland）");
+
+        return location;
+    }
+
+    /// <summary>从 release 里挑出 cipx（尊重 update.updatePlugin 开关），更新 Available/Latest。</summary>
+    private void ApplyReleasePlugin(GitHubRelease release)
+    {
+        if (!Config.UpdatePlugin)
+        {
+            lock (_lock)
+            {
+                _pluginRelease = null;
+                _pluginLatest = "";
+                _pluginPath = null;
+                _pluginProgress = 0;
+                _pluginError = "";
+                _pluginAvailable = false;
+                RefreshPluginTextLocked();
+                TouchLocked();
+            }
+
+            _log.Info("配置里关闭了插件更新（update.updatePlugin=false）");
+            return;
+        }
+
+        var asset = ReleaseFeed.PickPlugin(release);
+        var latest = asset is null ? "" : PluginVersionOf(asset, release.Version);
+
+        lock (_lock)
+        {
+            _pluginRelease = asset;
+            _pluginLatest = latest;
+            _pluginPath = null;
+            _pluginProgress = 0;
+            _pluginError = "";
+            _pluginAvailable = ComputePluginAvailableLocked();
+            RefreshPluginTextLocked();
+            TouchLocked();
+        }
+
+        if (asset is null)
+            _log.Info("这个版本没有附 ClassIsland 插件包（.cipx），跳过插件更新");
+        else
+            _log.Info($"ClassIsland 插件：本机 v{_pluginCurrent}，远端 {latest}（{asset.Name}）");
+    }
+
+    /// <summary>远端插件比本机新（本机没装时只要有远端包就算可更新）。</summary>
+    private bool ComputePluginAvailableLocked()
+    {
+        if (!_pluginDetected || _pluginRelease is null) return false;
+        if (_pluginLatest.Length == 0) return false;
+        if (_pluginCurrent.Length == 0) return true;
+        return UpdateVersion.IsNewer(_pluginLatest, _pluginCurrent);
+    }
+
+    /// <summary>插件版本：优先用文件名里带的版本号，与 manifest 版本一致时最可靠。</summary>
+    private static string PluginVersionOf(ReleaseAsset asset, string releaseVersion)
+    {
+        var normalized = UpdateVersion.Normalize(releaseVersion);
+        if (normalized.Length > 0 && asset.Name.Contains(normalized, StringComparison.OrdinalIgnoreCase))
+            return normalized;
+
+        var match = Regex.Match(asset.Name, @"\d+(?:\.\d+){1,3}");
+        return match.Success ? match.Value : normalized;
+    }
+
+    /// <summary>给面板的一句话（调用方持有 _lock）。</summary>
+    private void RefreshPluginTextLocked()
+    {
+        if (!Config.UpdatePlugin)
+        {
+            _pluginText = _pluginDetected ? "插件更新已在配置里关闭" : "未检测到 ClassIsland";
+            return;
+        }
+
+        if (!_pluginDetected)
+        {
+            _pluginText = "未检测到 ClassIsland";
+            return;
+        }
+
+        if (_pluginError.Length > 0)
+        {
+            _pluginText = "更新失败：" + _pluginError;
+            return;
+        }
+
+        if (_pluginAvailable)
+        {
+            if (_pluginLatest.Length == 0) _pluginText = "有新插件可以更新";
+            else if (_pluginCurrent.Length == 0) _pluginText = "可安装 " + _pluginLatest;
+            else _pluginText = $"可更新 {_pluginCurrent} → {_pluginLatest}";
+            return;
+        }
+
+        _pluginText = "已是最新";
+    }
+
+    private void SetPluginError(string message)
+    {
+        lock (_lock)
+        {
+            _pluginError = message;
+            RefreshPluginTextLocked();
+            TouchLocked();
+        }
+    }
+
+    private void SetPluginProgress(double value)
+    {
+        lock (_lock)
+        {
+            _pluginProgress = Math.Clamp(value, 0, 1);
+            TouchLocked();
+        }
+    }
+
+    private void MarkPluginApplied(string installedVersion)
+    {
+        lock (_lock)
+        {
+            if (installedVersion.Length > 0) _pluginCurrent = installedVersion;
+            _pluginAvailable = ComputePluginAvailableLocked();
+            _pluginError = "";
+            _pluginProgress = 1;
+            RefreshPluginTextLocked();
+            TouchLocked();
+        }
+
+        _log.Info($"ClassIsland 插件已更新到 v{PluginVersionOrUnknown(installedVersion)}");
+    }
+
+    private static string PluginVersionOrUnknown(string version) => version.Length > 0 ? version : "（未知版本）";
+
+    /// <summary>升级前先把已下载的 cipx 装上；失败只记状态，MSI 升级照常进行。</summary>
+    private void MaybeApplyPlugin()
+    {
+        if (!Config.UpdatePlugin) return;
+
+        bool available;
+        ReleaseAsset? asset;
+        string? path;
+        lock (_lock)
+        {
+            available = _pluginAvailable;
+            asset = _pluginRelease;
+            path = _pluginPath;
+        }
+
+        if (!available || asset is null) return;
+        if (path is null || !File.Exists(path))
+        {
+            SetPluginError("插件包还没下载好");
+            return;
+        }
+
+        TryInstallPlugin(path, stageOnFailure: true);
+    }
+
+    /// <summary>
+    /// 把 cipx 装到探测到的插件目录。失败时：被占用且 stageOnFailure 就把包复制到
+    /// pending-plugin.cipx 让巡检补装，其它情况只写 PluginError。返回是否安装成功。
+    /// </summary>
+    private bool TryInstallPlugin(string cipxPath, bool stageOnFailure)
+    {
+        var location = DetectPlugin(force: true);
+        if (!location.CanInstall)
+        {
+            SetPluginError("没有找到 ClassIsland 插件目录");
+            return false;
+        }
+
+        _log.Info($"更新 ClassIsland 插件：{Path.GetFileName(cipxPath)} → {location.Dir}");
+
+        var result = PluginPackage.ExtractTo(cipxPath, location.Dir!);
+        if (result.Ok)
+        {
+            var version = PluginPackage.ReadManifestFromDirectory(location.Dir!)?.Version ?? "";
+            MarkPluginApplied(version);
+            TryDelete(PendingPluginPath);
+            _log.Info("ClassIsland 插件文件已更新，重启 ClassIsland 后生效");
+            return true;
+        }
+
+        var hint = result.Locked
+            ? "ClassIsland 正在运行或插件文件被占用，请先退出 ClassIsland 后重试"
+            : "插件包不合法：" + result.Message;
+
+        if (result.Locked && stageOnFailure && StagePendingPlugin(cipxPath))
+            hint += $"；已排入待安装队列（{Path.GetFileName(PendingPluginPath)}），退出 ClassIsland 后下次巡检会自动重试";
+
+        SetPluginError(hint);
+        return false;
+    }
+
+    /// <summary>把 cipx 复制到 pending-plugin.cipx，等巡检补装。</summary>
+    private bool StagePendingPlugin(string cipxPath)
+    {
+        try
+        {
+            Directory.CreateDirectory(UpdateRoot);
+            if (PathsEqual(cipxPath, PendingPluginPath)) return true;   // 已经在队列里
+            File.Copy(cipxPath, PendingPluginPath, overwrite: true);
+            _log.Info("ClassIsland 插件已排入待安装队列：" + PendingPluginPath);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _log.Warn("把插件包排入待安装队列失败：" + ex.Message);
+            return false;
+        }
+    }
+
+    private static bool PathsEqual(string a, string b)
+    {
+        try
+        {
+            return string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    /// <summary>
+    /// 巡检可调用：上次升级时 ClassIsland 正在运行、插件没能装上的话，这里补装。
+    /// pending-plugin.cipx 还在就重试，成功删除；仍被占用就保留，下次再试。
+    /// </summary>
+    public (bool Ok, string Message) TryApplyPendingPlugin()
+    {
+        if (!File.Exists(PendingPluginPath)) return (true, "没有待安装的 ClassIsland 插件");
+        if (!Config.UpdatePlugin)
+            return (false, "插件更新已在配置里关闭（update.updatePlugin=false），保留待安装文件");
+
+        return TryInstallPlugin(PendingPluginPath, stageOnFailure: false)
+            ? (true, "ClassIsland 插件已补装完成，重启 ClassIsland 后生效")
+            : (false, "ClassIsland 插件仍没能安装：" + PluginErrorNow);
+    }
+
+    /// <summary>
+    /// 面板「更新插件」：强制检查 → 需要时下载 cipx → 安装。只碰插件，不碰 MSI。
+    /// </summary>
+    public async Task<UpdateStatus> UpdatePluginAsync(CancellationToken ct = default)
+    {
+        if (!Config.UpdatePlugin)
+        {
+            SetPluginError("插件更新已在配置里关闭（update.updatePlugin=false）");
+            return Status;
+        }
+
+        await CheckAsync(force: true, ct).ConfigureAwait(false);
+
+        ReleaseAsset? asset;
+        string latest;
+        lock (_lock)
+        {
+            asset = _pluginRelease;
+            latest = _pluginLatest;
+        }
+
+        if (asset is null)
+        {
+            SetPluginError("这个版本没有附 ClassIsland 插件包（.cipx）");
+            return Status;
+        }
+
+        if (!PluginAvailableNow)
+        {
+            // 远端没有比本机新的插件：不重复下载
+            lock (_lock)
+            {
+                _pluginError = "";
+                RefreshPluginTextLocked();
+                TouchLocked();
+            }
+
+            return Status;
+        }
+
+        string target;
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var versionDir = latest.Length > 0 ? latest : (_release?.Version ?? "plugin");
+            var dir = Path.Combine(UpdateRoot, SafeDirectoryName(versionDir));
+            Directory.CreateDirectory(dir);
+            target = Path.Combine(dir, asset.Name);
+
+            lock (_lock)
+            {
+                _pluginError = "";
+                _pluginProgress = 0;
+            }
+            Set(Status);
+
+            _log.Info($"手动更新 ClassIsland 插件：{asset.Name}（{asset.Size / 1024.0:F0} KB）");
+
+            if (IsAssetComplete(target, asset))
+            {
+                _log.Info("插件包已存在，跳过下载：" + target);
+            }
+            else
+            {
+                await DownloadAssetAsync(asset, target, p => SetPluginProgress(p / 100.0), ct).ConfigureAwait(false);
+            }
+
+            lock (_lock) _pluginPath = target;
+            ApplyPluginVersionFromPackage(target);
+        }
+        catch (OperationCanceledException)
+        {
+            SetPluginError("插件更新已取消");
+            return Status;
+        }
+        catch (Exception ex)
+        {
+            _log.Warn("下载 ClassIsland 插件包失败：" + ex.Message);
+            SetPluginError("下载插件包失败：" + ex.Message);
+            return Status;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+
+        if (!PluginAvailableNow)
+        {
+            _log.Info("下载到的插件与已装版本一致，不需要安装");
+            SetPluginProgress(1);
+            return Status;
+        }
+
+        TryInstallPlugin(target, stageOnFailure: true);
+        return Status;
+    }
+
+    /// <summary>用包里的 manifest 校正插件版本（文件名不一定带版本号）。</summary>
+    private void ApplyPluginVersionFromPackage(string cipxPath)
+    {
+        var manifest = PluginPackage.ReadManifest(cipxPath);
+        if (manifest is null) return;
+
+        var latest = UpdateVersion.Normalize(manifest.Version);
+        if (latest.Length == 0) return;
+
+        var changed = false;
+        lock (_lock)
+        {
+            if (latest != _pluginLatest)
+            {
+                _pluginLatest = latest;
+                _pluginAvailable = ComputePluginAvailableLocked();
+                changed = true;
+            }
+            RefreshPluginTextLocked();
+            TouchLocked();
+        }
+
+        if (changed) _log.Info($"插件包里的版本是 {latest}");
+    }
+
+    /// <summary>
+    /// 下载 cipx 到安装包旁边，进度落在 0.9–1.0。
+    /// 插件只是附带升级：失败只写 PluginError，绝不影响 MSI 升级。
+    /// </summary>
+    private async Task DownloadPluginPackageAsync(ReleaseAsset asset, string dir, CancellationToken ct)
+    {
+        var target = Path.Combine(dir, asset.Name);
+        try
+        {
+            if (IsAssetComplete(target, asset))
+            {
+                _log.Info($"插件包已存在，跳过下载：{target}");
+            }
+            else
+            {
+                _log.Info($"下载 ClassIsland 插件包：{asset.Name}（{asset.Size / 1024.0:F0} KB）");
+                await DownloadAssetAsync(asset, target,
+                    p => Set(Status with { Phase = UpdatePhase.Downloading, Progress = 90 + p * 0.1 }),
+                    ct).ConfigureAwait(false);
+            }
+
+            lock (_lock) _pluginPath = target;
+            ApplyPluginVersionFromPackage(target);
+        }
+        catch (OperationCanceledException)
+        {
+            // 安装包已经下好了，插件取消不该把整个升级打回失败
+            SetPluginError("插件包下载已取消");
+        }
+        catch (Exception ex)
+        {
+            _log.Warn("下载 ClassIsland 插件包失败（不影响安装包升级）：" + ex.Message);
+            lock (_lock)
+            {
+                _pluginPath = null;
+                _pluginProgress = 0;
+            }
+            SetPluginError("下载插件包失败：" + ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// 下载一个资产到 target 并校验大小与 sha256：先试分段并发，再回退单连接，
+    /// 最后按配置里的镜像依次重试（api.github.com 资产接口打头，比 releases/download 稳）。
+    /// onProgress 收到 0–100 的百分比。
+    /// </summary>
+    private async Task DownloadAssetAsync(ReleaseAsset asset, string target, Action<double>? onProgress, CancellationToken ct)
+    {
+        var cfg = Config;
+        var apiUrl = asset.Id > 0
+            ? $"https://api.github.com/repos/{cfg.Repo}/releases/assets/{asset.Id}"
+            : null;
+        var urls = UpdateUrls.Candidates(asset.Url, cfg.Mirrors, apiUrl);
+        var directIndex = apiUrl is null ? 0 : 1;
+        Exception? lastError = null;
+
+        for (var i = 0; i < urls.Count; i++)
+        {
+            var url = urls[i];
+            var via = i == directIndex ? "直连" : (apiUrl is not null && i == 0 ? "GitHub API" : "镜像 " + UriHost(url));
+            for (var attempt = 1; attempt <= 2; attempt++)
+            {
+                try
+                {
+                    // 学校网络到 GitHub 的单连接经常只有几十 KB/s，先试分段并发下载；
+                    // 服务器不支持 Range（或分片失败）时自动回退单连接，不影响可靠性。
+                    if (!await TryParallelDownloadAsync(url, asset, target, onProgress, ct).ConfigureAwait(false))
+                        await DownloadToFileAsync(url, asset, target, onProgress, ct).ConfigureAwait(false);
+
+                    var info = new FileInfo(target);
+                    if (asset.Size > 0 && info.Length != asset.Size)
+                        throw new InvalidDataException($"下载不完整（{info.Length}/{asset.Size} 字节）");
+                    if (asset.Digest is not null)
+                    {
+                        var (digestOk, message) = VerifyDigest(target, asset.Digest);
+                        if (!digestOk) throw new InvalidDataException("文件校验不通过：" + message);
+                    }
+
+                    _log.Info($"下载完成（{via}）：{asset.Name}（{info.Length} 字节）");
+                    onProgress?.Invoke(100);
+                    return;
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    lastError = ex;
+                    _log.Warn($"下载失败（{via}，第 {attempt} 次）：{ex.Message}");
+                    TryDelete(target + ".part");
+                    if (attempt < 2) await Task.Delay(800, ct).ConfigureAwait(false);
+                }
+            }
+        }
+
+        throw new IOException(
+            "直连和镜像都不通，学校网络可能屏蔽了 GitHub" + (lastError is null ? "" : "：" + lastError.Message),
+            lastError);
+    }
+
+    /// <summary>文件已下载且大小、摘要都对得上（摘要缺失时只比大小）。</summary>
+    private static bool IsAssetComplete(string path, ReleaseAsset asset)
+    {
+        try
+        {
+            if (!File.Exists(path)) return false;
+            if (asset.Size > 0 && new FileInfo(path).Length != asset.Size) return false;
+            return asset.Digest is null || VerifyDigest(path, asset.Digest).Ok;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string SafeDirectoryName(string name)
+    {
+        var text = (name ?? "").Trim();
+        foreach (var c in Path.GetInvalidFileNameChars()) text = text.Replace(c, '_');
+        return text.Length == 0 ? "plugin" : text;
+    }
+
     private UpdateStatus Ready() => new()
     {
         Current = _current,
@@ -488,9 +1046,25 @@ public sealed class UpdateService
 
     private UpdateStatus Set(UpdateStatus status)
     {
-        lock (_lock) _status = status;
-        return status;
+        lock (_lock) _status = Decorate(status);
+        return _status;
     }
+
+    /// <summary>把插件字段投影到状态上（调用方持有 _lock）。</summary>
+    private UpdateStatus Decorate(UpdateStatus status) => status with
+    {
+        PluginDetected = _pluginDetected,
+        PluginCurrent = _pluginCurrent,
+        PluginLatest = _pluginLatest,
+        PluginAvailable = _pluginAvailable,
+        PluginProgress = _pluginProgress,
+        PluginError = _pluginError,
+        PluginText = _pluginText,
+        PluginCanUpdate = _pluginAvailable && _pluginRelease is not null
+    };
+
+    /// <summary>插件字段变了但阶段没变时，把当前状态重新投影一遍（调用方持有 _lock）。</summary>
+    private void TouchLocked() => _status = Decorate(_status);
 
     private static string UriHost(string url) =>
         Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.Host : url;
@@ -500,7 +1074,7 @@ public sealed class UpdateService
         try { if (File.Exists(path)) File.Delete(path); } catch { /* 下次覆盖 */ }
     }
 
-    private async Task DownloadToFileAsync(string url, ReleaseAsset asset, string target, CancellationToken ct)
+    private async Task DownloadToFileAsync(string url, ReleaseAsset asset, string target, Action<double>? onProgress, CancellationToken ct)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.UserAgent.ParseAdd($"ClassroomKit-Agent/{_current}");
@@ -527,7 +1101,7 @@ public sealed class UpdateService
                 {
                     lastReport = now;
                     var pct = total > 0 ? Math.Min(99, received * 100.0 / total) : 0;
-                    Set(Status with { Progress = pct });
+                    onProgress?.Invoke(pct);
                 }
             }
         }
@@ -540,7 +1114,7 @@ public sealed class UpdateService
     /// 每条连接的吞吐被限速时，多连接能成倍提速（用户机器上单连接约 50–70 KB/s）。
     /// 返回 false 表示「这个源不支持分段」，调用方回退单连接；其它异常也回退，不中断升级。
     /// </summary>
-    private async Task<bool> TryParallelDownloadAsync(string url, ReleaseAsset asset, string target, CancellationToken ct)
+    private async Task<bool> TryParallelDownloadAsync(string url, ReleaseAsset asset, string target, Action<double>? onProgress, CancellationToken ct)
     {
         if (asset.Size <= 0) return false;
 
@@ -592,7 +1166,7 @@ public sealed class UpdateService
                             {
                                 lastReport = now;
                                 var pct = Math.Min(99, total * 100.0 / asset.Size);
-                                Set(Status with { Progress = pct });
+                                onProgress?.Invoke(pct);
                             }
                         }
                         lengths[index] = partBytes;

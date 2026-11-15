@@ -31,7 +31,8 @@ public sealed record UiLesson(
     string Current,
     string Next,
     string Countdown,
-    string NameHint);
+    string NameHint,
+    IReadOnlyList<string> Subjects);
 
 public sealed record UiUpdate(
     string Current,
@@ -40,7 +41,12 @@ public sealed record UiUpdate(
     bool HasUpdate,
     double Progress,
     string Notes,
-    string Error);
+    string Error,
+    string PluginText,
+    string PluginDetail,
+    double PluginProgress,
+    string PluginError,
+    bool PluginCanUpdate);
 
 public sealed record UiHosts(
     bool Enabled,

@@ -282,6 +282,34 @@ internal static class LessonTests
             inClass.Accept(Snapshot(state: LessonStates.Class, current: "数学", nextStart: Now.AddMinutes(40)));
             Eq("数学", inClass.NameHint(Now), "板书文件名照旧按当前科目命名");
         });
+
+        Run("课表快照带整份科目清单：归一后去重，缺省为空", () =>
+        {
+            var withSubjects = LessonSnapshot.FromClassIsland(
+                LessonStates.Breaking, null, "数学", "语文", Now.AddMinutes(4), 0, 3, true, Now,
+                new[] { " 物理 ", "化学", "物理", "" });
+            Eq(2, withSubjects.Subjects.Count, "重复与空白项被丢掉");
+            Eq("物理", withSubjects.Subjects[0], "保留第一次出现的写法");
+
+            var plain = Snapshot();
+            Eq(0, plain.Subjects.Count, "旧插件不推科目时是空列表");
+            True(LessonSubjects.IsUnrestricted(plain.Subjects), "空列表等于所有科目");
+        });
+
+        Run("科目清单能随快照 JSON 往返", () =>
+        {
+            var snapshot = LessonSnapshot.FromClassIsland(
+                LessonStates.Breaking, null, "数学", "语文", Now.AddMinutes(4), 0, 3, true, Now,
+                new[] { "物理", "化学" });
+            var json = System.Text.Json.JsonSerializer.Serialize(snapshot);
+            var back = System.Text.Json.JsonSerializer.Deserialize<LessonSnapshot>(json)!;
+            Eq(2, back.Subjects.Count, "往返后科目数不变");
+            Eq("化学", back.Subjects[1], "科目名不变");
+
+            var empty = System.Text.Json.JsonSerializer.Deserialize<LessonSnapshot>(
+                "{\"state\":\"breaking\",\"at\":\"2026-11-14T10:00:00+08:00\"}")!;
+            Eq(0, empty.Subjects.Count, "没有 subjects 字段时是空列表");
+        });
     }
 
     private static string TempDir()

@@ -20,11 +20,40 @@
                         <StackPanel Grid.Column="0" Width="200">
                             <TextBlock Text="外观主题" Style="{StaticResource FieldLabel}" />
                             <ComboBox ItemsSource="{Binding ThemeOptions}" SelectedValue="{Binding EditTheme}"
-                                      SelectedValuePath="Value" DisplayMemberPath="Label" />
+                                      SelectedValuePath="Value">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Label}" Foreground="{DynamicResource TextPrimary}" />
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
                         </StackPanel>
                         <Button Grid.Column="2" Content="保存界面设置" Style="{StaticResource PrimaryButton}"
                                 VerticalAlignment="Bottom" Command="{Binding SaveUiCommand}" />
                     </Grid>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource Card}" Margin="0,16,0,0">
+                <StackPanel>
+                    <TextBlock Text="托盘菜单" Style="{StaticResource H2}" />
+                    <TextBlock Text="「保存并关闭 ClassInX」始终保留，其余动作默认收起，按需要打开。" Style="{StaticResource Caption}" Margin="0,4,0,0" TextWrapping="Wrap" />
+                    <CheckBox Content="保存，保留 ClassInX" Margin="0,16,0,0" IsChecked="{Binding EditTraySaveKeepOpen}" />
+                    <CheckBox Content="保存（不按课表改名）" Margin="0,10,0,0" IsChecked="{Binding EditTraySaveWithoutRename}" />
+                    <CheckBox Content="预览课前提醒窗" Margin="0,10,0,0" IsChecked="{Binding EditTrayShowPreviewReminder}" />
+                    <Button Content="保存托盘菜单" Style="{StaticResource PrimaryButton}" Margin="0,18,0,0"
+                            HorizontalAlignment="Left" Command="{Binding SaveTrayCommand}" />
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource Card}" Margin="0,16,0,0">
+                <StackPanel>
+                    <TextBlock Text="ClassIsland 插件" Style="{StaticResource H2}" />
+                    <TextBlock Text="{Binding UpdatePluginText}" Style="{StaticResource Secondary}" Margin="0,6,0,0" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding UpdatePluginError}" Style="{StaticResource Caption}" Margin="0,4,0,0"
+                               Foreground="{DynamicResource Danger}" TextWrapping="Wrap" />
+                    <Button Content="立即更新插件" Style="{StaticResource SecondaryButton}" Margin="0,14,0,0"
+                            HorizontalAlignment="Left" Command="{Binding UpdatePluginCommand}" />
                 </StackPanel>
             </Border>
 

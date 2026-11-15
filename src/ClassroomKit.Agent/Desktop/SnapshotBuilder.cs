@@ -54,7 +54,8 @@ internal static class SnapshotBuilder
                 lesson?.CurrentSubject ?? "-",
                 lesson?.NextSubject ?? "-",
                 Countdown(lesson),
-                lesson?.PreviousSubject ?? rt.Lesson.NameHint(DateTimeOffset.Now) ?? "-"),
+                lesson?.PreviousSubject ?? rt.Lesson.NameHint(DateTimeOffset.Now) ?? "-",
+                lesson?.Subjects ?? Array.Empty<string>()),
             new UiUpdate(
                 update.Current,
                 update.Latest ?? "-",
@@ -62,7 +63,12 @@ internal static class SnapshotBuilder
                 update.HasUpdate,
                 update.Progress,
                 update.Notes ?? "",
-                update.Error ?? ""),
+                update.Error ?? "",
+                update.PluginText ?? "",
+                string.IsNullOrEmpty(update.PluginError) ? "" : update.PluginError,
+                update.PluginProgress,
+                update.PluginError ?? "",
+                update.PluginCanUpdate),
             new UiHosts(
                 config.Hosts.Enabled,
                 hosts.Applied,

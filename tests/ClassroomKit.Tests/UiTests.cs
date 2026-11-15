@@ -101,6 +101,46 @@ internal static class UiTests
             Eq("system", UiOptions.Normalize("neon", UiOptions.Themes, "system"), "未知值回退");
             Eq("light", UiOptions.Normalize(" LIGHT ", UiOptions.Themes, "system"), "大小写与空格归一");
         });
+
+        await Run("下拉框用模板渲染中文，不再依赖 DisplayMemberPath", () =>
+        {
+            var root = RepoRoot();
+            var styles = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/Desktop/Themes/Styles.xaml"));
+            Contains(styles, "SelectionBoxItemTemplate", "选中区必须绑定 SelectionBoxItemTemplate");
+            Contains(styles, "ContentStringFormat=\"{TemplateBinding SelectionBoxItemStringFormat}\"", "格式化参数也要传下去");
+
+            foreach (var page in new[] { "SettingsPage.xaml", "LessonPage.xaml", "DiagnosePage.xaml" })
+            {
+                var xaml = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/Desktop/Pages", page));
+                False(xaml.Contains("DisplayMemberPath", StringComparison.Ordinal), page + " 不应再用 DisplayMemberPath");
+                Contains(xaml, "<ComboBox.ItemTemplate>", page + " 要有显式 ItemTemplate");
+            }
+        });
+
+        await Run("课表页的科目勾选控件存在", () =>
+        {
+            var root = RepoRoot();
+            var styles = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/Desktop/Themes/Styles.xaml"));
+            Contains(styles, "x:Key=\"SubjectChip\"", "胶囊勾选样式");
+            var lesson = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/Desktop/Pages/LessonPage.xaml"));
+            Contains(lesson, "SubjectOptions", "科目候选来自视图模型");
+            Contains(lesson, "SubjectChip", "勾选项使用胶囊样式");
+        });
+    }
+
+    /// <summary>测试输出目录向上找仓库根（src 与 Directory.Build.props 所在处）。</summary>
+    private static string RepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null)
+        {
+            if (Directory.Exists(Path.Combine(dir.FullName, "src")) &&
+                File.Exists(Path.Combine(dir.FullName, "Directory.Build.props")))
+                return dir.FullName;
+            dir = dir.Parent;
+        }
+
+        throw new InvalidOperationException("找不到仓库根（src + Directory.Build.props）");
     }
 
     private static UiLogLine Line(int minute, string message) =>

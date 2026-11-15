@@ -26,6 +26,9 @@ public sealed class TrayController : IDisposable
     private readonly Forms.ToolStripMenuItem _statusItem;
     private readonly Forms.ToolStripMenuItem _pauseMenu;
     private readonly Forms.ToolStripMenuItem _resumeItem;
+    private readonly Forms.ToolStripMenuItem _saveKeepOpen;
+    private readonly Forms.ToolStripMenuItem _saveWithoutRename;
+    private readonly Forms.ToolStripMenuItem _savePreview;
     private readonly SynchronizationContext? _ui;
 
     private Icon? _current;
@@ -59,11 +62,17 @@ public sealed class TrayController : IDisposable
         menu.Items.Add(_resumeItem);
         var saveMenu = new Forms.ToolStripMenuItem("保存板书");
         saveMenu.DropDownItems.Add(new Forms.ToolStripMenuItem("保存并关闭 ClassInX", null, (_, _) => SaveClassInBoard(true, closeAfter: true)));
-        saveMenu.DropDownItems.Add(new Forms.ToolStripMenuItem("保存，保留 ClassInX", null, (_, _) => SaveClassInBoard(true, closeAfter: false)));
-        saveMenu.DropDownItems.Add(new Forms.ToolStripMenuItem("保存（不按课表改名）", null, (_, _) => SaveClassInBoard(false, closeAfter: false)));
+        _saveKeepOpen = new Forms.ToolStripMenuItem("保存，保留 ClassInX", null, (_, _) => SaveClassInBoard(true, closeAfter: false));
+        _saveWithoutRename = new Forms.ToolStripMenuItem("保存（不按课表改名）", null, (_, _) => SaveClassInBoard(false, closeAfter: false));
+        _savePreview = new Forms.ToolStripMenuItem("预览课前提醒窗", null, (_, _) => PreviewBoardReminder());
+        saveMenu.DropDownItems.Add(_saveKeepOpen);
+        saveMenu.DropDownItems.Add(_saveWithoutRename);
         saveMenu.DropDownItems.Add(new Forms.ToolStripSeparator());
-        saveMenu.DropDownItems.Add(new Forms.ToolStripMenuItem("预览课前提醒窗", null, (_, _) => PreviewBoardReminder()));
+        saveMenu.DropDownItems.Add(_savePreview);
         menu.Items.Add(saveMenu);
+        // 打开菜单前按当前配置收起多余动作（「保存并关闭」始终保留）
+        menu.Opening += (_, _) => ApplySaveMenuVisibility();
+        ApplySaveMenuVisibility();
         menu.Items.Add(new Forms.ToolStripMenuItem("检查板书软件冲突", null, (_, _) => CheckConflict()));
         menu.Items.Add(new Forms.ToolStripMenuItem("复制热点密码", null, (_, _) => CopyPassword()));
         menu.Items.Add(new Forms.ToolStripMenuItem("查看日志", null, (_, _) => OpenFolder(Paths.LogDir)));
@@ -97,6 +106,22 @@ public sealed class TrayController : IDisposable
     }
 
     public Action OnExit { get; }
+
+    /// <summary>托盘菜单只显示用户启用的保存动作，「保存并关闭」永远在。</summary>
+    private void ApplySaveMenuVisibility()
+    {
+        try
+        {
+            var tray = _runtime.Config.Current.Tray;
+            _saveKeepOpen.Visible = tray.SaveKeepOpen;
+            _saveWithoutRename.Visible = tray.SaveWithoutRename;
+            _savePreview.Visible = tray.ShowPreviewReminder;
+        }
+        catch
+        {
+            // 配置读失败时保持默认菜单，不影响托盘可用
+        }
+    }
 
     private void Update()
     {

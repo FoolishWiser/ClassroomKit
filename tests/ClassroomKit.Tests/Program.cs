@@ -68,6 +68,10 @@ internal static class Program
         await UiTests.RunAsync();
 
         Console.WriteLine();
+        Console.WriteLine("[插件包与配置版本]");
+        await PluginTests.RunAsync();
+
+        Console.WriteLine();
         Console.WriteLine("[HTTP API]");
         await ApiTestsAsync();
 

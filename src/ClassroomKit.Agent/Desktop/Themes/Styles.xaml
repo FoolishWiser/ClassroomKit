@@ -339,7 +339,11 @@
             <Setter.Value>
                 <ControlTemplate TargetType="ComboBoxItem">
                     <Border x:Name="Root" Background="Transparent" CornerRadius="6" Padding="{TemplateBinding Padding}" Margin="2,1">
-                        <ContentPresenter VerticalAlignment="Center" />
+                        <ContentPresenter VerticalAlignment="Center"
+                                      Content="{TemplateBinding Content}"
+                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                      ContentTemplateSelector="{TemplateBinding ContentTemplateSelector}"
+                                      ContentStringFormat="{TemplateBinding ContentStringFormat}" />
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsHighlighted" Value="True">
@@ -376,10 +380,11 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="30" />
                                 </Grid.ColumnDefinitions>
-                                <TextBlock x:Name="SelectionText" Grid.Column="0" Margin="11,0,0,0"
-                                           Text="{TemplateBinding SelectionBoxItem}"
-                                           Foreground="{DynamicResource TextPrimary}" FontSize="13"
-                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                <ContentPresenter x:Name="SelectionText" Grid.Column="0" Margin="11,0,0,0"
+                                           Content="{TemplateBinding SelectionBoxItem}"
+                                           ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                           ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
+                                           VerticalAlignment="Center" />
                                 <TextBlock Grid.Column="1" Text="&#xE70D;" FontFamily="Segoe MDL2 Assets"
                                            FontSize="10" Foreground="{DynamicResource TextSecondary}"
                                            HorizontalAlignment="Center" VerticalAlignment="Center" />
@@ -414,6 +419,41 @@
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter TargetName="Bd" Property="Opacity" Value="0.5" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- 科目胶囊：可勾选的圆角标签 -->
+    <Style x:Key="SubjectChip" TargetType="CheckBox">
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+        <Setter Property="Margin" Value="0,0,8,8" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="CheckBox">
+                    <Border x:Name="Root" CornerRadius="999" Padding="12,6"
+                            Background="{DynamicResource SurfaceAlt}"
+                            BorderBrush="{DynamicResource Stroke}" BorderThickness="1">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock x:Name="Tick" Text="&#xE73E;" FontFamily="Segoe MDL2 Assets" FontSize="11"
+                                       VerticalAlignment="Center" Visibility="Collapsed" />
+                            <ContentPresenter VerticalAlignment="Center" Margin="0,0,0,0" />
+                        </StackPanel>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Root" Property="Background" Value="{DynamicResource AccentSoft}" />
+                            <Setter TargetName="Root" Property="BorderBrush" Value="{DynamicResource Accent}" />
+                            <Setter TargetName="Tick" Property="Visibility" Value="Visible" />
+                            <Setter TargetName="Tick" Property="Margin" Value="0,0,6,0" />
+                            <Setter Property="Foreground" Value="{DynamicResource Accent}" />
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Root" Property="BorderBrush" Value="{DynamicResource Accent}" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>

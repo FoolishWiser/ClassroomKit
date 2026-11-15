@@ -93,7 +93,13 @@
                         <StackPanel Grid.Column="1" Orientation="Horizontal">
                             <CheckBox Content="跟随" IsChecked="{Binding LogFollow}" VerticalAlignment="Center" Margin="0,0,10,0" />
                             <ComboBox Width="118" ItemsSource="{Binding LogLevelOptions}" SelectedValue="{Binding LogMinLevel}"
-                                      SelectedValuePath="Value" DisplayMemberPath="Label" />
+                                      SelectedValuePath="Value">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Label}" Foreground="{DynamicResource TextPrimary}" />
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
                         </StackPanel>
                     </Grid>
                     <Border Grid.Row="1" BorderBrush="{DynamicResource Stroke}" BorderThickness="0,1,0,0">

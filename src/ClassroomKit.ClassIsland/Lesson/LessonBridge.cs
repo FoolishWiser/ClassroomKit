@@ -1,3 +1,4 @@
+using System.Reflection;
 using ClassIsland.Core;
 using ClassIsland.Core.Abstractions.Services;
 using ClassIsland.Shared;
@@ -33,6 +34,19 @@ public sealed class LessonBridge : IDisposable
     /// <summary>同一句错误一分钟内只记一次，免得日志被「守护没启动」刷满。</summary>
     private static readonly TimeSpan LogThrottle = TimeSpan.FromMinutes(1);
 
+    /// <summary>科目清单 30 秒才读一次：课表快照每秒算一次，没必要每次都反射档案服务。</summary>
+    private static readonly TimeSpan SubjectsCacheTtl = TimeSpan.FromSeconds(30);
+
+    /// <summary>宿主档案服务的类型名：优先 IPC 的公开档案服务，退到核心服务接口。</summary>
+    private static readonly string[] ProfileServiceTypeNames =
+    {
+        "ClassIsland.Shared.IPC.Abstractions.Services.IPublicProfileService",
+        "ClassIsland.Core.Abstractions.Services.IProfileService"
+    };
+
+    /// <summary>反射找到的档案服务类型（进程内不会变；找不到时保持 null，下次再找）。</summary>
+    private static Type[]? _profileServiceTypes;
+
     private readonly PluginSettingsStore _store;
     private readonly object _gate = new();
 
@@ -41,6 +55,11 @@ public sealed class LessonBridge : IDisposable
     private ILessonsService? _lessons;
     private bool _exitHooked;
     private int _busy;
+
+    // 整份课表的科目清单：30 秒缓存一次；读失败就沿用上次结果，不打断课表推送。
+    private object? _profileService;
+    private IReadOnlyList<string> _cachedSubjects = Array.Empty<string>();
+    private DateTimeOffset _subjectsCachedAt = DateTimeOffset.MinValue;
 
     // 「上一节课」自己记：上课时记下科目，离开上课（课间/预备/放学）后继续带着，别立刻清空。
     private string? _inClassSubject;
@@ -132,7 +151,8 @@ public sealed class LessonBridge : IDisposable
             seconds,
             lessonIndex,
             planLoaded,
-            now);
+            now,
+            ReadSubjects());
     }
 
     /// <summary>TimeState → 守护认的 LessonStates 字符串。</summary>
@@ -192,6 +212,7 @@ public sealed class LessonBridge : IDisposable
             || !string.Equals(last.PreviousSubject, snapshot.PreviousSubject, StringComparison.Ordinal)
             || last.PlanLoaded != snapshot.PlanLoaded
             || last.LessonIndex != snapshot.LessonIndex
+            || !SameSubjects(last.Subjects, snapshot.Subjects)
             || !SameMinute(last.NextStartAt, snapshot.NextStartAt))
             return true;
 
@@ -201,6 +222,14 @@ public sealed class LessonBridge : IDisposable
 
     private static bool SameMinute(DateTimeOffset? a, DateTimeOffset? b) =>
         a is null ? b is null : b is not null && (a.Value - b.Value).Duration() < TimeSpan.FromSeconds(30);
+
+    /// <summary>科目清单按集合比较（顺序不敏感）：科目改名、增删都要重新推一次。</summary>
+    private static bool SameSubjects(IReadOnlyList<string>? left, IReadOnlyList<string>? right)
+    {
+        var a = LessonSubjects.Normalize(left).Select(LessonSubjects.Compact).ToHashSet(StringComparer.Ordinal);
+        var b = LessonSubjects.Normalize(right).Select(LessonSubjects.Compact).ToHashSet(StringComparer.Ordinal);
+        return a.SetEquals(b);
+    }
 
     private async Task PushAsync(LessonSnapshot snapshot, DateTimeOffset now)
     {
@@ -267,6 +296,160 @@ public sealed class LessonBridge : IDisposable
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// 读整份课表的科目清单（ClassIsland 档案里的科目字典，取每项的 Name）。
+    /// 30 秒缓存一次；宿主没就绪、反射失败都只记日志并沿用上次结果，绝不打断课表推送。
+    /// </summary>
+    private IReadOnlyList<string> ReadSubjects()
+    {
+        var now = DateTimeOffset.Now;
+        if (now - _subjectsCachedAt < SubjectsCacheTtl) return _cachedSubjects;
+
+        _subjectsCachedAt = now;
+        try
+        {
+            var profile = ReadProperty(ResolveProfileService(), "Profile");
+            if (ExtractSubjectNames(ReadProperty(profile, "Subjects")) is { } names)
+                _cachedSubjects = LessonSubjects.Normalize(names);
+        }
+        catch (Exception ex)
+        {
+            LogThrottled("读取课表科目清单失败（沿用上次结果）：" + ex.Message);
+        }
+
+        return _cachedSubjects;
+    }
+
+    /// <summary>从宿主容器拿档案服务（IPublicProfileService，备选 IProfileService）；拿不到返回 null。</summary>
+    private object? ResolveProfileService()
+    {
+        if (_profileService is { } cached) return cached;
+
+        var host = IAppHost.Host;
+        var services = host?.Services;
+        if (services is null) return null;
+
+        foreach (var type in ProfileServiceTypes())
+        {
+            if (services.GetService(type) is not { } service) continue;
+            _profileService = service;
+            Log("已从宿主容器取到档案服务，开始同步整份课表的科目清单");
+            return service;
+        }
+
+        return null;
+    }
+
+    /// <summary>档案服务候选类型：先按预期的全名找，再按简单名在已加载程序集里兜底。</summary>
+    private static Type[] ProfileServiceTypes()
+    {
+        if (_profileServiceTypes is { Length: > 0 } cached) return cached;
+
+        var types = new List<Type>();
+        foreach (var name in ProfileServiceTypeNames)
+        {
+            var type = FindLoadedType(name);
+            if (type is not null && !types.Contains(type)) types.Add(type);
+        }
+
+        if (types.Count == 0)
+        {
+            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                foreach (var type in SafeTypes(assembly))
+                {
+                    if (type.Name is not ("IPublicProfileService" or "IProfileService")) continue;
+                    if (!types.Contains(type)) types.Add(type);
+                }
+            }
+        }
+
+        if (types.Count == 0) return types.ToArray();
+
+        _profileServiceTypes = types.ToArray();
+        return _profileServiceTypes;
+    }
+
+    private static Type? FindLoadedType(string fullName)
+    {
+        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            try
+            {
+                if (assembly.GetType(fullName, throwOnError: false) is { } type) return type;
+            }
+            catch
+            {
+                // 动态程序集可能不允许查询：跳过
+            }
+        }
+
+        return null;
+    }
+
+    private static Type[] SafeTypes(Assembly assembly)
+    {
+        try
+        {
+            return assembly.GetTypes();
+        }
+        catch
+        {
+            return Array.Empty<Type>();
+        }
+    }
+
+    /// <summary>反射读属性；显式接口实现也能读到（先在实现类上找，再去接口上找）。</summary>
+    private static object? ReadProperty(object? target, string name)
+    {
+        if (target is null) return null;
+        var type = target.GetType();
+
+        var property = type.GetProperty(name);
+        if (property is not null) return property.GetValue(target);
+
+        foreach (var contract in type.GetInterfaces())
+        {
+            var declared = contract.GetProperty(name);
+            if (declared is not null) return declared.GetValue(target);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 从档案的科目字典里取出全部科目名：字典项取 Value（或本身）的 Name，去空白后去重。
+    /// 返回 null 表示「这次没读到」，调用方沿用缓存。
+    /// </summary>
+    private static IEnumerable<string>? ExtractSubjectNames(object? subjects)
+    {
+        if (subjects is null) return null;
+
+        var names = new List<string>();
+        if (subjects is System.Collections.IDictionary dictionary)
+        {
+            foreach (var value in dictionary.Values) AddSubjectName(names, value);
+            return names;
+        }
+
+        if (subjects is not System.Collections.IEnumerable items) return null;
+
+        foreach (var item in items)
+        {
+            if (item is null) continue;
+            // 字典被当成 IEnumerable 枚举时给的是 KeyValuePair：先取它的 Value
+            AddSubjectName(names, ReadProperty(item, "Value") ?? item);
+        }
+
+        return names;
+    }
+
+    private static void AddSubjectName(List<string> names, object? subject)
+    {
+        if (subject is null) return;
+        if (ReadProperty(subject, "Name") is string { Length: > 0 } name) names.Add(name);
     }
 
     /// <summary>ClassIsland 退出时告诉守护「课表没了」，别拿旧数据提醒。</summary>

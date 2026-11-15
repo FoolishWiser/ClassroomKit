@@ -304,7 +304,8 @@ public sealed class ApiServer
             secondsToNext: Int(fields, "secondsToNext", 0),
             lessonIndex: Int(fields, "lessonIndex", 0),
             planLoaded: Bool(fields, "planLoaded"),
-            at: Moment(fields, "at") ?? DateTimeOffset.Now);
+            at: Moment(fields, "at") ?? DateTimeOffset.Now,
+            subjects: SplitSubjects(Text(fields, "subjects") ?? ""));
     }
 
     private static bool IsOn(string text) => text is "1" or "true" or "on" or "yes";
@@ -330,6 +331,8 @@ public sealed class ApiServer
                         JsonValueKind.True => "true",
                         JsonValueKind.False => "false",
                         JsonValueKind.Null => "",
+                        // 字符串数组（插件推上来的 subjects）拼成逗号分隔的文本，交给下游自己拆
+                        JsonValueKind.Array => JoinStrings(prop.Value),
                         _ => prop.Value.ToString()
                     };
                 }
@@ -346,6 +349,23 @@ public sealed class ApiServer
             fields[Uri.UnescapeDataString(k.Replace('+', ' '))] = Uri.UnescapeDataString(v.Replace('+', ' '));
         }
         return fields;
+    }
+
+    /// <summary>
+    /// 把字符串数组拼成逗号分隔的文本（插件推来的 subjects 就是这种）。
+    /// 数组里混进非字符串元素时退回原来的 JSON 文本，让按 JSON 解析的调用方保持原行为。
+    /// </summary>
+    private static string JoinStrings(JsonElement array)
+    {
+        var parts = new List<string>();
+        foreach (var item in array.EnumerateArray())
+        {
+            if (item.ValueKind == JsonValueKind.Null) continue;
+            if (item.ValueKind != JsonValueKind.String) return array.ToString();
+            parts.Add(item.GetString() ?? "");
+        }
+
+        return string.Join(",", parts);
     }
 
     private async Task<HttpResponse> HandleActionAsync(HttpRequest request, CancellationToken ct)

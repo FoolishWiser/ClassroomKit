@@ -39,6 +39,19 @@ public sealed record LessonSnapshot
     /// <summary>刚结束的那一节课（用于给板书文件命名）。</summary>
     public string? PreviousSubject { get; init; }
 
+    /// <summary>
+    /// 整份课表的科目清单（ClassIsland 档案里的科目字典，去空白后按名字去重）。
+    /// 空列表表示「没提供 / 不限制」，调用方按「全部科目」处理。
+    /// </summary>
+    public IReadOnlyList<string> Subjects
+    {
+        get => _subjects;
+        // 反射/反序列化赋值也走这里：保证任何构造路径下都不是 null，且已经归一
+        init => _subjects = LessonSubjects.Normalize(value);
+    }
+
+    private IReadOnlyList<string> _subjects = Array.Empty<string>();
+
     /// <summary>下一节课的开始时刻（本地时区）。</summary>
     public DateTimeOffset? NextStartAt { get; init; }
 
@@ -67,7 +80,8 @@ public sealed record LessonSnapshot
         int secondsToNext,
         int lessonIndex,
         bool planLoaded,
-        DateTimeOffset at) => new()
+        DateTimeOffset at,
+        IEnumerable<string>? subjects = null) => new()
         {
             State = string.IsNullOrWhiteSpace(state) ? LessonStates.None : state,
             CurrentSubject = Normalize(currentSubject),
@@ -77,6 +91,7 @@ public sealed record LessonSnapshot
             SecondsToNext = Math.Max(0, secondsToNext),
             LessonIndex = Math.Max(0, lessonIndex),
             PlanLoaded = planLoaded,
+            Subjects = LessonSubjects.Normalize(subjects),
             At = at
         };
 
