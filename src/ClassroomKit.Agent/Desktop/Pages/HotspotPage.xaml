@@ -1,45 +1,76 @@
 <UserControl x:Class="ClassroomKit.Agent.Desktop.Pages.HotspotPage"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:ClassroomKit.Agent.Desktop.Controls"
+        Foreground="{DynamicResource TextPrimary}"
         Background="Transparent">
-    <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <StackPanel Margin="0,0,0,24">
-            <TextBlock Text="热点" Style="{StaticResource H1}" />
-            <TextBlock Text="手机连的那张网；改完等一轮巡检（约 15 秒）生效" Style="{StaticResource Secondary}" Margin="0,4,0,20" />
-
-            <Border Style="{StaticResource Card}" Margin="0,0,0,16">
-                <StackPanel>
-                    <TextBlock Text="当前状态" Style="{StaticResource Caption}" />
-                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                        <TextBlock Text="{Binding Ssid}" FontSize="22" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" />
-                        <TextBlock Text="　在线 " Style="{StaticResource Secondary}" VerticalAlignment="Bottom" />
-                        <TextBlock Text="{Binding ClientsText}" Style="{StaticResource Secondary}" VerticalAlignment="Bottom" />
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="0,0,4,28">
+            <Border Style="{StaticResource Card}" Padding="24">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="热点状态" Style="{StaticResource Caption}" />
+                            <Border Style="{StaticResource Pill}" Margin="10,0,0,0" Padding="8,2">
+                                <TextBlock Text="{Binding HotspotStateText}" Style="{StaticResource PillText}" />
+                            </Border>
+                        </StackPanel>
+                        <TextBlock Text="{Binding Ssid}" Style="{StaticResource Display}" Margin="0,8,0,4" />
+                        <TextBlock Text="{Binding Passphrase, StringFormat=密码：{0}}" Style="{StaticResource Mono}" />
+                        <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                            <TextBlock Text="在线 " Style="{StaticResource Secondary}" />
+                            <TextBlock Text="{Binding ClientsText}" Style="{StaticResource H3}" />
+                            <TextBlock Text="   ·   上行 " Style="{StaticResource Secondary}" />
+                            <TextBlock Text="{Binding UplinkText}" Style="{StaticResource Secondary}" />
+                            <TextBlock Text="   ·   设备上限 " Style="{StaticResource Secondary}" />
+                            <TextBlock Text="{Binding MaxPeersText}" Style="{StaticResource Secondary}" />
+                        </StackPanel>
                     </StackPanel>
-                    <TextBlock Style="{StaticResource Caption}" Margin="0,6,0,0">
-                        <Run Text="密码 " /><Run Text="{Binding Passphrase, Mode=OneWay}" />
-                    </TextBlock>
-                    <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
-                        <Button Content="复制密码" Style="{StaticResource SecondaryButton}" Command="{Binding CopyPasswordCommand}" />
-                        <Button Content="改用电脑名" Style="{StaticResource GhostButton}" Margin="8,0,0,0" Command="{Binding RenameToMachineCommand}" />
-                        <Button Content="突破 8 台限制" Style="{StaticResource GhostButton}" Margin="8,0,0,0" Command="{Binding FixPeersCommand}" />
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="24,0,0,0">
+                        <Button Content="复制热点密码" Style="{StaticResource SecondaryButton}" MinWidth="150"
+                                Command="{Binding CopyPasswordCommand}" />
+                        <Button Content="改用电脑名" Style="{StaticResource GhostButton}" Margin="0,8,0,0"
+                                Command="{Binding RenameToMachineCommand}" />
+                        <Button Content="突破 8 台限制" Style="{StaticResource GhostButton}" Margin="0,8,0,0"
+                                Command="{Binding FixPeersCommand}" />
                     </StackPanel>
-                </StackPanel>
+                </Grid>
             </Border>
 
-            <Border Style="{StaticResource Card}">
+            <Border Style="{StaticResource Card}" Margin="0,16,0,0">
                 <StackPanel>
-                    <TextBlock Text="热点设置" Style="{StaticResource H2}" Margin="0,0,0,14" />
-                    <TextBlock Text="热点名称" Style="{StaticResource Caption}" />
-                    <TextBox Style="{StaticResource Input}" Text="{Binding EditSsid, UpdateSourceTrigger=PropertyChanged}" Margin="0,6,0,14" />
-                    <TextBlock Text="密码（至少 8 位）" Style="{StaticResource Caption}" />
-                    <TextBox Style="{StaticResource Input}" Text="{Binding EditPassphrase, UpdateSourceTrigger=PropertyChanged}" Margin="0,6,0,14" />
-                    <TextBlock Text="目标设备数" Style="{StaticResource Caption}" />
-                    <TextBox Style="{StaticResource Input}" Text="{Binding EditTargetClients, UpdateSourceTrigger=PropertyChanged}" Width="120" HorizontalAlignment="Left" Margin="0,6,0,18" />
-                    <StackPanel Orientation="Horizontal">
-                        <Button Content="保存" Style="{StaticResource PrimaryButton}" Command="{Binding SaveHotspotCommand}" />
-                        <TextBlock Text="设备上限（注册表）" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="14,0,0,0" />
-                        <TextBlock Text="{Binding MaxPeersText}" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="6,0,0,0" />
-                    </StackPanel>
+                    <TextBlock Text="热点设置" Style="{StaticResource H2}" />
+                    <TextBlock Text="改完点保存，下一轮巡检（约 15 秒内）生效，不需要重启。" Style="{StaticResource Caption}" Margin="0,4,0,0" />
+                    <Grid Margin="0,18,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="16" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="热点名（SSID）" Style="{StaticResource FieldLabel}" />
+                            <TextBox Style="{StaticResource Input}" Text="{Binding EditSsid, UpdateSourceTrigger=PropertyChanged}"
+                                     Tag="例如 CLASSROOM-302" />
+                            <TextBlock Text="热点密码（至少 8 位）" Style="{StaticResource FieldLabel}" Margin="0,16,0,6" />
+                            <TextBox Style="{StaticResource Input}" Text="{Binding EditPassphrase, UpdateSourceTrigger=PropertyChanged}"
+                                     Tag="留空表示不改" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="目标设备数" Style="{StaticResource FieldLabel}" />
+                            <controls:NumericInput Value="{Binding EditTargetClients, Mode=TwoWay}" Minimum="1" Maximum="32" Suffix="台" />
+                            <TextBlock Text="上限会写进注册表（默认 8 台），改成 16 以上才能容纳全班手机。" Style="{StaticResource Caption}" Margin="0,8,0,0" />
+                            <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
+                                <Button Content="保存设置" Style="{StaticResource PrimaryButton}"
+                                        Command="{Binding SaveHotspotCommand}" />
+                                <Button Content="刷新状态" Style="{StaticResource GhostButton}" Margin="8,0,0,0"
+                                        Command="{Binding RefreshCommand}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Grid>
                 </StackPanel>
             </Border>
         </StackPanel>

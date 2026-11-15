@@ -1,47 +1,61 @@
 <UserControl x:Class="ClassroomKit.Agent.Desktop.Pages.SettingsPage"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:ClassroomKit.Agent.Desktop.Controls"
+        Foreground="{DynamicResource TextPrimary}"
         Background="Transparent">
-    <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <StackPanel Margin="0,0,0,24">
-            <TextBlock Text="设置" Style="{StaticResource H1}" />
-            <TextBlock Text="界面、托盘行为与网络加速" Style="{StaticResource Secondary}" Margin="0,4,0,20" />
-
-            <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="0,0,4,28" MaxWidth="900" HorizontalAlignment="Left">
+            <Border Style="{StaticResource Card}">
                 <StackPanel>
-                    <TextBlock Text="界面" Style="{StaticResource H2}" Margin="0,0,0,12" />
-                    <CheckBox Content="关闭窗口时收进托盘（不退出）" IsChecked="{Binding EditCloseToTray}" Foreground="{DynamicResource TextPrimary}" />
-                    <CheckBox Content="启动时只驻留托盘，不弹出主界面" IsChecked="{Binding EditStartMinimized}" Margin="0,8,0,0"
-                              Foreground="{DynamicResource TextPrimary}" />
-                    <TextBlock Text="主题" Style="{StaticResource Caption}" Margin="0,14,0,0" />
-                    <ComboBox ItemsSource="{Binding Themes}" SelectedItem="{Binding EditTheme}" Width="160" HorizontalAlignment="Left" Margin="0,6,0,0" />
-                    <Button Content="保存界面设置" Style="{StaticResource PrimaryButton}" Margin="0,16,0,0" HorizontalAlignment="Left"
-                            Command="{Binding SaveUiCommand}" />
+                    <TextBlock Text="界面" Style="{StaticResource H2}" />
+                    <CheckBox Content="关闭主界面时收进托盘，程序继续运行" Margin="0,16,0,0" IsChecked="{Binding EditCloseToTray}" />
+                    <CheckBox Content="启动时只驻留托盘，不弹出主界面" Margin="0,10,0,0" IsChecked="{Binding EditStartMinimized}" />
+                    <Grid Margin="0,18,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="16" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Width="200">
+                            <TextBlock Text="外观主题" Style="{StaticResource FieldLabel}" />
+                            <ComboBox ItemsSource="{Binding ThemeOptions}" SelectedValue="{Binding EditTheme}"
+                                      SelectedValuePath="Value" DisplayMemberPath="Label" />
+                        </StackPanel>
+                        <Button Grid.Column="2" Content="保存界面设置" Style="{StaticResource PrimaryButton}"
+                                VerticalAlignment="Bottom" Command="{Binding SaveUiCommand}" />
+                    </Grid>
                 </StackPanel>
             </Border>
 
-            <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+            <Border Style="{StaticResource Card}" Margin="0,16,0,0">
                 <StackPanel>
-                    <TextBlock Text="GitHub 访问加速与护航任务" Style="{StaticResource H2}" Margin="0,0,0,10" />
-                    <TextBlock Text="{Binding HostsText}" Style="{StaticResource Secondary}" TextWrapping="Wrap" />
-                    <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
-                        <Button Content="刷新 hosts" Style="{StaticResource SecondaryButton}" Command="{Binding RefreshHostsCommand}" />
-                        <Button Content="还原 hosts" Style="{StaticResource GhostButton}" Margin="8,0,0,0" Command="{Binding RestoreHostsCommand}" />
-                        <Button Content="安装护航任务" Style="{StaticResource GhostButton}" Margin="8,0,0,0" Command="{Binding InstallServiceCommand}" />
+                    <TextBlock Text="加速与护航" Style="{StaticResource H2}" />
+                    <TextBlock Text="{Binding HostsServiceText}" Style="{StaticResource Secondary}" Margin="0,6,0,0" />
+                    <TextBlock Text="{Binding HostsCountText}" Style="{StaticResource Caption}" Margin="0,4,0,0" />
+                    <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                        <Button Content="安装护航任务" Style="{StaticResource PrimaryButton}"
+                                Command="{Binding InstallServiceCommand}"
+                                Visibility="{Binding ServiceMissing, Converter={StaticResource BoolVisibility}}" />
+                        <Button Content="刷新加速记录" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0"
+                                Command="{Binding RefreshHostsCommand}" />
+                        <Button Content="还原 hosts" Style="{StaticResource GhostButton}" Margin="8,0,0,0"
+                                Command="{Binding RestoreHostsCommand}" />
                     </StackPanel>
                 </StackPanel>
             </Border>
 
-            <Border Style="{StaticResource Card}">
+            <Border Style="{StaticResource Card}" Margin="0,16,0,0">
                 <StackPanel>
-                    <TextBlock Text="关于" Style="{StaticResource H2}" Margin="0,0,0,10" />
-                    <TextBlock Style="{StaticResource Secondary}">
-                        <Run Text="ClassroomKit · 教室一体机助手 " /><Run Text="{Binding VersionText, Mode=OneWay}" />
-                    </TextBlock>
-                    <TextBlock Text="配置与日志在 %ProgramData%\ClassroomKit" Style="{StaticResource Caption}" Margin="0,6,0,0" />
-                    <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                    <TextBlock Text="关于" Style="{StaticResource H2}" />
+                    <TextBlock Text="{Binding VersionText}" Style="{StaticResource Mono}" Margin="0,8,0,0" />
+                    <TextBlock Text="ClassroomKit · 教室一体机助手。网页面板仍在运行，适合用手机打开；桌面端是本地主界面，两者共享同一份配置。" Style="{StaticResource Secondary}" Margin="0,8,0,0" TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
                         <Button Content="打开网页面板" Style="{StaticResource SecondaryButton}" Command="{Binding OpenPanelCommand}" />
-                        <Button Content="打开日志目录" Style="{StaticResource GhostButton}" Margin="8,0,0,0" Command="{Binding OpenLogsCommand}" />
+                        <Button Content="打开日志目录" Style="{StaticResource GhostButton}" Margin="8,0,0,0"
+                                Command="{Binding OpenLogsCommand}" />
+                        <Button Content="检查更新" Style="{StaticResource GhostButton}" Margin="8,0,0,0"
+                                Command="{Binding CheckUpdateCommand}" />
                     </StackPanel>
                 </StackPanel>
             </Border>

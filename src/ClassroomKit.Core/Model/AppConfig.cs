@@ -195,6 +195,9 @@ public sealed class UiConfig
     public int WindowHeight { get; set; } = 760;
     public int WindowLeft { get; set; } = -1;
     public int WindowTop { get; set; } = -1;
+
+    /// <summary>上次退出时是不是最大化（0.5.1 起）。</summary>
+    public bool Maximized { get; set; }
     public string LastPage { get; set; } = "overview";
 
     /// <summary>light | dark | system</summary>
@@ -203,7 +206,7 @@ public sealed class UiConfig
     public void Normalize()
     {
         WindowWidth = Math.Clamp(WindowWidth, 960, 3840);
-        WindowHeight = Math.Clamp(WindowHeight, 640, 2160);
+        WindowHeight = Math.Clamp(WindowHeight, 620, 2160);
         if (WindowLeft is < -10000 or > 10000) WindowLeft = -1;
         if (WindowTop is < -10000 or > 10000) WindowTop = -1;
         if (string.IsNullOrWhiteSpace(LastPage)) LastPage = "overview";

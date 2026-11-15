@@ -37,7 +37,7 @@ public sealed class ConfigStore
     }
 
     /// <summary>当前配置结构版本。</summary>
-    public const int CurrentSchemaVersion = 5;
+    public const int CurrentSchemaVersion = 6;
 
     /// <summary>本次加载从哪个结构版本迁移过来；0 表示没有迁移。</summary>
     public int MigratedFrom { get; private set; }
@@ -48,6 +48,7 @@ public sealed class ConfigStore
     /// v2 → v3 只加 lesson（课表联动）与 boardSave 的改名设置，同样不改任何已有值。
     /// v3 → v4 只把「0.3.x 的默认自动安装窗口 02:00-05:00」改成不限（用户自己填过的窗口原样保留）。
     /// v4 → v5 只加 ui 段（桌面窗口尺寸/主题/关窗行为），不改任何已有值。
+    /// v5 → v6 只给 ui 段补 maximized（上次是否最大化），同样不改任何已有值。
     /// 改机器名/热点名的动作由用户显式触发（面板按钮 / rename-ssid）。
     /// </summary>
     private static void Migrate(AppConfig cfg)

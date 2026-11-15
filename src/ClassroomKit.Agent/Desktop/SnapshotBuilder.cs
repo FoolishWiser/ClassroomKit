@@ -71,7 +71,7 @@ internal static class SnapshotBuilder
                 hosts.ServiceInstalled,
                 hosts.ServiceAlive,
                 hosts.Writable),
-            rt.Log.Snapshot(200).Select(e => e.Format()).ToArray(),
+            rt.Log.Snapshot(200).Select(e => new UiLogLine(e.Time, e.Level, e.Message)).ToArray(),
             DateTimeOffset.Now);
     }
 

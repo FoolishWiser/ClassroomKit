@@ -1,17 +1,27 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <SolidColorBrush x:Key="AppBackground" Color="#16191F" />
-    <SolidColorBrush x:Key="SidebarBackground" Color="#1C2028" />
-    <SolidColorBrush x:Key="CardBackground" Color="#1F242C" />
-    <SolidColorBrush x:Key="CardBorder" Color="#2C333E" />
-    <SolidColorBrush x:Key="ControlBackground" Color="#262C36" />
-    <SolidColorBrush x:Key="ControlBorder" Color="#333B47" />
-    <SolidColorBrush x:Key="TextPrimary" Color="#EDF0F5" />
-    <SolidColorBrush x:Key="TextSecondary" Color="#A7AFBC" />
-    <SolidColorBrush x:Key="TextMuted" Color="#6F7885" />
-    <SolidColorBrush x:Key="Accent" Color="#6F97FF" />
-    <SolidColorBrush x:Key="AccentSoft" Color="#23304F" />
-    <SolidColorBrush x:Key="Success" Color="#4CC38A" />
-    <SolidColorBrush x:Key="Warning" Color="#E0A030" />
-    <SolidColorBrush x:Key="Danger" Color="#F07070" />
-    <SolidColorBrush x:Key="ToastBackground" Color="#262C36" />
+    <!-- 深色令牌：单独调过的冷灰蓝，不机械反色；文字对比度按 13:1 / 7:1 取 -->
+    <SolidColorBrush x:Key="AppBackground" Color="#0F1116" />
+    <SolidColorBrush x:Key="SidebarBackground" Color="#141821" />
+    <SolidColorBrush x:Key="Surface" Color="#171C26" />
+    <SolidColorBrush x:Key="SurfaceAlt" Color="#1D2330" />
+    <SolidColorBrush x:Key="Stroke" Color="#262E3B" />
+    <SolidColorBrush x:Key="StrokeStrong" Color="#33404F" />
+    <SolidColorBrush x:Key="ControlBackground" Color="#1B2230" />
+    <SolidColorBrush x:Key="ControlBorder" Color="#2E3A4B" />
+    <SolidColorBrush x:Key="TextPrimary" Color="#E9EDF5" />
+    <SolidColorBrush x:Key="TextSecondary" Color="#A6B0BF" />
+    <SolidColorBrush x:Key="TextMuted" Color="#77828F" />
+    <SolidColorBrush x:Key="Accent" Color="#6E9BFF" />
+    <SolidColorBrush x:Key="AccentHover" Color="#83AAFF" />
+    <SolidColorBrush x:Key="AccentPressed" Color="#5B8AF0" />
+    <SolidColorBrush x:Key="AccentSoft" Color="#1E2A44" />
+    <SolidColorBrush x:Key="Success" Color="#3DBE8B" />
+    <SolidColorBrush x:Key="SuccessSoft" Color="#142B23" />
+    <SolidColorBrush x:Key="Warning" Color="#E3A33C" />
+    <SolidColorBrush x:Key="WarningSoft" Color="#2E2314" />
+    <SolidColorBrush x:Key="Danger" Color="#FF7B72" />
+    <SolidColorBrush x:Key="DangerSoft" Color="#33191A" />
+    <SolidColorBrush x:Key="ToastBackground" Color="#1B2230" />
+    <SolidColorBrush x:Key="TooltipBackground" Color="#E9EDF5" />
+    <SolidColorBrush x:Key="TooltipText" Color="#16181D" />
 </ResourceDictionary>

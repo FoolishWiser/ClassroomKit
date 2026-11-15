@@ -31,12 +31,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private readonly AgentRuntime _rt;
     private readonly DispatcherTimer _timer;
+    private readonly DispatcherTimer _toastTimer;
     private readonly Dispatcher _dispatcher = Dispatcher.CurrentDispatcher;
+    private readonly Queue<(string Text, bool Error)> _toastQueue = new();
+    private readonly List<UiLogLine> _allLogs = new();
     private volatile bool _refreshing;
     private bool _loadedOnce;
     private bool _settingsDirty;
+    private bool _live = true;
 
     private string _pageKey;
+    private string _pageTitle = "概览";
+    private string _healthStatus = "warn";
     private string _versionText = "";
     private string _stateText = "";
     private string _pauseText = "";
@@ -45,6 +51,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private string _clientsText = "";
     private string _uplinkText = "-";
     private string _maxPeersText = "";
+    private string _hotspotStateText = "未知";
     private bool _hotspotOn;
     private string _lessonStateText = "还没有收到课表";
     private string _lessonCurrentText = "-";
@@ -52,6 +59,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private string _lessonCountdownText = "-";
     private string _lessonNameHint = "-";
     private bool _lessonAvailable;
+    private string _updateCurrentText = "-";
     private string _updatePhaseText = "";
     private string _updateLatestText = "-";
     private string _updateNotes = "";
@@ -59,14 +67,20 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private double _updateProgress;
     private bool _hasUpdate;
     private string _hostsText = "";
+    private string _hostsCountText = "";
+    private string _hostsServiceText = "";
     private bool _hostsApplied;
     private bool _serviceInstalled;
     private string _boardPreview = "";
     private string _toastText = "";
     private bool _toastVisible;
     private bool _toastError;
+    private string _toastGlyph = "\uE73E";
     private bool _diagnosing;
     private string _diagnoseSummary = "还没有自检";
+    private string _diagnoseMeta = "自检会把热点、上行、hosts、板书目录逐条过一遍；日志区跟着实时刷新。";
+    private bool _logFollow = true;
+    private string _logMinLevel = "all";
 
     private string _editSsid = "";
     private string _editPassphrase = "";
@@ -80,7 +94,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private bool _editNameWithLesson = true;
     private string _editNameTemplate = BoardFileName.DefaultTemplate;
     private bool _editCloseToTray = true;
-    private bool _editStartMinimized = true;
+    private bool _editStartMinimized;
     private string _editTheme = "system";
     private bool _editAutoInstall;
     private bool _editCheckOnBoot = true;
@@ -93,13 +107,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Pages = new[]
         {
             new NavItem(PageOverview, "概览", "\uE80F"),
-            new NavItem(PageHotspot, "热点", "\uE701"),
+            new NavItem(PageHotspot, "热点与网络", "\uE701"),
             new NavItem(PageLesson, "课表与板书", "\uE787"),
             new NavItem(PageUpdate, "升级", "\uE895"),
             new NavItem(PageDiagnose, "自检与日志", "\uE9D9"),
             new NavItem(PageSettings, "设置", "\uE713")
         };
         _pageKey = ui.LastPage is { Length: > 0 } p && Pages.Any(x => x.Key == p) ? p : PageOverview;
+        _pageTitle = Pages.First(x => x.Key == _pageKey).Title;
 
         ToggleHotspotCommand = new RelayCommand(() => Run(() =>
         {
@@ -107,34 +122,111 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _rt.SetPolicy(enable);
             return enable ? "已开启热点" : "已关闭热点";
         }));
+        PauseCommand = new RelayCommand(() =>
+        {
+            if (_rt.IsPaused)
+            {
+                _rt.ClearPause();
+                Toast("已恢复守护");
+            }
+            else
+            {
+                _rt.PauseFor(TimeSpan.FromMinutes(30));
+                Toast("已暂停 30 分钟，到点自动恢复");
+            }
+            _ = RefreshAsync(true);
+        });
         RefreshCommand = new RelayCommand(() => { _ = RefreshAsync(true); });
         SaveHotspotCommand = new RelayCommand(SaveHotspot);
         SaveLessonCommand = new RelayCommand(SaveLesson);
         SaveUiCommand = new RelayCommand(SaveUi);
+        SaveUpdateCommand = new RelayCommand(SaveUpdate);
         SaveBoardCommand = new RelayCommand(SaveBoardNow);
-        PreviewReminderCommand = new RelayCommand(() => { _rt.Api.PreviewBoardReminder?.Invoke(); Toast("已请求预览课前提醒窗"); });
         SaveBoardNamedCommand = new RelayCommand(() => RunBackground(() => _rt.SaveBoardNamed(false, _rt.Config.Current.BoardSave.NameWithLesson).Message));
+        PreviewReminderCommand = new RelayCommand(() => { _rt.Api.PreviewBoardReminder?.Invoke(); Toast("已请求预览课前提醒窗"); });
+        ClearLessonCommand = new RelayCommand(() =>
+        {
+            _rt.Api.ClearLesson?.Invoke();
+            Toast("已清除课表数据，等插件下次推送");
+            _ = RefreshAsync(true);
+        });
         CheckUpdateCommand = new RelayCommand(() => RunAsync(() => { _ = _rt.Update.DownloadAsync(); return Task.FromResult("已开始检查/下载"); }));
-        UpgradeCommand = new RelayCommand(() => RunAsync(async () => { var s = await _rt.Update.DownloadAsync(); if (s.Phase == UpdatePhase.Ready) { var (ok, msg) = _rt.Update.Install(); return msg; } return s.PhaseText; }));
+        UpgradeCommand = new RelayCommand(() => RunAsync(async () =>
+        {
+            var s = await _rt.Update.DownloadAsync();
+            if (s.Phase == UpdatePhase.Ready)
+            {
+                var (ok, msg) = _rt.Update.Install();
+                return msg;
+            }
+            return s.PhaseText;
+        }));
         DiagnoseCommand = new RelayCommand(() => { _ = RunDiagnoseAsync(); });
         InstallServiceCommand = new RelayCommand(() => RunBackground(() => _rt.InstallServiceTask().Message));
-        RefreshHostsCommand = new RelayCommand(() => RunAsync(async () => { var (ok, msg) = await _rt.Hosts.RefreshAsync(true, CancellationToken.None); return msg; }));
-        RestoreHostsCommand = new RelayCommand(() => RunAsync(async () => { var (ok, msg) = await _rt.Hosts.RestoreAsync(CancellationToken.None); return msg; }));
+        RefreshHostsCommand = new RelayCommand(() => RunAsync(async () =>
+        {
+            var (ok, msg) = await _rt.Hosts.RefreshAsync(true, CancellationToken.None);
+            return msg;
+        }));
+        RestoreHostsCommand = new RelayCommand(() => RunAsync(async () =>
+        {
+            var (ok, msg) = await _rt.Hosts.RestoreAsync(CancellationToken.None);
+            return msg;
+        }));
         OpenPanelCommand = new RelayCommand(() => ShellExec.Open(runtime.PanelUrl));
         OpenLogsCommand = new RelayCommand(() => ShellExec.Open(Paths.LogDir));
-        CopyPasswordCommand = new RelayCommand(() => { try { System.Windows.Clipboard.SetText(_rt.Config.Current.Hotspot.Passphrase); Toast("密码已复制"); } catch { Toast("复制失败", true); } });
-        FixPeersCommand = new RelayCommand(() => RunAsync(async () => { var (ok, msg) = await _rt.Api.FixPeersAsync!(CancellationToken.None); return msg; }));
+        CopyPasswordCommand = new RelayCommand(() =>
+        {
+            try
+            {
+                System.Windows.Clipboard.SetText(_rt.Config.Current.Hotspot.Passphrase);
+                Toast("密码已复制");
+            }
+            catch
+            {
+                Toast("复制失败，剪贴板被别的程序占用", true);
+            }
+        });
+        FixPeersCommand = new RelayCommand(() => RunAsync(async () =>
+        {
+            var (ok, msg) = await _rt.Api.FixPeersAsync!(CancellationToken.None);
+            return msg;
+        }));
         RenameToMachineCommand = new RelayCommand(() => Run(() =>
         {
             var name = MachineDefaults.DefaultSsid();
             _rt.Config.Update(c => c.Hotspot.Ssid = name);
             return "热点名已改为：" + name;
         }));
+        DismissToastCommand = new RelayCommand(DismissToast);
 
         LoadEditFields();
-        _timer = new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Background, (_, _) => _ = RefreshAsync(false), Dispatcher.CurrentDispatcher);
+        _toastTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher.CurrentDispatcher)
+        {
+            Interval = TimeSpan.FromSeconds(3.4)
+        };
+        _toastTimer.Tick += (_, _) => NextToast();
+        _timer = new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Background,
+            (_, _) => _ = RefreshAsync(false), Dispatcher.CurrentDispatcher);
+        _timer.Stop();
         _timer.Start();
         _ = RefreshAsync(true);
+    }
+
+    /// <summary>界面隐藏/最小化后停表，别在后台白跑 WMI。</summary>
+    public void SetLive(bool live)
+    {
+        if (_live == live) return;
+        _live = live;
+        if (live)
+        {
+            _timer.Start();
+            _ = RefreshAsync(true);
+        }
+        else
+        {
+            _timer.Stop();
+        }
     }
 
     public IReadOnlyList<NavItem> Pages { get; }
@@ -145,18 +237,26 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         set
         {
             if (!Set(ref _pageKey, value)) return;
-            _rt.Config.Update(c => c.Ui.LastPage = value);
+            PageTitle = Pages.FirstOrDefault(x => x.Key == value)?.Title ?? "概览";
+            var key = value;
+            _ = Task.Run(() => _rt.Config.Update(c => c.Ui.LastPage = key));
         }
     }
 
+    public string PageTitle { get => _pageTitle; private set => Set(ref _pageTitle, value); }
+    public string HealthStatus { get => _healthStatus; private set => Set(ref _healthStatus, value); }
+
     public RelayCommand ToggleHotspotCommand { get; }
+    public RelayCommand PauseCommand { get; }
     public RelayCommand RefreshCommand { get; }
     public RelayCommand SaveHotspotCommand { get; }
     public RelayCommand SaveLessonCommand { get; }
     public RelayCommand SaveUiCommand { get; }
+    public RelayCommand SaveUpdateCommand { get; }
     public RelayCommand SaveBoardCommand { get; }
     public RelayCommand SaveBoardNamedCommand { get; }
     public RelayCommand PreviewReminderCommand { get; }
+    public RelayCommand ClearLessonCommand { get; }
     public RelayCommand CheckUpdateCommand { get; }
     public RelayCommand UpgradeCommand { get; }
     public RelayCommand DiagnoseCommand { get; }
@@ -168,9 +268,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public RelayCommand CopyPasswordCommand { get; }
     public RelayCommand FixPeersCommand { get; }
     public RelayCommand RenameToMachineCommand { get; }
+    public RelayCommand DismissToastCommand { get; }
 
     public ObservableCollection<DiagRow> DiagnoseRows { get; } = new();
-    public ObservableCollection<string> LogLines { get; } = new();
+    public ObservableCollection<UiLogLine> LogEntries { get; } = new();
+
+    /// <summary>日志追加后触发（页面据此决定要不要滚到底）。</summary>
+    public event Action? LogsChanged;
 
     public string VersionText { get => _versionText; private set => Set(ref _versionText, value); }
     public string StateText { get => _stateText; private set => Set(ref _stateText, value); }
@@ -180,6 +284,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string ClientsText { get => _clientsText; private set => Set(ref _clientsText, value); }
     public string UplinkText { get => _uplinkText; private set => Set(ref _uplinkText, value); }
     public string MaxPeersText { get => _maxPeersText; private set => Set(ref _maxPeersText, value); }
+    public string HotspotStateText { get => _hotspotStateText; private set => Set(ref _hotspotStateText, value); }
     public bool HotspotOn { get => _hotspotOn; private set => Set(ref _hotspotOn, value); }
     public string LessonStateText { get => _lessonStateText; private set => Set(ref _lessonStateText, value); }
     public string LessonCurrentText { get => _lessonCurrentText; private set => Set(ref _lessonCurrentText, value); }
@@ -187,6 +292,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string LessonCountdownText { get => _lessonCountdownText; private set => Set(ref _lessonCountdownText, value); }
     public string LessonNameHint { get => _lessonNameHint; private set => Set(ref _lessonNameHint, value); }
     public bool LessonAvailable { get => _lessonAvailable; private set => Set(ref _lessonAvailable, value); }
+    public string UpdateCurrentText { get => _updateCurrentText; private set => Set(ref _updateCurrentText, value); }
     public string UpdatePhaseText { get => _updatePhaseText; private set => Set(ref _updatePhaseText, value); }
     public string UpdateLatestText { get => _updateLatestText; private set => Set(ref _updateLatestText, value); }
     public string UpdateNotes { get => _updateNotes; private set => Set(ref _updateNotes, value); }
@@ -194,6 +300,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public double UpdateProgress { get => _updateProgress; private set => Set(ref _updateProgress, value); }
     public bool HasUpdate { get => _hasUpdate; private set => Set(ref _hasUpdate, value); }
     public string HostsText { get => _hostsText; private set => Set(ref _hostsText, value); }
+    public string HostsCountText { get => _hostsCountText; private set => Set(ref _hostsCountText, value); }
+    public string HostsServiceText { get => _hostsServiceText; private set => Set(ref _hostsServiceText, value); }
     public bool HostsApplied { get => _hostsApplied; private set => Set(ref _hostsApplied, value); }
     public bool ServiceInstalled
     {
@@ -210,8 +318,26 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string ToastText { get => _toastText; private set => Set(ref _toastText, value); }
     public bool ToastVisible { get => _toastVisible; private set => Set(ref _toastVisible, value); }
     public bool ToastError { get => _toastError; private set => Set(ref _toastError, value); }
+    public string ToastGlyph { get => _toastGlyph; private set => Set(ref _toastGlyph, value); }
     public bool Diagnosing { get => _diagnosing; private set => Set(ref _diagnosing, value); }
     public string DiagnoseSummary { get => _diagnoseSummary; private set => Set(ref _diagnoseSummary, value); }
+    public string DiagnoseMeta { get => _diagnoseMeta; private set => Set(ref _diagnoseMeta, value); }
+
+    public bool LogFollow
+    {
+        get => _logFollow;
+        set => Set(ref _logFollow, value);
+    }
+
+    public string LogMinLevel
+    {
+        get => _logMinLevel;
+        set
+        {
+            if (!Set(ref _logMinLevel, value)) return;
+            RebuildLogs();
+        }
+    }
 
     public string EditSsid { get => _editSsid; set => SetDirty(ref _editSsid, value); }
     public string EditPassphrase { get => _editPassphrase; set => SetDirty(ref _editPassphrase, value); }
@@ -231,8 +357,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public bool EditCheckOnBoot { get => _editCheckOnBoot; set => SetDirty(ref _editCheckOnBoot, value); }
     public string EditInstallWindow { get => _editInstallWindow; set => SetDirty(ref _editInstallWindow, value); }
 
-    public IReadOnlyList<string> TimeoutActions { get; } = new[] { "save", "save-close", "wait", "dismiss" };
-    public IReadOnlyList<string> Themes { get; } = new[] { "system", "light", "dark" };
+    public IReadOnlyList<UiOption> TimeoutOptions { get; } = UiOptions.TimeoutActions;
+
+    public IReadOnlyList<UiOption> ThemeOptions { get; } = UiOptions.Themes;
+
+    public IReadOnlyList<UiOption> LogLevelOptions { get; } = new[]
+    {
+        new UiOption("all", "全部日志"),
+        new UiOption("info", "信息以上"),
+        new UiOption("warn", "警告与错误"),
+        new UiOption("error", "只看错误")
+    };
 
     private void SetDirty<T>(ref T field, T value, [System.Runtime.CompilerServices.CallerMemberName] string? name = null)
     {
@@ -244,7 +379,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private async Task RefreshAsync(bool force)
     {
-        if (_refreshing) return;
+        if (_refreshing || !_live) return;
         _refreshing = true;
         try
         {
@@ -265,12 +400,19 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void Apply(UiSnapshot s)
     {
-        VersionText = $"v{s.Version} · 配置 schema {s.Schema}";
+        VersionText = $"v{s.Version} · schema {s.Schema}";
         StateText = s.GuardStateText;
-        PauseText = s.PauseText;
+        PauseText = s.Paused ? s.PauseText : "守护正常运行";
+        HealthStatus = s.GuardStateText switch
+        {
+            "守护中" => s.Hotspot.On ? "ok" : "warn",
+            "已关闭" => "fail",
+            _ => "warn"
+        };
         Ssid = s.Hotspot.Ssid;
         Passphrase = s.Hotspot.Passphrase;
         HotspotOn = s.Hotspot.On;
+        HotspotStateText = s.Hotspot.StateText;
         ClientsText = $"{s.Hotspot.Clients} / {s.Hotspot.TargetClients} 台";
         UplinkText = s.Hotspot.UplinkName;
         MaxPeersText = $"{s.Hotspot.MaxPeers} 台";
@@ -280,6 +422,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         LessonNextText = s.Lesson.Next;
         LessonCountdownText = s.Lesson.Countdown;
         LessonNameHint = s.Lesson.NameHint;
+        UpdateCurrentText = "v" + s.Update.Current;
         UpdatePhaseText = s.Update.PhaseText;
         UpdateLatestText = string.IsNullOrEmpty(s.Update.Latest) || s.Update.Latest == "-" ? "暂无" : s.Update.Latest;
         UpdateNotes = s.Update.Notes;
@@ -288,21 +431,77 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         HasUpdate = s.Update.HasUpdate;
         HostsText = s.Hosts.Message;
         HostsApplied = s.Hosts.Applied;
+        HostsCountText = s.Hosts.Count > 0 ? $"{s.Hosts.Count} 条加速记录" : "还没有写入记录";
         ServiceInstalled = s.Hosts.ServiceInstalled;
+        HostsServiceText = !s.Hosts.ServiceInstalled
+            ? "护航任务未安装：hosts 写入与静默升级会退化成手动"
+            : s.Hosts.ServiceAlive
+                ? "护航任务运行中（SYSTEM，每 5 分钟自检）"
+                : "护航任务已安装，但最近 20 分钟没有心跳";
 
         var hint = _rt.Lesson.NameHint(DateTimeOffset.Now);
         var index = _rt.Lesson.State().Snapshot?.LessonIndex ?? 0;
         BoardPreview = BoardFileName.Render(_rt.Config.Current.BoardSave.NameTemplate, hint, DateTimeOffset.Now, index);
 
-        SyncLogs(s.LogLines);
+        SyncLogs(s.Logs);
     }
 
-    private void SyncLogs(IReadOnlyList<string> lines)
+    private void SyncLogs(IReadOnlyList<UiLogLine> incoming)
     {
-        if (lines.Count == 0) return;
-        if (LogLines.Count == lines.Count && lines.Count > 0 && LogLines[^1] == lines[^1]) return;
-        LogLines.Clear();
-        foreach (var line in lines) LogLines.Add(line);
+        if (incoming.Count == 0) return;
+        var merged = LogDiff.Merge(_allLogs, incoming, 300);
+        if (merged.Count == _allLogs.Count && _allLogs.Count > 0 && merged[^1].Time == _allLogs[^1].Time && merged[^1].Message == _allLogs[^1].Message)
+            return;
+        _allLogs.Clear();
+        _allLogs.AddRange(merged);
+
+        var filtered = Filter(_allLogs);
+        // 只追加新行，避免每秒 Clear 把滚动位置拉回顶部
+        if (LogEntries.Count <= filtered.Count && IsPrefix(LogEntries, filtered))
+        {
+            for (var i = LogEntries.Count; i < filtered.Count; i++) LogEntries.Add(filtered[i]);
+        }
+        else
+        {
+            LogEntries.Clear();
+            foreach (var line in filtered) LogEntries.Add(line);
+        }
+
+        LogsChanged?.Invoke();
+    }
+
+    private static bool IsPrefix(IReadOnlyList<UiLogLine> existing, IReadOnlyList<UiLogLine> newer)
+    {
+        for (var i = 0; i < existing.Count; i++)
+        {
+            if (existing[i].Time != newer[i].Time || existing[i].Message != newer[i].Message) return false;
+        }
+        return true;
+    }
+
+    private List<UiLogLine> Filter(IReadOnlyList<UiLogLine> source)
+    {
+        IEnumerable<UiLogLine> query = source;
+        switch (_logMinLevel)
+        {
+            case "error":
+                query = source.Where(x => x.IsError);
+                break;
+            case "warn":
+                query = source.Where(x => x.IsError || x.IsWarn);
+                break;
+            case "info":
+                query = source.Where(x => !x.IsDebug);
+                break;
+        }
+        return query.ToList();
+    }
+
+    private void RebuildLogs()
+    {
+        LogEntries.Clear();
+        foreach (var line in Filter(_allLogs)) LogEntries.Add(line);
+        LogsChanged?.Invoke();
     }
 
     private void LoadEditFields()
@@ -358,6 +557,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         });
         _settingsDirty = false;
         Toast("课表与板书设置已保存");
+        _ = RefreshAsync(true);
     }
 
     private void SaveUi()
@@ -367,14 +567,25 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             c.Ui.CloseToTray = EditCloseToTray;
             c.Ui.StartMinimized = EditStartMinimized;
             c.Ui.Theme = EditTheme;
-            c.Update.AutoInstall = EditAutoInstall;
-            c.Update.CheckOnBoot = EditCheckOnBoot;
-            c.Update.InstallWindow = EditInstallWindow ?? "";
             c.Ui.Normalize();
         });
         _settingsDirty = false;
         UiHost.ApplyThemeFromConfig();
-        Toast("设置已保存");
+        Toast("界面设置已保存");
+        _ = RefreshAsync(true);
+    }
+
+    private void SaveUpdate()
+    {
+        _rt.Config.Mutate(c =>
+        {
+            c.Update.AutoInstall = EditAutoInstall;
+            c.Update.CheckOnBoot = EditCheckOnBoot;
+            c.Update.InstallWindow = EditInstallWindow ?? "";
+        });
+        _settingsDirty = false;
+        Toast("升级设置已保存");
+        _ = RefreshAsync(true);
     }
 
     private void SaveBoardNow()
@@ -413,12 +624,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (Diagnosing) return;
         Diagnosing = true;
         DiagnoseSummary = "正在自检…";
+        DiagnoseMeta = "热点、hosts、计划任务、板书目录会逐条检查，大约几秒。";
         try
         {
             var report = await Task.Run(() => Diagnostics.BuildReport(_rt)).ConfigureAwait(true);
             DiagnoseRows.Clear();
             foreach (var c in report.checks) DiagnoseRows.Add(new DiagRow(c.title, c.status, c.detail, c.next ?? ""));
             DiagnoseSummary = report.summary;
+            DiagnoseMeta = $"自检时间 {DateTime.Now:HH:mm:ss}｜v{report.version}｜共 {report.checks.Count} 项";
+            var fail = report.checks.Count(x => x.status == "fail");
+            var warn = report.checks.Count(x => x.status == "warn");
+            HealthStatus = fail > 0 ? "fail" : warn > 0 ? "warn" : "ok";
         }
         catch (Exception ex)
         {
@@ -432,13 +648,36 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public void Toast(string text, bool error = false)
     {
-        ToastText = text;
-        ToastError = error;
-        ToastVisible = true;
-        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
-        timer.Tick += (_, _) => { timer.Stop(); ToastVisible = false; };
-        timer.Start();
+        _toastQueue.Enqueue((text, error));
+        if (!ToastVisible) NextToast();
     }
 
-    public void Dispose() => _timer.Stop();
+    private void NextToast()
+    {
+        _toastTimer.Stop();
+        if (_toastQueue.Count == 0)
+        {
+            ToastVisible = false;
+            return;
+        }
+        var (text, error) = _toastQueue.Dequeue();
+        ToastText = text;
+        ToastError = error;
+        ToastGlyph = error ? "\uEA39" : "\uE73E";
+        ToastVisible = true;
+        _toastTimer.Start();
+    }
+
+    private void DismissToast()
+    {
+        _toastQueue.Clear();
+        _toastTimer.Stop();
+        ToastVisible = false;
+    }
+
+    public void Dispose()
+    {
+        _timer.Stop();
+        _toastTimer.Stop();
+    }
 }

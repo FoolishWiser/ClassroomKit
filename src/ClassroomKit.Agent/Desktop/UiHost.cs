@@ -1,4 +1,5 @@
 using System.Windows;
+using Microsoft.Win32;
 using Application = System.Windows.Application;
 
 namespace ClassroomKit.Agent.Desktop;
@@ -13,6 +14,11 @@ internal static class UiHost
     private static MainWindow? _window;
     private static EventWaitHandle? _showEvent;
 
+    /// <summary>主题切换后触发，参数是解析后的 Light / Dark。</summary>
+    public static event Action<string>? ThemeChanged;
+
+    public static bool EffectiveThemeIsDark { get; private set; }
+
     public static void Initialize(Application app, AgentRuntime runtime)
     {
         _app = app;
@@ -23,12 +29,27 @@ internal static class UiHost
         app.Resources["PageVisibility"] = new PageVisibilityConverter();
         app.Resources["BoolVisibility"] = new System.Windows.Controls.BooleanToVisibilityConverter();
 
+        SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
+
         _showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName, out _);
         var thread = new Thread(WaitForShowSignal) { IsBackground = true, Name = "ClassroomKit.ShowSignal" };
         thread.Start();
 
         if (!runtime.Config.Current.Ui.StartMinimized)
             app.Dispatcher.BeginInvoke(new Action(Show));
+    }
+
+    /// <summary>浅色/深色跟着系统走时，系统切换外观要立刻生效。</summary>
+    private static void OnUserPreferenceChanged(object sender, UserPreferenceChangedEventArgs e)
+    {
+        if (e.Category != UserPreferenceCategory.General && e.Category != UserPreferenceCategory.VisualStyle) return;
+        var app = _app;
+        if (app is null) return;
+        app.Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (_runtime?.Config.Current.Ui.Theme is "light" or "dark") return;
+            ApplyTheme("system");
+        }));
     }
 
     /// <summary>另一个实例想打开主界面时调用（第二个进程退出前）。</summary>
@@ -62,7 +83,7 @@ internal static class UiHost
         if (_window is null)
         {
             _window = new MainWindow(_runtime);
-            _window.Closed += (_, _) => _window = null;
+            ClosedHook(_window);
         }
 
         _window.Show();
@@ -71,6 +92,8 @@ internal static class UiHost
         _window.Topmost = true;
         _window.Topmost = false;
     }
+
+    private static void ClosedHook(MainWindow window) => window.Closed += (_, _) => _window = null;
 
     public static void ApplyThemeFromConfig()
     {
@@ -83,7 +106,14 @@ internal static class UiHost
         var app = Application.Current;
         if (app is null) return;
 
-        var name = theme switch { "light" => "Light", "dark" => "Dark", _ => IsSystemDark() ? "Dark" : "Light" };
+        var name = theme switch
+        {
+            "light" => "Light",
+            "dark" => "Dark",
+            _ => IsSystemDark() ? "Dark" : "Light"
+        };
+        EffectiveThemeIsDark = name == "Dark";
+
         var merged = app.Resources.MergedDictionaries;
         merged.Clear();
         merged.Add(new ResourceDictionary
@@ -94,6 +124,8 @@ internal static class UiHost
         {
             Source = new Uri("pack://application:,,,/ClassroomKit.Agent;component/Desktop/Themes/Styles.xaml", UriKind.Absolute)
         });
+
+        ThemeChanged?.Invoke(name);
     }
 
     private static bool IsSystemDark()

@@ -12,7 +12,7 @@ public sealed record UiSnapshot(
     UiLesson Lesson,
     UiUpdate Update,
     UiHosts Hosts,
-    IReadOnlyList<string> LogLines,
+    IReadOnlyList<UiLogLine> Logs,
     DateTimeOffset At);
 
 public sealed record UiHotspot(

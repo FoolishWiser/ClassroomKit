@@ -64,6 +64,10 @@ internal static class Program
         await LessonTests.RunAsync();
 
         Console.WriteLine();
+        Console.WriteLine("[界面几何与日志增量]");
+        await UiTests.RunAsync();
+
+        Console.WriteLine();
         Console.WriteLine("[HTTP API]");
         await ApiTestsAsync();
 
