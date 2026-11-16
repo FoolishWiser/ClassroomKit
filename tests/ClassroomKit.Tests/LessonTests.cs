@@ -194,13 +194,12 @@ internal static class LessonTests
             Contains(model.Body, "等您决定");
         });
 
-        Run("悬停暂停不吃时间", () =>
+        Run("倒计时连续累计、不被鼠标位置打断", () =>
         {
-            var model = new BoardReminderModel(timeoutSec: 10, timeoutAction: "save") { Paused = true };
-            False(model.Tick(20000), "暂停时不该到点");
-            model.Paused = false;
-            False(model.Tick(5000), "恢复后重新计时");
-            True(model.Tick(6000), "累计够了才到点");
+            var model = new BoardReminderModel(timeoutSec: 10, timeoutAction: "save");
+            False(model.Tick(5000), "5 秒还没到");
+            False(model.Tick(4000), "9 秒还没到");
+            True(model.Tick(2000), "累计超过 10 秒到点");
         });
 
         Run("键盘与文案", () =>

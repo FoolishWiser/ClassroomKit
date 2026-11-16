@@ -55,7 +55,7 @@ internal static class SnapshotBuilder
                 lesson?.NextSubject ?? "-",
                 Countdown(lesson),
                 lesson?.PreviousSubject ?? rt.Lesson.NameHint(DateTimeOffset.Now) ?? "-",
-                lesson?.Subjects ?? Array.Empty<string>()),
+                LessonSubjects.Union(lesson?.Subjects, rt.Subjects.Current, config.Lesson.Subjects)),
             new UiUpdate(
                 update.Current,
                 update.Latest ?? "-",

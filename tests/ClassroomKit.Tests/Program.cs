@@ -60,6 +60,10 @@ internal static class Program
         await ConflictDialogTests.RunAsync();
 
         Console.WriteLine();
+        Console.WriteLine("[ClassIsland 档案科目]");
+        await ProfileSubjectsTests.RunAsync();
+
+        Console.WriteLine();
         Console.WriteLine("[课表与课前提醒]");
         await LessonTests.RunAsync();
 

@@ -132,6 +132,20 @@ public sealed class PluginInstaller
         return false;
     }
 
+    /// <summary>本机所有可能是 ClassIsland 根目录的路径（已去重，只返回存在的目录）。</summary>
+    public IReadOnlyList<string> FindRoots()
+    {
+        var list = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (root, _) in CandidateRoots())
+        {
+            var full = SafeFullPath(root);
+            if (full is not null && seen.Add(full)) list.Add(full);
+        }
+
+        return list;
+    }
+
     /// <summary>读已装插件的版本（读不到返回空串）。</summary>
     public static string ReadVersion(string pluginDir) =>
         PluginPackage.ReadManifestFromDirectory(pluginDir)?.Version ?? "";

@@ -77,6 +77,9 @@ public sealed class LessonRuntime
 
     public string? NameHint(DateTimeOffset now) => _ledger.NameHint(now);
 
+    /// <summary>ClassIsland 档案里的全部科目（由 AgentRuntime 注入；读不到时给空列表）。</summary>
+    public Func<IReadOnlyList<string>>? AvailableSubjects { get; set; }
+
     /// <summary>GET /api/lesson 的响应。</summary>
     public object Status()
     {
@@ -99,6 +102,7 @@ public sealed class LessonRuntime
             ageSec = (int)(_ledger.AgeSeconds(now) ?? 0),
             at = snapshot?.At,
             nameHint = _ledger.NameHint(now),
+            availableSubjects = LessonSubjects.Union(snapshot?.Subjects, AvailableSubjects?.Invoke(), cfg.Subjects),
             reminder = new
             {
                 enabled = cfg.Enabled,

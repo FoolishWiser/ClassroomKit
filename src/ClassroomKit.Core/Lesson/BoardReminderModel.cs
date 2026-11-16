@@ -14,7 +14,7 @@ public enum BoardReminderChoice
 }
 
 /// <summary>
-/// 课前提醒窗的状态与文案（倒计时、暂停、按键、超时动作）。
+/// 课前提醒窗的状态与文案（倒计时、按键、超时动作）。
 /// 与 ConflictDialogModel 同一套路：窗口只负责画，逻辑全在这里，方便单测。
 /// </summary>
 public sealed class BoardReminderModel
@@ -48,7 +48,6 @@ public sealed class BoardReminderModel
 
     public BoardReminderChoice? Chosen { get; private set; }
     public bool Expired { get; private set; }
-    public bool Paused { get; set; }
 
     public int RemainingMs => Math.Max(0, _totalMs - _elapsedMs);
     public int SecondsLeft => (RemainingMs + 999) / 1000;
@@ -108,7 +107,7 @@ public sealed class BoardReminderModel
     {
         if (Chosen is not null || Expired) return false;
         if (_timeoutChoice is null) return false;
-        if (!Paused) _elapsedMs += Math.Max(0, elapsedMs);
+        _elapsedMs += Math.Max(0, elapsedMs);
         if (_elapsedMs < _totalMs) return false;
 
         Expired = true;

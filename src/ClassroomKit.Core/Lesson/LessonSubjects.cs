@@ -29,6 +29,19 @@ public static class LessonSubjects
         return list;
     }
 
+    /// <summary>把几份科目清单合并成一份（去空白、忽略大小写去重，保留第一次出现的写法）。</summary>
+    public static List<string> Union(params IEnumerable<string>?[] lists)
+    {
+        var all = new List<string>();
+        foreach (var list in lists)
+        {
+            if (list is null) continue;
+            all.AddRange(list);
+        }
+
+        return Normalize(all);
+    }
+
     /// <summary>空列表 = 所有科目都生效。</summary>
     public static bool IsUnrestricted(IEnumerable<string>? subjects) => Normalize(subjects).Count == 0;
 

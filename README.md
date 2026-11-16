@@ -32,7 +32,7 @@
 
 - 双击 `ClassroomKit.Agent.exe`，或开始菜单「ClassroomKit 助手」，打开主界面。已经有实例在跑时再启动一次，不会开第二个进程，只会把主界面叫到前台。
 - 界面按 Windows 11 Fluent 重做（0.5.1）：自绘标题栏、圆角卡片、开关式控件，浅色/深色主题可跟随系统；150% 缩放的 1080p 屏也能完整显示。
-- 0.6.0 再补一轮：课表科目由插件推给桌面端，「生效科目」改成勾选（不勾 = 全部科目）；托盘「保存板书」默认只留「保存并关闭 ClassInX」，其余动作在 设置 → 托盘菜单 里打开；升级时顺带更新 ClassIsland 插件（被占用时每 5 分钟重试补装）；修掉设置页主题下拉选中项看不见字的问题；0.6.1 让升级页「检查更新」每次都真的去 GitHub 查；0.6.2 让排队的插件最多 5 分钟内自动补装。
+- 0.6.0 再补一轮：课表科目由插件推给桌面端，「生效科目」改成勾选（不勾 = 全部科目）；托盘「保存板书」默认只留「保存并关闭 ClassInX」，其余动作在 设置 → 托盘菜单 里打开；升级时顺带更新 ClassIsland 插件（被占用时每 5 分钟重试补装）；修掉设置页主题下拉选中项看不见字的问题；0.6.1 让升级页「检查更新」每次都真的去 GitHub 查；0.6.2 让排队的插件最多 5 分钟内自动补装；0.6.3 起守护直接读 ClassIsland 档案里的全部科目，插件没推也能勾选，课前提醒窗也不再悬停暂停。
 - 左侧六页：**概览**（热点 / 下一节课 / 升级 / hosts 一眼看完）、**热点**、**课表与板书**（课前提醒参数、命名模板与文件名预览）、**升级**、**自检与日志**、**设置**（关窗行为、主题、hosts 与护航任务、网页面板入口）。
 - 关窗口默认收进托盘、守护照常跑；托盘图标**左键或右键都弹菜单**（菜单里「打开主界面」）。真要退出用菜单里的「退出」。
 - 窗口大小/位置、最后停留页面、主题（跟随系统 / 浅色 / 深色）都会记住。
@@ -42,9 +42,9 @@
 
 预编译安装包在 [Releases](https://github.com/FoolishWiser/ClassroomKit/releases)：
 
-- `ClassroomKit-0.6.2-x64.msi`（约 63 MB，推荐）
-- `ClassroomKit-0.6.2-win-x64.zip`（绿色版）
-- `ClassroomKit-0.6.2.cipx`（ClassIsland 2.1 插件，不是安装包，装到 ClassIsland 里）
+- `ClassroomKit-0.6.3-x64.msi`（约 63 MB，推荐）
+- `ClassroomKit-0.6.3-win-x64.zip`（绿色版）
+- `ClassroomKit-0.6.3.cipx`（ClassIsland 2.1 插件，不是安装包，装到 ClassIsland 里）
 
 前两个都是自包含单文件，目标机不需要装 .NET。从 0.3.0 起只发正式版，装了就自动收到后续正式版的升级提示。
 
@@ -53,14 +53,14 @@
 ### 方式一：MSI 安装包（推荐）
 
 ```text
-双击 ClassroomKit-0.6.2-x64.msi
+双击 ClassroomKit-0.6.3-x64.msi
 # 或者命令行静默安装：
-msiexec /i ClassroomKit-0.6.2-x64.msi /qn
+msiexec /i ClassroomKit-0.6.3-x64.msi /qn
 ```
 
 装完自动：落地到 `C:\Program Files\ClassroomKit` → 建 `C:\ProgramData\ClassroomKit` 并授权普通用户可写 → 放宽设备上限（`WifiMaxPeers=16`）→ 注册登录自启任务 → 注册 SYSTEM 护航任务 → 立刻拉起守护。开始菜单会多一项「ClassroomKit 助手」，点了直接打开桌面主界面；网页面板在设置页一键打开（等价于 `--panel`）。
 
-再装插件：打开 ClassIsland → 设置 → 插件 → 从本地安装 → 选 `ClassroomKit-0.6.2.cipx` → 重启 ClassIsland。设置页里会出现「ClassroomKit 助手」，里面能看到课表联动状态。
+再装插件：打开 ClassIsland → 设置 → 插件 → 从本地安装 → 选 `ClassroomKit-0.6.3.cipx` → 重启 ClassIsland。设置页里会出现「ClassroomKit 助手」，里面能看到课表联动状态。
 
 ### 方式二：绿色目录（没有安装包时）
 
@@ -97,15 +97,14 @@ powershell -ExecutionPolicy Bypass -File get-bcu.ps1
 1. ClassIsland 推课表给守护（每秒最多一次，课间/上课/放学都会更新）；
 2. 离下一节上课还有 **5 分钟**（`lesson.remindMinutesBefore`，1–30 可调）时弹一次提醒窗；
 3. 窗口默认 **30 秒**后自动执行「保存，但不关 ClassInX」（`lesson.timeoutAction=save`），老师什么都不用点；
-4. 鼠标停在窗口上倒计时会暂停；键盘 <kbd>1</kbd> 保存、<kbd>2</kbd> 保存并关闭、<kbd>3</kbd> 稍后提醒（默认 2 分钟后再问）、<kbd>Esc</kbd> 稍后提醒。
+4. 倒计时一直在走，不会因为鼠标停在窗口上而暂停；键盘 <kbd>1</kbd> 保存、<kbd>2</kbd> 保存并关闭、<kbd>3</kbd> 稍后提醒（默认 2 分钟后再问）、<kbd>Esc</kbd> 稍后提醒。
 
 细节：
 
 - 同一节课只提醒一次（按「下一节开始时刻」去重）；稍后提醒只挡住那几分钟，过窗还没上课会再问；
 - 默认只在 **ClassInX 正在运行**时提醒（`lesson.onlyWhenClassInBoard=true`），避免每节课都弹一个「没有板书可存」；
 - 课表数据超过 2 小时没更新（`lesson.staleMinutes=120`）就不提醒 —— ClassIsland 被关了、或插件没在跑时不会瞎猜；
-- 可以只让**某几门课**生效（`lesson.subjects`，面板「课表」卡片里的「生效科目」填 `物理` 即可，留空 = 所有科目）：只有这些课的课前提醒会弹，自动保存也跟着只在这些课后发生；匹配宽松（去空格、不分大小写，「物理」也命中「物理实验」），板书文件名不受影响；
-- 可以只让**某几门课**生效（`lesson.subjects`，面板「课表」卡片里的「生效科目」填 `物理` 即可，留空 = 所有科目）：只有这些课的课前提醒会弹，自动保存也跟着只在这些课后发生；匹配宽松（去空格、不分大小写，「物理」也命中「物理实验」），板书文件名不受影响；
+- 可以只让**某几门课**生效（`lesson.subjects`，桌面端「课表与板书」页勾选，留空 = 所有科目）：只有这些课的课前提醒会弹，自动保存也跟着只在这些课后发生；科目清单来自 ClassIsland 档案与插件推送（0.6.3 起守护自己读 `data\Profiles\*.json`，ClassIsland 没启动也能列出），匹配宽松（去空格、不分大小写，「物理」也命中「物理实验」），板书文件名不受影响；
 - 面板「课表」卡片可以改提前量、弹窗秒数、超时动作（保存 / 保存并关闭 / 一直等 / 忽略），也可以点「预览课前提醒」当场看效果。
 
 ## 板书存成「科目_日期_时间」
@@ -335,7 +334,7 @@ ClassroomKit.Agent.exe            常驻守护 + 托盘 + 桌面主界面 + 网�
 
 ## 卸载
 
-- **MSI 装的**：控制面板「应用」里卸载，或 `msiexec /x ClassroomKit-0.6.2-x64.msi`；面板「维护 → 卸载本软件」也会调起同样的流程。
+- **MSI 装的**：控制面板「应用」里卸载，或 `msiexec /x ClassroomKit-0.6.3-x64.msi`；面板「维护 → 卸载本软件」也会调起同样的流程。
 - **绿色版**：面板「维护 → 卸载本软件」，或 `ClassroomKit.Agent.exe --uninstall`。
 - 卸载会停进程、删自启与护航任务、把 `WifiMaxPeers` 改回原值并重启共享服务、删安装目录（含 BCU）；**默认保留** `C:\ProgramData\ClassroomKit`（配置和日志，方便重装后沿用 SSID/密码）。想连配置日志一起删：面板勾「同时删除配置与日志」再点卸载，或 `--uninstall --purge-data`。
 - 需要管理员权限：没提权会弹一次 UAC。
@@ -361,7 +360,7 @@ src/ClassroomKit.Agent         WinRT 热点、托盘、桌面端（WPF）、提�
 src/ClassroomKit.ClassIsland   ClassIsland 2.1 插件（cipx）：课表桥 + 设置页 + 主界面组件 + 行动
 web/                           网页面板（无框架、无 CDN，离线可用；0.4 及更早的唯一入口）
 scripts/                       build / build-msi / install / uninstall / rebuild / probe / get-bcu / verify
-tests/ClassroomKit.Tests       零依赖测试（dotnet run，142 项）
+tests/ClassroomKit.Tests       零依赖测试（dotnet run，147 项）
 docs/                          部署手册、ClassIsland 接入、原理与限制、版本与发布
 installer/                     MSI 定义（product.wxs；文件清单 files.wxs 由 build-msi.ps1 生成）
 ```
@@ -372,7 +371,7 @@ installer/                     MSI 定义（product.wxs；文件清单 files.wxs
 dotnet run --project tests/ClassroomKit.Tests -c Release
 ```
 
-142 项，覆盖配置规范化与落盘（含旧配置迁移与机器名默认值）、上行网卡选择、守护状态机九条分支、窗口分类与冲突冷却、冲突提示窗、UI 配方匹配、GitHub Release 解析与 SemVer 预发布比较、hosts 区块合并 / 还原 / 挑最优 IP、升级时间窗（含跨午夜、默认不限）与 v3→v4 时间窗迁移、板书命名模板与改名冲突、课表提醒判定的十条原因分支与稍后提醒、提醒窗超时/暂停/快捷键、守护配置令牌的大小写不敏感读取、窗口几何（DPI 夹紧 / 离屏归位 / 副屏负坐标）、日志增量合并、下拉中文标签、插件包解包与选包、配置 v6→v7 默认值、HTTP 端到端。
+147 项，覆盖配置规范化与落盘（含旧配置迁移与机器名默认值）、上行网卡选择、守护状态机九条分支、窗口分类与冲突冷却、冲突提示窗、UI 配方匹配、GitHub Release 解析与 SemVer 预发布比较、hosts 区块合并 / 还原 / 挑最优 IP、升级时间窗（含跨午夜、默认不限）与 v3→v4 时间窗迁移、板书命名模板与改名冲突、课表提醒判定的十条原因分支与稍后提醒、提醒窗超时/快捷键、守护配置令牌的大小写不敏感读取、窗口几何（DPI 夹紧 / 离屏归位 / 副屏负坐标）、日志增量合并、下拉中文标签、插件包解包与选包、ClassIsland 档案科目解析（对象/数组/坏 JSON/无 Subjects）与科目清单合并、配置 v6→v7 默认值、HTTP 端到端。
 
 装到目标机之后，再跑一遍**整机验收**（43 项，含注册表、系统上限、策略开关、计划任务、改设置落盘、异常输入、网卡判别、板书/冲突接口、BCU 按钮）：
 

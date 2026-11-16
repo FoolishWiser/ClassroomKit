@@ -69,7 +69,9 @@ public sealed class AgentRuntime : IDisposable
         ConflictWatcher = new ConflictWatcher(Log, () => Config.Current.Conflict,
             () => Config.Current.Conflict.ExtraFullscreenProcesses, SaveConflictSnooze);
 
+        Subjects = new ClassIslandSubjectCatalog(Log);
         Lesson = new LessonRuntime(Log, () => Config.Current.Lesson, Paths.LessonStatePath);
+        Lesson.AvailableSubjects = () => Subjects.Current;
         Lesson.ReminderDue = decision => ReminderRequested?.Invoke(decision);
 
         Api.SaveBoard = SaveBoard;
@@ -101,6 +103,7 @@ public sealed class AgentRuntime : IDisposable
     public ConflictWatcher ConflictWatcher { get; }
     public UpdateService Update { get; }
     public HostsService Hosts { get; }
+    public ClassIslandSubjectCatalog Subjects { get; }
     public LessonRuntime Lesson { get; }
 
     /// <summary>到点该弹课前提醒窗时触发（由托盘层切到 UI 线程）。</summary>
@@ -157,12 +160,38 @@ public sealed class AgentRuntime : IDisposable
         ConflictWatcher.Start();
         _ = Task.Run(GuardLoopAsync);
         _ = Task.Run(LessonLoopAsync);
+        _ = Task.Run(SubjectLoopAsync);
         _ = Task.Run(HostsLoopAsync);
         _ = Task.Run(UpdateLoopAsync);
 
         if (Config.Current.Hotspot.AutoStartOnLaunch && !Config.Current.Hotspot.Enabled)
         {
             SetPolicy(true);
+        }
+    }
+
+    /// <summary>每分钟重读一次 ClassIsland 档案里的科目；扫描根目录的结果缓存 5 分钟。</summary>
+    private async Task SubjectLoopAsync()
+    {
+        while (!_cts.IsCancellationRequested)
+        {
+            try
+            {
+                Subjects.Refresh();
+            }
+            catch (Exception ex)
+            {
+                Log.Debug("读取 ClassIsland 科目失败：" + ex.Message);
+            }
+
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(60), _cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
         }
     }
 

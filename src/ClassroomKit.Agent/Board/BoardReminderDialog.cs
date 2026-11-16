@@ -8,7 +8,7 @@ namespace ClassroomKit.Agent.Board;
 
 /// <summary>
 /// 课前提醒窗：无边框圆角卡片，倒计时超时按配置自动行动（默认保存板书、不关 ClassInX）。
-/// 鼠标停在窗上时倒计时暂停，离开后继续；键盘 1/2/3/Esc 可直接选择。
+/// 倒计时一直走，键盘 1/2/3/Esc 可直接选择。
 /// </summary>
 public sealed class BoardReminderDialog : Forms.Form
 {
@@ -128,9 +128,6 @@ public sealed class BoardReminderDialog : Forms.Form
         var delta = _lastTickMs == 0 ? 0 : now - _lastTickMs;
         _lastTickMs = now;
 
-        // 鼠标停在窗上：暂停倒计时，避免老师读的时候被自动保存打断
-        _model.Paused = Bounds.Contains(Forms.Cursor.Position);
-
         if (_model.Tick((int)delta))
         {
             _timer.Stop();
@@ -207,7 +204,7 @@ public sealed class BoardReminderDialog : Forms.Form
         // 倒计时条
         DrawBar(g);
 
-        TextRenderer.DrawText(g, _model.CountdownText + (_model.Paused ? "（已暂停）" : ""),
+        TextRenderer.DrawText(g, _model.CountdownText,
             new Drawing.Font("Microsoft YaHei UI", S(12), Drawing.FontStyle.Regular, Drawing.GraphicsUnit.Pixel),
             new Drawing.Rectangle(S(Pad), _barRect.Bottom + S(8), Width - S(Pad) * 2, S(18)), Muted,
             Forms.TextFormatFlags.NoPadding);
