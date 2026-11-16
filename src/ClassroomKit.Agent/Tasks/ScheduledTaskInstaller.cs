@@ -120,7 +120,11 @@ public static class ScheduledTaskInstaller
             }
             catch
             {
-                present = false;   // 查询本身失败（权限/进程起不来）也按「不在」缓存 30 秒，避免失败时反复起进程
+                // 查询失败不能当成「没装」再缓存 30 秒：Install() 会据此从静默排队退化成弹 UAC，
+                // 而无人值守时弹 UAC 就是把调用线程永远挂在安全桌面上。失败只影响这一次调用。
+                _serviceTaskPresent = false;
+                _serviceTaskCheckedAt = DateTimeOffset.MinValue;
+                return false;
             }
 
             _serviceTaskPresent = present;
@@ -317,7 +321,8 @@ public static class ScheduledTaskInstaller
     <Enabled>true</Enabled>
     <Hidden>true</Hidden>
     <RunOnlyIfIdle>false</RunOnlyIfIdle>
-    <ExecutionTimeLimit>PT10M</ExecutionTimeLimit>
+    <!-- 护航任务要跑 msiexec（InstallRunner 最多等 10 分钟），任务自己的超时不能比它短，否则装到一半就被杀。 -->
+    <ExecutionTimeLimit>PT30M</ExecutionTimeLimit>
     <Priority>5</Priority>
   </Settings>
   <Actions Context="Author">

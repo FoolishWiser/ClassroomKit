@@ -98,7 +98,9 @@ public sealed class PluginInstaller
         _log?.Info($"安装 ClassIsland 插件：{Path.GetFileName(cipxPath)} → {location.Dir}" +
                    $"（ClassIsland {(running ? "正在运行" : "未运行")}）");
 
-        var result = PluginPackage.ExtractTo(cipxPath, location.Dir);
+        // 临时解压目录放在 ProgramData 下，别落在 …\Plugins 里（ClassIsland 会把它当第二个插件加载）。
+        var stagingRoot = Path.Combine(Paths.DataDir, "update", "tmp");
+        var result = PluginPackage.ExtractTo(cipxPath, location.Dir, stagingRoot);
         switch (result.Status)
         {
             case PluginPackageStatus.Ok:
@@ -112,6 +114,10 @@ public sealed class PluginInstaller
             case PluginPackageStatus.Locked:
                 _log?.Warn("ClassIsland 插件更新失败（文件被占用）：" + result.Message);
                 return (false, "ClassIsland 正在运行或插件文件被占用，请先退出 ClassIsland 再升级：" + result.Message);
+
+            case PluginPackageStatus.Denied:
+                _log?.Warn("ClassIsland 插件更新失败（没有写入权限）：" + result.Message);
+                return (false, "没有权限写入 ClassIsland 插件目录，请用管理员身份运行一次：" + result.Message);
 
             default:
                 _log?.Warn("ClassIsland 插件包不合法：" + result.Message);

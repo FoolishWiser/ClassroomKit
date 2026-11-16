@@ -11,7 +11,9 @@ public enum PluginPackageStatus
 {
     Ok,
     Locked,
-    Invalid
+    Invalid,
+    /// <summary>目标目录没有写入权限（不是被占用，重试也不会成功）。</summary>
+    Denied
 }
 
 /// <summary>插件包处理结果。Message 直接给日志和面板用。</summary>
@@ -20,10 +22,12 @@ public sealed record PluginPackageResult(PluginPackageStatus Status, string Mess
     public bool Ok => Status == PluginPackageStatus.Ok;
     public bool Locked => Status == PluginPackageStatus.Locked;
     public bool Invalid => Status == PluginPackageStatus.Invalid;
+    public bool PermissionDenied => Status == PluginPackageStatus.Denied;
 
     public static PluginPackageResult Success(string message) => new(PluginPackageStatus.Ok, message);
     public static PluginPackageResult Busy(string message) => new(PluginPackageStatus.Locked, message);
     public static PluginPackageResult Bad(string message) => new(PluginPackageStatus.Invalid, message);
+    public static PluginPackageResult NoAccess(string message) => new(PluginPackageStatus.Denied, message);
 }
 
 /// <summary>
@@ -103,9 +107,10 @@ public static class PluginPackage
     /// <summary>
     /// 把插件包解压并覆盖到 targetDir（通常是 …\Plugins\classroomkit.hotspot）。
     /// 校验：必须含 manifest.yml 与 ClassroomKit.ClassIsland.dll；拒绝绝对路径、盘符与 .. 穿越。
-    /// 失败区分 Locked（文件被占用 / 无权限，重试可能成功）与 Invalid（包不对）。
+    /// 失败区分 Locked（文件被占用，重试可能成功）、Denied（没有写入权限，重试没用）与 Invalid（包不对）。
+    /// stagingRoot 是临时解压目录的父目录，不要传 …\Plugins（ClassIsland 会把临时目录当成第二个插件）。
     /// </summary>
-    public static PluginPackageResult ExtractTo(string zipPath, string targetDir)
+    public static PluginPackageResult ExtractTo(string zipPath, string targetDir, string? stagingRoot = null)
     {
         if (string.IsNullOrWhiteSpace(zipPath) || !File.Exists(zipPath))
             return PluginPackageResult.Bad("插件包不存在：" + zipPath);
@@ -161,7 +166,12 @@ public static class PluginPackage
             if (string.IsNullOrEmpty(parent)) return PluginPackageResult.Bad("插件目录不合法：" + targetDir);
 
             Directory.CreateDirectory(parent);
-            staging = Path.Combine(parent, ".ckit-plugin-" + Guid.NewGuid().ToString("N")[..8]);
+            // 临时目录绝不能建在 …\Plugins 里面：ClassIsland 会把 .ckit-plugin-* 当成第二个插件加载。
+            var stageRoot = string.IsNullOrWhiteSpace(stagingRoot)
+                ? Path.Combine(Path.GetTempPath(), "ClassroomKit-plugin-stage")
+                : stagingRoot;
+            CleanupStaleStaging(stageRoot);
+            staging = Path.Combine(stageRoot, ".ckit-plugin-" + Guid.NewGuid().ToString("N")[..8]);
             Directory.CreateDirectory(staging);
 
             var staged = new List<(string Source, string Relative)>();
@@ -182,7 +192,9 @@ public static class PluginPackage
 
             Directory.CreateDirectory(fullTarget);
             var copied = 0;
-            foreach (var (source, relative) in staged)
+            // manifest.yml 最后写：万一 dll 被占用写失败，目录里仍是旧版本号，下次还会继续重试，
+            // 不会变成「新清单 + 旧 dll」让更新器以为已经装好、从此不再修补。
+            foreach (var (source, relative) in staged.OrderBy(x => IsManifest(x.Relative) ? 1 : 0))
             {
                 // data/ 与 Config/ 是插件的用户数据，升级时一律不动
                 if (IsUserData(relative)) continue;
@@ -209,7 +221,7 @@ public static class PluginPackage
         }
         catch (UnauthorizedAccessException ex)
         {
-            return PluginPackageResult.Busy("没有权限写入插件目录：" + ex.Message);
+            return PluginPackageResult.NoAccess("没有权限写入插件目录（请用管理员运行，或检查目录权限）：" + ex.Message);
         }
         catch (IOException ex)
         {
@@ -342,6 +354,33 @@ public static class PluginPackage
                          + Path.DirectorySeparatorChar;
         return path.StartsWith(normalized, StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>这个条目是不是清单文件（写盘时排到最后）。</summary>
+    private static bool IsManifest(string relative) =>
+        Path.GetFileName(relative).Equals(ManifestFile, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>清掉以前遗留的临时解压目录（崩溃或被占用时可能留下来）。</summary>
+    private static void CleanupStaleStaging(string stageRoot)
+    {
+        try
+        {
+            if (!Directory.Exists(stageRoot)) return;
+            foreach (var dir in Directory.EnumerateDirectories(stageRoot, ".ckit-plugin-*"))
+            {
+                try
+                {
+                    if (DateTime.UtcNow - Directory.GetLastWriteTimeUtc(dir) < TimeSpan.FromHours(1)) continue;
+                    Directory.Delete(dir, recursive: true);
+                }
+                catch { }
+            }
+        }
+        catch { }
+    }
+
+    /// <summary>待安装的插件包是否比本机已装的新（不比新的包直接丢掉，避免把插件降级）。</summary>
+    public static bool IsNewerThanInstalled(PluginManifest pending, string? installedVersion) =>
+        string.IsNullOrWhiteSpace(installedVersion) || UpdateVersion.IsNewer(pending.Version, installedVersion);
 
     private static void TryDeleteDirectory(string dir)
     {

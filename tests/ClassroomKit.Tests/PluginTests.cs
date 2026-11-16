@@ -84,6 +84,37 @@ internal static class PluginTests
             finally { Cleanup(dir); }
         });
 
+        await Run("解包插件：临时目录不落在 Plugins 里，解压后不留垃圾", () =>
+        {
+            var dir = NewDir();
+            try
+            {
+                var zip = Path.Combine(dir, "p.cipx");
+                MakeZip(zip,
+                    ("manifest.yml", "id: classroomkit.hotspot\nversion: 0.6.5\n"),
+                    ("ClassroomKit.ClassIsland.dll", "dll"));
+                var plugins = Path.Combine(dir, "Plugins");
+                var target = Path.Combine(plugins, "classroomkit.hotspot");
+                var staging = Path.Combine(dir, "update", "tmp");
+                Directory.CreateDirectory(staging);
+
+                var result = PluginPackage.ExtractTo(zip, target, staging);
+                True(result.Ok, "解包应成功：" + result.Message);
+                Eq(0, Directory.GetDirectories(plugins, ".ckit-plugin-*").Length, "Plugins 里不能留临时目录");
+                Eq(0, Directory.GetDirectories(staging, ".ckit-plugin-*").Length, "解压完要清掉临时目录");
+            }
+            finally { Cleanup(dir); }
+        });
+
+        await Run("待装插件：不比本机新的包不装（避免降级）", () =>
+        {
+            var pending = new PluginManifest("classroomkit.hotspot", "0.6.5");
+            True(PluginPackage.IsNewerThanInstalled(pending, "0.6.4"), "0.6.5 比 0.6.4 新");
+            False(PluginPackage.IsNewerThanInstalled(pending, "0.6.5"), "同版本不算新");
+            False(PluginPackage.IsNewerThanInstalled(pending, "0.6.6"), "旧包不能覆盖新装");
+            True(PluginPackage.IsNewerThanInstalled(pending, ""), "读不到已装版本时允许安装");
+        });
+
         await Run("选插件资产：优先同名版本，其次任意 cipx", () =>
         {
             var older = new ReleaseAsset { Name = "ClassroomKit-0.5.1.cipx", Url = "https://x/older" };

@@ -85,6 +85,9 @@ public static class InstallRunner
             try
             {
                 if (process.Id == self) continue;
+                // 护航任务自己也在 session 0，而且它就是 msiexec 的祖先进程：
+                // 在这里 Kill(entireProcessTree) 会把正在跑的 msiexec 一起带走，装到一半就断。
+                if (process.SessionId == 0 && Process.GetCurrentProcess().SessionId == 0) continue;
                 process.Kill(entireProcessTree: true);
                 process.WaitForExit(5000);
                 killed++;

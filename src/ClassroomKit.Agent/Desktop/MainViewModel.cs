@@ -193,14 +193,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             Toast("已清除课表数据，等插件下次推送");
             _ = RefreshAsync(true);
         });
-        CheckUpdateCommand = new RelayCommand(() => RunAsync(async () =>
+        CheckUpdateCommand = new RelayCommand(() => RunUpdateOnce(async () =>
         {
             var status = await _rt.Update.CheckAsync(true);
             if (!status.HasUpdate) return status.PhaseText;
             var after = await _rt.Update.DownloadAsync();
             return after.Phase == UpdatePhase.Ready ? $"发现新版本 v{status.Latest}，安装包已下载" : after.PhaseText;
         }));
-        UpgradeCommand = new RelayCommand(() => RunAsync(async () =>
+        UpgradeCommand = new RelayCommand(() => RunUpdateOnce(async () =>
         {
             var s = await _rt.Update.DownloadAsync();
             if (s.Phase == UpdatePhase.Ready)
@@ -210,7 +210,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             }
             return s.PhaseText;
         }));
-        UpdatePluginCommand = new RelayCommand(() => RunAsync(async () =>
+        UpdatePluginCommand = new RelayCommand(() => RunUpdateOnce(async () =>
         {
             var s = await _rt.Update.UpdatePluginAsync();
             return string.IsNullOrWhiteSpace(s.PluginText) ? "ClassIsland 插件已处理" : s.PluginText;
@@ -813,6 +813,24 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     /// <summary>耗时动作（保存板书、UAC 提权安装护航）放后台，别把定时刷新的界面卡住。</summary>
     private void RunBackground(Func<string> action) => RunAsync(() => Task.Run(action));
+
+    /// <summary>升级类按钮共用一个入口：连点两下不会并发检查/下载/安装。</summary>
+    private int _updateBusy;
+
+    private void RunUpdateOnce(Func<Task<string>> action)
+    {
+        if (Interlocked.CompareExchange(ref _updateBusy, 1, 0) != 0)
+        {
+            Toast("上一个升级操作还没结束，请稍等");
+            return;
+        }
+
+        RunAsync(async () =>
+        {
+            try { return await action().ConfigureAwait(false); }
+            finally { Interlocked.Exchange(ref _updateBusy, 0); }
+        });
+    }
 
     private void RunAsync(Func<Task<string>> action)
     {

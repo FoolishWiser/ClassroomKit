@@ -197,7 +197,8 @@ public sealed class UpdateService
     public async Task<UpdateStatus> CheckAsync(bool force = false, CancellationToken ct = default)
     {
         // 插件检测与远端检查互相独立：没有 ClassIsland 也要能正常升级应用本身
-        DetectPlugin();
+        // 用户点「检查更新」时绕开 5 分钟的目录缓存，否则刚装/刚挪过 ClassIsland 会拿着旧路径。
+        DetectPlugin(force);
 
         var cfg = Config;
         if (!cfg.Enabled)
@@ -215,6 +216,10 @@ public sealed class UpdateService
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            // 升级请求已经投给护航任务时不要再刷新状态：以前这里无条件 Set(Checking)，
+            // 会把 Installing 冲掉，20 分钟看门狗就永远对不上号，面板一直停在「正在安装」。
+            if (Status.Phase == UpdatePhase.Installing) return Status;
+
             Set(new UpdateStatus { Current = _current, Phase = UpdatePhase.Checking, CheckedAt = DateTimeOffset.Now });
             _log.Info($"检查更新：{cfg.Repo}（当前 v{_current}）");
 
@@ -248,7 +253,9 @@ public sealed class UpdateService
 
             _release = release;
             _checkedAt = DateTimeOffset.Now;
-            _installerPath = null;
+            // 同一个版本重复检查时别把已经下好的安装包路径丢掉，否则 Install() 会说「还没下载好」。
+            if (_installerPath is not null && !_installerPath.Contains(release.Version, StringComparison.OrdinalIgnoreCase))
+                _installerPath = null;
             ApplyReleasePlugin(release);
 
             if (!UpdateVersion.IsNewer(release.Version, _current))
@@ -388,6 +395,10 @@ public sealed class UpdateService
     /// </summary>
     public (bool Ok, string Message) Install()
     {
+        // 已经在装的时候再点一次会覆盖安装请求，护航任务与看门狗就对不上同一个 id 了。
+        if (Status.Phase == UpdatePhase.Installing)
+            return (false, "已经在安装中，请等它结束（最多 20 分钟）");
+
         // 先把已经下载好的 ClassIsland 插件装上；插件失败只记状态，绝不阻断 MSI 升级
         MaybeApplyPlugin();
 
@@ -432,6 +443,15 @@ public sealed class UpdateService
     /// <summary>兜底路径：绿色版没注册护航任务时，仍然弹一次 UAC 让 msiexec 跑起来。</summary>
     private (bool Ok, string Message) InstallViaUac(string path)
     {
+        // 自动升级可能发生在凌晨、没人坐在电脑前：这时 Process.Start(runas) 会让调用线程
+        // 永远卡在安全桌面上（老师看不见也点不到）。没有交互桌面就如实返回，让用户到机器前手动装。
+        if (!AdminElevation.CanPrompt())
+        {
+            _log.Warn("没有可交互的桌面会话，跳过弹 UAC 的兜底安装");
+            Set(Status with { Phase = UpdatePhase.Ready, Error = "当前没有可交互的桌面会话，无法弹管理员授权，请到电脑前手动升级" });
+            return (false, "当前没有可交互的桌面会话，无法弹管理员授权：请到这台电脑前手动运行安装包，或先装好护航任务");
+        }
+
         var logPath = Path.Combine(Paths.LogDir, "update.log");
         var scriptPath = Path.Combine(UpdateRoot, "apply-update.cmd");
         try
@@ -495,6 +515,9 @@ public sealed class UpdateService
     // 插件只是「顺带更新」，任何失败都只写 PluginError，绝不阻断 MSI 升级。
 
     private static readonly TimeSpan PluginDetectTtl = TimeSpan.FromMinutes(5);
+
+    /// <summary>插件解包/覆盖是同步文件操作，面板按钮与巡检可能同时到，串起来避免互相踩。</summary>
+    private static readonly object PluginInstallLock = new();
 
     private bool PluginAvailableNow
     {
@@ -706,34 +729,51 @@ public sealed class UpdateService
     /// </summary>
     private bool TryInstallPlugin(string cipxPath, bool stageOnFailure)
     {
-        var location = DetectPlugin(force: true);
-        if (!location.CanInstall)
+        lock (PluginInstallLock)
         {
-            SetPluginError("没有找到 ClassIsland 插件目录");
+            var location = DetectPlugin(force: true);
+            if (!location.CanInstall)
+            {
+                SetPluginError("没有找到 ClassIsland 插件目录");
+                return false;
+            }
+
+            _log.Info($"更新 ClassIsland 插件：{Path.GetFileName(cipxPath)} → {location.Dir}");
+
+            // 临时解压目录放到 update\tmp，绝不能落在 …\Plugins 里（ClassIsland 会把它当第二个插件）。
+            var stagingRoot = Path.Combine(UpdateRoot, "tmp");
+            var result = PluginPackage.ExtractTo(cipxPath, location.Dir!, stagingRoot);
+            if (result.Ok)
+            {
+                var version = PluginPackage.ReadManifestFromDirectory(location.Dir!)?.Version ?? "";
+                MarkPluginApplied(version);
+                PluginInstaller.InvalidateRootCache();
+                TryDelete(PendingPluginPath);
+                _log.Info("ClassIsland 插件文件已更新，重启 ClassIsland 后生效");
+                return true;
+            }
+
+            string hint;
+            if (result.PermissionDenied)
+            {
+                // 权限问题重试也没用：不排 pending，免得每 5 分钟白撞一次
+                hint = "没有权限写入 ClassIsland 插件目录，请用管理员身份运行一次：" + result.Message;
+            }
+            else if (result.Locked)
+            {
+                hint = "ClassIsland 正在运行或插件文件被占用，请先退出 ClassIsland 后重试";
+            }
+            else
+            {
+                hint = "插件包不合法：" + result.Message;
+            }
+
+            if (result.Locked && stageOnFailure && StagePendingPlugin(cipxPath))
+                hint += $"；已排入待安装队列（{Path.GetFileName(PendingPluginPath)}），退出 ClassIsland 后下次巡检会自动重试";
+
+            SetPluginError(hint);
             return false;
         }
-
-        _log.Info($"更新 ClassIsland 插件：{Path.GetFileName(cipxPath)} → {location.Dir}");
-
-        var result = PluginPackage.ExtractTo(cipxPath, location.Dir!);
-        if (result.Ok)
-        {
-            var version = PluginPackage.ReadManifestFromDirectory(location.Dir!)?.Version ?? "";
-            MarkPluginApplied(version);
-            TryDelete(PendingPluginPath);
-            _log.Info("ClassIsland 插件文件已更新，重启 ClassIsland 后生效");
-            return true;
-        }
-
-        var hint = result.Locked
-            ? "ClassIsland 正在运行或插件文件被占用，请先退出 ClassIsland 后重试"
-            : "插件包不合法：" + result.Message;
-
-        if (result.Locked && stageOnFailure && StagePendingPlugin(cipxPath))
-            hint += $"；已排入待安装队列（{Path.GetFileName(PendingPluginPath)}），退出 ClassIsland 后下次巡检会自动重试";
-
-        SetPluginError(hint);
-        return false;
     }
 
     /// <summary>把 cipx 复制到 pending-plugin.cipx，等巡检补装。</summary>
@@ -743,7 +783,10 @@ public sealed class UpdateService
         {
             Directory.CreateDirectory(UpdateRoot);
             if (PathsEqual(cipxPath, PendingPluginPath)) return true;   // 已经在队列里
-            File.Copy(cipxPath, PendingPluginPath, overwrite: true);
+            // 先写 .part 再原子替换：巡检可能同时在读 pending，不能让它看到半个包。
+            var temp = PendingPluginPath + ".part";
+            File.Copy(cipxPath, temp, overwrite: true);
+            File.Move(temp, PendingPluginPath, overwrite: true);
             _log.Info("ClassIsland 插件已排入待安装队列：" + PendingPluginPath);
             return true;
         }
@@ -775,6 +818,19 @@ public sealed class UpdateService
         if (!File.Exists(PendingPluginPath)) return (true, "没有待安装的 ClassIsland 插件");
         if (!Config.UpdatePlugin)
             return (false, "插件更新已在配置里关闭（update.updatePlugin=false），保留待安装文件");
+
+        // 队里的包可能比本机已装的还旧（用户手动装过更新的插件）：装上去等于降级，直接清掉。
+        var pending = PluginPackage.ReadManifest(PendingPluginPath);
+        if (pending is not null)
+        {
+            var installed = DetectPlugin().Version;
+            if (!PluginPackage.IsNewerThanInstalled(pending, installed))
+            {
+                TryDelete(PendingPluginPath);
+                _log.Info($"待安装的插件包 v{pending.Version} 不比本机 v{installed} 新，已清理");
+                return (true, $"待安装的插件包 v{pending.Version} 不比本机 v{installed} 新，已清理");
+            }
+        }
 
         return TryInstallPlugin(PendingPluginPath, stageOnFailure: false)
             ? (true, "ClassIsland 插件已补装完成，重启 ClassIsland 后生效")
