@@ -71,6 +71,12 @@ public sealed class MiniHttpServer : IAsyncDisposable
     private readonly int _port;
     private readonly Func<HttpRequest, CancellationToken, Task<HttpResponse>> _handler;
     private readonly AppLog _log;
+
+    /// <summary>同时在处理的连接上限：超过就直接关掉新连接，不排队（排队只会把线程和内存越积越多）。</summary>
+    private const int MaxConcurrentClients = 16;
+
+    private readonly SemaphoreSlim _clients = new(MaxConcurrentClients, MaxConcurrentClients);
+
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
     private Task? _loop;
@@ -107,6 +113,9 @@ public sealed class MiniHttpServer : IAsyncDisposable
             catch (Exception ex)
             {
                 _log.Warn($"接受连接失败：{ex.Message}");
+                // 退避 200ms 再试：监听套接字持续报错时不能空转（取消仍退出）
+                try { await Task.Delay(200, ct).ConfigureAwait(false); }
+                catch (OperationCanceledException) { break; }
                 continue;
             }
 
@@ -116,6 +125,14 @@ public sealed class MiniHttpServer : IAsyncDisposable
 
     private async Task HandleClientAsync(TcpClient client, CancellationToken ct)
     {
+        // 并发闸门：拿不到名额就直接关连接，把卡住的请求挡在进程外
+        if (!_clients.Wait(0))
+        {
+            _log.Debug($"并发连接已满（{MaxConcurrentClients}），拒绝新连接");
+            try { client.Dispose(); } catch { }
+            return;
+        }
+
         using var _ = client;
         try
         {
@@ -154,6 +171,10 @@ public sealed class MiniHttpServer : IAsyncDisposable
         catch (Exception ex)
         {
             _log.Debug($"连接异常：{ex.Message}");
+        }
+        finally
+        {
+            _clients.Release();
         }
     }
 

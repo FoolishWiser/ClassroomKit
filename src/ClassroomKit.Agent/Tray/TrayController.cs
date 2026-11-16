@@ -350,16 +350,34 @@ public sealed class TrayController : IDisposable
     {
         void Run()
         {
+            ConflictDialogResult result;
             try
             {
-                var result = ConflictDialog.Ask(situation.Describe());
-                if (result.SnoozeToday) _runtime.ConflictWatcher.SetSnoozeToday(true);
-                _runtime.ConflictWatcher.ApplyChoice(result.Choice);
+                // 弹窗必须在 UI 线程：这里是 Form.ShowDialog，不能挪走
+                result = ConflictDialog.Ask(situation.Describe());
             }
             catch (Exception ex)
             {
                 _runtime.Log.Warn($"板书冲突弹窗失败：{ex.ToString()}");
+                return;
             }
+
+            if (result.SnoozeToday) _runtime.ConflictWatcher.SetSnoozeToday(true);
+
+            // ApplyChoice 会同步发 WM_CLOSE 再等最多 5 秒、然后 Kill 进程；
+            // 放在 UI 线程上做会把整个界面（含托盘、主窗口）冻住 5 秒以上，
+            // 所以结果在 UI 线程拿到，关闭动作丢到线程池。
+            _ = Task.Run(() =>
+            {
+                try
+                {
+                    _runtime.ConflictWatcher.ApplyChoice(result.Choice);
+                }
+                catch (Exception ex)
+                {
+                    _runtime.Log.Warn($"执行板书冲突选择失败：{ex.ToString()}");
+                }
+            });
         }
 
         if (_ui is not null) _ui.Post(_ => Run(), null);
@@ -432,25 +450,35 @@ public sealed class TrayController : IDisposable
         });
     }
 
+    /// <summary>
+    /// 在 UI 线程弹一个 Yes/No 确认框并等结果。
+    /// 原来用 _ui.Send 同步等：UI 线程当时要是正忙（比如正在关进程），调用方会被无限期卡住。
+    /// 这里改成 Post + 最多等 5 秒，等不到就按「不升级」处理。
+    /// </summary>
     private bool? AskYesNo(string title, string text)
     {
-        bool? answer = null;
-        void Ask()
-        {
-            try
-            {
-                answer = Forms.MessageBox.Show(text, title, Forms.MessageBoxButtons.YesNo,
-                    Forms.MessageBoxIcon.Question) == Forms.DialogResult.Yes;
-            }
-            catch
-            {
-                // 没有交互桌面时当作“不升级”
-            }
-        }
+        if (_ui is null) return AskOnCurrentThread(title, text);
 
-        if (_ui is not null) _ui.Send(_ => Ask(), null);
-        else Ask();
-        return answer;
+        var answer = new TaskCompletionSource<bool?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _ui.Post(_ => answer.TrySetResult(AskOnCurrentThread(title, text)), null);
+
+        // 最多等 5 秒：UI 线程被别的同步操作占住时，不能把后台更新流程一起拖死
+        return answer.Task.Wait(TimeSpan.FromSeconds(5)) ? answer.Task.Result : null;
+    }
+
+    /// <summary>实际弹框；没有交互桌面时返回 null（当作“不升级”）。</summary>
+    private static bool? AskOnCurrentThread(string title, string text)
+    {
+        try
+        {
+            return Forms.MessageBox.Show(text, title, Forms.MessageBoxButtons.YesNo,
+                Forms.MessageBoxIcon.Question) == Forms.DialogResult.Yes;
+        }
+        catch
+        {
+            // 没有交互桌面时当作“不升级”
+            return null;
+        }
     }
 
     private void LaunchBcu()

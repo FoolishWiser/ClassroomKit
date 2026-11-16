@@ -159,7 +159,7 @@ public sealed class HostsService
         return (false, _lastError);
     }
 
-    public Task<(bool Ok, string Message)> RestoreAsync(CancellationToken ct)
+    public async Task<(bool Ok, string Message)> RestoreAsync(CancellationToken ct)
     {
         bool ok;
         string message;
@@ -169,13 +169,14 @@ public sealed class HostsService
         }
         else
         {
-            var viaService = RestoreViaService(ct);
+            // 这条要等护航任务回话（最长 25 秒）：必须真异步，不能卡住 UI 线程
+            var viaService = await RestoreViaServiceAsync(ct).ConfigureAwait(false);
             if (viaService.Pending)
             {
                 // 护航任务每 5 分钟才醒一次，请求已经躺在信箱里了：别把它当成失败
                 _lastMessage = viaService.Message;
                 _log.Info($"hosts 还原请求已交给护航任务：{viaService.Message}");
-                return Task.FromResult((true, viaService.Message));
+                return (true, viaService.Message);
             }
             (ok, message) = (viaService.Ok, viaService.Message);
         }
@@ -191,18 +192,18 @@ public sealed class HostsService
         {
             _lastError = message;
         }
-        return Task.FromResult((ok, message));
+        return (ok, message);
     }
 
-    private (bool Ok, string Message, bool Pending) RestoreViaService(CancellationToken ct)
+    private async Task<(bool Ok, string Message, bool Pending)> RestoreViaServiceAsync(CancellationToken ct)
     {
         var request = new HostsRequest(ServiceChannel.NewId(), "restore", Array.Empty<HostEntry>(), DateTimeOffset.Now);
         ServiceChannel.Write(ServiceChannel.HostsRequestPath, request);
         var installed = Tasks.ScheduledTaskInstaller.IsServiceInstalled();
         if (installed) Tasks.ScheduledTaskInstaller.RunServiceNow();   // 护航平时每 5 分钟才醒，顺手叫它一次
-        var status = ServiceChannel.WaitAsync<HostsStatus>(
+        var status = await ServiceChannel.WaitAsync<HostsStatus>(
             ServiceChannel.HostsStatusPath, s => s.Id == request.Id,
-            TimeSpan.FromSeconds(installed ? 25 : 5), ct).GetAwaiter().GetResult();
+            TimeSpan.FromSeconds(installed ? 25 : 5), ct).ConfigureAwait(false);
         if (status is not null) return (status.Ok, status.Message, false);
         return installed
             ? (true, PendingMessage, true)
@@ -233,11 +234,41 @@ public sealed class HostsService
 
     private const string PendingMessage = "已提交给护航任务，最多 5 分钟内写入（面板稍后刷新可见）";
 
-    /// <summary>护航任务最近 20 分钟是否写过心跳。</summary>
+    // 心跳查询缓存：状态快照每秒取一次，每次都去读文件没必要。
+    private static readonly object AliveCacheLock = new();
+    private static readonly TimeSpan AliveCacheTtl = TimeSpan.FromSeconds(30);
+    private static DateTimeOffset _aliveCheckedAt = DateTimeOffset.MinValue;
+    private static bool _serviceAlive;
+
+    /// <summary>护航任务最近 20 分钟是否写过心跳。结果缓存 30 秒。</summary>
     private static bool IsServiceAlive()
     {
-        var heartbeat = ServiceChannel.ReadHeartbeat();
-        return heartbeat is not null && DateTimeOffset.Now - heartbeat.At < TimeSpan.FromMinutes(20);
+        lock (AliveCacheLock)
+        {
+            var now = DateTimeOffset.Now;
+            if (now - _aliveCheckedAt < AliveCacheTtl) return _serviceAlive;
+
+            bool alive;
+            try
+            {
+                var heartbeat = ServiceChannel.ReadHeartbeat();
+                alive = heartbeat is not null && now - heartbeat.At < TimeSpan.FromMinutes(20);
+            }
+            catch
+            {
+                alive = false;   // 读不到心跳文件就按「没在跑」处理，同样缓存 30 秒
+            }
+
+            _serviceAlive = alive;
+            _aliveCheckedAt = now;
+            return alive;
+        }
+    }
+
+    /// <summary>安装/卸载护航任务后清掉心跳缓存，让状态栏立刻刷新。</summary>
+    public static void InvalidateServiceAliveCache()
+    {
+        lock (AliveCacheLock) _aliveCheckedAt = DateTimeOffset.MinValue;
     }
 
     public static async Task<bool> GitHubReachableAsync(CancellationToken ct)

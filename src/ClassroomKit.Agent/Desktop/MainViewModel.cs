@@ -263,7 +263,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             Interval = TimeSpan.FromSeconds(3.4)
         };
         _toastTimer.Tick += (_, _) => NextToast();
-        _timer = new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Background,
+        // 面板 3 秒粒度就够了：每拍一次快照都要碰 WMI / hosts 文件，没有必要每秒重来
+        _timer = new DispatcherTimer(TimeSpan.FromSeconds(3), DispatcherPriority.Background,
             (_, _) => _ = RefreshAsync(false), Dispatcher.CurrentDispatcher);
         _timer.Stop();
         _timer.Start();
@@ -546,50 +547,61 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var merged = LogDiff.Merge(_allLogs, incoming, 300);
         if (merged.Count == _allLogs.Count && _allLogs.Count > 0 && merged[^1].Time == _allLogs[^1].Time && merged[^1].Message == _allLogs[^1].Message)
             return;
+
+        // 增量：新列表只是旧列表尾部接上新行（还没到 300 条上限）时只补新行；
+        // 日志被清空 / 整段替换 / 超过上限从头部裁掉时，才全量重建 —— 避免每次刷新都 Clear 把滚动位置拉回顶部。
+        var added = AddedTailCount(_allLogs, merged);
+        if (added > 0 && _allLogs.Count + added == merged.Count)
+        {
+            for (var i = _allLogs.Count; i < merged.Count; i++)
+            {
+                _allLogs.Add(merged[i]);
+                if (PassesFilter(merged[i])) LogEntries.Add(merged[i]);
+            }
+            LogsChanged?.Invoke();
+            return;
+        }
+
         _allLogs.Clear();
         _allLogs.AddRange(merged);
 
-        var filtered = Filter(_allLogs);
-        // 只追加新行，避免每秒 Clear 把滚动位置拉回顶部
-        if (LogEntries.Count <= filtered.Count && IsPrefix(LogEntries, filtered))
-        {
-            for (var i = LogEntries.Count; i < filtered.Count; i++) LogEntries.Add(filtered[i]);
-        }
-        else
-        {
-            LogEntries.Clear();
-            foreach (var line in filtered) LogEntries.Add(line);
-        }
-
+        LogEntries.Clear();
+        foreach (var line in Filter(_allLogs)) LogEntries.Add(line);
         LogsChanged?.Invoke();
     }
 
-    private static bool IsPrefix(IReadOnlyList<UiLogLine> existing, IReadOnlyList<UiLogLine> newer)
+    /// <summary>旧列表尾部与新列表开头能对上多少条；对不上（清空、整段替换）返回 0。</summary>
+    private static int AddedTailCount(IReadOnlyList<UiLogLine> existing, IReadOnlyList<UiLogLine> merged)
     {
-        for (var i = 0; i < existing.Count; i++)
+        var limit = Math.Min(existing.Count, merged.Count);
+        for (var overlap = limit; overlap > 0; overlap--)
         {
-            if (existing[i].Time != newer[i].Time || existing[i].Message != newer[i].Message) return false;
+            var matched = true;
+            for (var i = 0; i < overlap; i++)
+            {
+                var a = existing[existing.Count - overlap + i];
+                var b = merged[i];
+                if (a.Time != b.Time || a.Level != b.Level || !string.Equals(a.Message, b.Message, StringComparison.Ordinal))
+                {
+                    matched = false;
+                    break;
+                }
+            }
+            if (matched) return merged.Count - overlap;
         }
-        return true;
+        return 0;
     }
 
-    private List<UiLogLine> Filter(IReadOnlyList<UiLogLine> source)
+    private List<UiLogLine> Filter(IReadOnlyList<UiLogLine> source) => source.Where(PassesFilter).ToList();
+
+    /// <summary>当前日志级别下这一条要不要显示：增量追加和全量重建共用同一套判断。</summary>
+    private bool PassesFilter(UiLogLine line) => _logMinLevel switch
     {
-        IEnumerable<UiLogLine> query = source;
-        switch (_logMinLevel)
-        {
-            case "error":
-                query = source.Where(x => x.IsError);
-                break;
-            case "warn":
-                query = source.Where(x => x.IsError || x.IsWarn);
-                break;
-            case "info":
-                query = source.Where(x => !x.IsDebug);
-                break;
-        }
-        return query.ToList();
-    }
+        "error" => line.IsError,
+        "warn" => line.IsError || line.IsWarn,
+        "info" => !line.IsDebug,
+        _ => true
+    };
 
     private void RebuildLogs()
     {
@@ -799,7 +811,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _ = RefreshAsync(true);
     }
 
-    /// <summary>耗时动作（保存板书、UAC 提权安装护航）放后台，别把 1 秒刷新的界面卡住。</summary>
+    /// <summary>耗时动作（保存板书、UAC 提权安装护航）放后台，别把定时刷新的界面卡住。</summary>
     private void RunBackground(Func<string> action) => RunAsync(() => Task.Run(action));
 
     private void RunAsync(Func<Task<string>> action)

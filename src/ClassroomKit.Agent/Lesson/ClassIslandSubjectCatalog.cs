@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using ClassroomKit.Agent.Update;
 using ClassroomKit.Core.Lesson;
 using ClassroomKit.Core.Logging;
@@ -13,6 +14,14 @@ public sealed class ClassIslandSubjectCatalog
 {
     private static readonly TimeSpan RootTtl = TimeSpan.FromMinutes(5);
 
+    /// <summary>连续多次扫不到根目录（正常是没装 ClassIsland）后退避到 30 分钟一次。</summary>
+    private static readonly TimeSpan EmptyRootTtl = TimeSpan.FromMinutes(30);
+    private const int EmptyScansBeforeBackoff = 3;
+
+    /// <summary>单次刷新超过 5 秒记一条 Warn；同类告警最多 10 分钟一条。</summary>
+    private static readonly TimeSpan SlowRefresh = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan SlowWarnTtl = TimeSpan.FromMinutes(10);
+
     private readonly AppLog _log;
     private readonly PluginInstaller _installer;
 
@@ -20,7 +29,9 @@ public sealed class ClassIslandSubjectCatalog
     private IReadOnlyList<string> _roots = Array.Empty<string>();
     private DateTimeOffset _rootsAt = DateTimeOffset.MinValue;
     private DateTimeOffset _missingLoggedAt = DateTimeOffset.MinValue;
+    private DateTimeOffset _slowWarnedAt = DateTimeOffset.MinValue;
     private bool _foundLogged;
+    private int _emptyScans;
     private int _refreshing;
 
     public ClassIslandSubjectCatalog(AppLog log)
@@ -36,13 +47,18 @@ public sealed class ClassIslandSubjectCatalog
     public void Refresh()
     {
         if (Interlocked.Exchange(ref _refreshing, 1) == 1) return;
+        var watch = Stopwatch.StartNew();
         try
         {
             var now = DateTimeOffset.Now;
-            if (_roots.Count == 0 || now - _rootsAt > RootTtl)
+            // 扫根目录很重：一律按 TTL 缓存。以前 _roots 为空就每分钟重扫，没装 ClassIsland 的机器会整天做全盘 BFS。
+            // 连续 3 次扫不到就退避到 30 分钟一次。
+            var ttl = _emptyScans >= EmptyScansBeforeBackoff ? EmptyRootTtl : RootTtl;
+            if (now - _rootsAt > ttl)
             {
                 _roots = _installer.FindRoots();
                 _rootsAt = now;
+                _emptyScans = _roots.Count == 0 ? _emptyScans + 1 : 0;
             }
 
             var names = new List<string>();
@@ -74,7 +90,19 @@ public sealed class ClassIslandSubjectCatalog
         }
         finally
         {
+            watch.Stop();
             Interlocked.Exchange(ref _refreshing, 0);
+
+            // 单次刷新超过 5 秒记一条 Warn（节流 10 分钟，避免每分钟刷屏）
+            if (watch.Elapsed > SlowRefresh)
+            {
+                var finishedAt = DateTimeOffset.Now;
+                if (_slowWarnedAt == DateTimeOffset.MinValue || finishedAt - _slowWarnedAt > SlowWarnTtl)
+                {
+                    _slowWarnedAt = finishedAt;
+                    _log.Warn($"扫描 ClassIsland 科目用时 {watch.Elapsed.TotalSeconds:F1} 秒，超过 {SlowRefresh.TotalSeconds:F0} 秒");
+                }
+            }
         }
     }
 }

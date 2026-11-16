@@ -145,8 +145,29 @@ public sealed class UplinkProbe
         }
     }
 
-    /// <summary>读路由表里 0.0.0.0 默认路由的 metric：真正的“哪块网卡优先上网”。</summary>
+    // 路由表结果缓存：巡检每轮都枚举网卡，以前每轮起一个 route.exe；10 秒内直接吃缓存。
+    private static readonly object RouteCacheLock = new();
+    private static readonly TimeSpan RouteCacheTtl = TimeSpan.FromSeconds(10);
+    private static DateTimeOffset _routeCheckedAt = DateTimeOffset.MinValue;
+    private static Dictionary<string, int>? _routeCache;
+
+    /// <summary>读路由表里 0.0.0.0 默认路由的 metric：真正的“哪块网卡优先上网”。结果缓存 10 秒。</summary>
     private static Dictionary<string, int> DefaultRouteMetrics()
+    {
+        lock (RouteCacheLock)
+        {
+            var now = DateTimeOffset.Now;
+            if (_routeCache is not null && now - _routeCheckedAt < RouteCacheTtl) return _routeCache;
+
+            var map = ReadDefaultRoutes();
+            _routeCache = map;
+            _routeCheckedAt = now;
+            return map;
+        }
+    }
+
+    /// <summary>真正去跑 route.exe 的实现（缓存由 <see cref="DefaultRouteMetrics"/> 负责）。</summary>
+    private static Dictionary<string, int> ReadDefaultRoutes()
     {
         var map = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         try
@@ -155,12 +176,26 @@ public sealed class UplinkProbe
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,
-                RedirectStandardOutput = true
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
             };
             using var proc = System.Diagnostics.Process.Start(psi);
             if (proc is null) return map;
-            var text = proc.StandardOutput.ReadToEnd();
-            proc.WaitForExit(3000);
+
+            // 异步读 + 限时等退出：以前同步 ReadToEnd 没有超时，route.exe 卡住会把巡检线程一起拖住。
+            var textTask = proc.StandardOutput.ReadToEndAsync();
+            _ = proc.StandardError.ReadToEndAsync();   // 顺手排空，免得管道写满卡住子进程
+            string text;
+            if (proc.WaitForExit(3000))
+            {
+                text = textTask.GetAwaiter().GetResult();
+            }
+            else
+            {
+                try { proc.Kill(entireProcessTree: true); } catch { /* 可能已经自己退了 */ }
+                proc.WaitForExit(1000);
+                text = textTask.Wait(1000) && textTask.IsCompletedSuccessfully ? textTask.Result : "";
+            }
 
             foreach (var raw in text.Split('\n'))
             {

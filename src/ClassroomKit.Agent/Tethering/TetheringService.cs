@@ -114,11 +114,13 @@ public sealed class TetheringService : ITethering
         try
         {
             var list = new List<TetherClient>();
+            var arp = ArpTable.Map();   // 每轮只跑一次 arp.exe，客户端多的时候不再是一台一个进程
             foreach (var client in manager.GetTetheringClients())
             {
                 var mac = client.MacAddress?.ToLowerInvariant() ?? "";
                 var host = client.HostNames is { Count: > 0 } names ? names[0].DisplayName : "";
-                list.Add(new TetherClient(mac, host, ArpTable.IpFor(mac), DateTimeOffset.Now));
+                arp.TryGetValue(ArpTable.Normalize(mac), out var ip);
+                list.Add(new TetherClient(mac, host, ip, DateTimeOffset.Now));
             }
             return list;
         }
@@ -272,27 +274,33 @@ public sealed class TetheringService : ITethering
 /// <summary>从 ARP 表里找客户端 IP（WinRT 的 Client 只给 MAC）。</summary>
 internal static class ArpTable
 {
-    public static string? IpFor(string mac)
+    /// <summary>一次把整张 ARP 表解析成 MAC→IP 映射；调用方每轮调一次，客户端多时不再一台一个进程。</summary>
+    public static Dictionary<string, string> Map()
     {
-        if (string.IsNullOrEmpty(mac)) return null;
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         try
         {
-            var normalized = mac.Replace('-', ':').ToLowerInvariant();
             foreach (var line in RunArp())
             {
                 var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length < 2) continue;
                 if (!System.Net.IPAddress.TryParse(parts[0], out _)) continue;
-                var candidate = parts[1].Replace('-', ':').ToLowerInvariant();
-                if (candidate == normalized) return parts[0];
+
+                var mac = Normalize(parts[1]);
+                if (mac.Length == 0) continue;
+                // 同一个 MAC 可能有多条记录（多接口/残留项）：保留先出现的那条
+                if (!map.ContainsKey(mac)) map[mac] = parts[0];
             }
         }
         catch
         {
             // ARP 表读不到就不显示 IP
         }
-        return null;
+        return map;
     }
+
+    /// <summary>MAC 统一成小写冒号分隔，便于和 WinRT 给的格式比对。</summary>
+    public static string Normalize(string mac) => mac.Replace('-', ':').Trim().ToLowerInvariant();
 
     private static string[] RunArp()
     {
@@ -300,12 +308,26 @@ internal static class ArpTable
         {
             UseShellExecute = false,
             CreateNoWindow = true,
-            RedirectStandardOutput = true
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
         };
         using var proc = System.Diagnostics.Process.Start(psi);
         if (proc is null) return Array.Empty<string>();
-        var text = proc.StandardOutput.ReadToEnd();
-        proc.WaitForExit(3000);
+
+        // 异步读 + 限时等退出：以前同步 ReadToEnd 没有超时，arp.exe 卡住会拖住整轮巡检。
+        var textTask = proc.StandardOutput.ReadToEndAsync();
+        _ = proc.StandardError.ReadToEndAsync();   // 顺手排空，免得管道写满卡住子进程
+        string text;
+        if (proc.WaitForExit(3000))
+        {
+            text = textTask.GetAwaiter().GetResult();
+        }
+        else
+        {
+            try { proc.Kill(entireProcessTree: true); } catch { /* 可能已经自己退了 */ }
+            proc.WaitForExit(1000);
+            text = textTask.Wait(1000) && textTask.IsCompletedSuccessfully ? textTask.Result : "";
+        }
         return text.Split('\n');
     }
 }

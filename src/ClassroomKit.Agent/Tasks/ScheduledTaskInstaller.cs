@@ -64,6 +64,8 @@ public static class ScheduledTaskInstaller
 
             // 只挂开机触发的话，装在开机之后的任务永远不会自己跑；注册完立刻叫醒一次。
             var (woke, wakeMessage) = RunServiceNow();
+            // 刚注册完：把 30 秒缓存清掉，别让面板还报「未安装」
+            InvalidateServiceCache();
             return (true, "护航任务已注册（SYSTEM，每 5 分钟一次）" + (woke ? "；已立即运行一次" : $"；首次触发失败：{wakeMessage}"));
         }
         catch (Exception ex)
@@ -77,7 +79,9 @@ public static class ScheduledTaskInstaller
         try
         {
             var (code, output) = Run("schtasks.exe", $"/Delete /TN \"{ServiceTaskName}\" /F");
-            return code == 0 ? (true, "护航任务已删除") : (false, $"护航任务删除失败（{code}）：{output}");
+            if (code != 0) return (false, $"护航任务删除失败（{code}）：{output}");
+            InvalidateServiceCache();   // 刚删完：下一次查询要重新探测
+            return (true, "护航任务已删除");
         }
         catch (Exception ex)
         {
@@ -95,11 +99,40 @@ public static class ScheduledTaskInstaller
         return heartbeat is not null && DateTimeOffset.Now - heartbeat.At < TimeSpan.FromMinutes(20);
     }
 
-    /// <summary>只看计划任务本身是否注册（需要能读该任务的权限）。</summary>
+    // 查询结果缓存：状态栏每秒读一次，以前每秒都要起一个 schtasks.exe，一体机上很容易把进程表堆满、拖到整机发卡。
+    private static readonly object ServiceCacheLock = new();
+    private static readonly TimeSpan ServiceCacheTtl = TimeSpan.FromSeconds(30);
+    private static DateTimeOffset _serviceTaskCheckedAt = DateTimeOffset.MinValue;
+    private static bool _serviceTaskPresent;
+
+    /// <summary>只看计划任务本身是否注册（需要能读该任务的权限）。结果缓存 30 秒。</summary>
     public static bool IsServiceTaskPresent()
     {
-        var (code, _) = Run("schtasks.exe", $"/Query /TN \"{ServiceTaskName}\"");
-        return code == 0;
+        lock (ServiceCacheLock)
+        {
+            if (DateTimeOffset.Now - _serviceTaskCheckedAt < ServiceCacheTtl) return _serviceTaskPresent;
+
+            var present = false;
+            try
+            {
+                var (code, _) = Run("schtasks.exe", $"/Query /TN \"{ServiceTaskName}\"");
+                present = code == 0;
+            }
+            catch
+            {
+                present = false;   // 查询本身失败（权限/进程起不来）也按「不在」缓存 30 秒，避免失败时反复起进程
+            }
+
+            _serviceTaskPresent = present;
+            _serviceTaskCheckedAt = DateTimeOffset.Now;
+            return present;
+        }
+    }
+
+    /// <summary>安装/卸载后清缓存，让下一次查询立刻重新探测（否则刚装完 30 秒内还会报「未安装」）。</summary>
+    public static void InvalidateServiceCache()
+    {
+        lock (ServiceCacheLock) _serviceTaskCheckedAt = DateTimeOffset.MinValue;
     }
 
     /// <summary>让护航任务马上跑一次（比如刚投递了升级请求，不想等 5 分钟）。</summary>
@@ -308,8 +341,37 @@ public static class ScheduledTaskInstaller
         };
         using var proc = Process.Start(psi);
         if (proc is null) return (-1, "无法启动 schtasks");
-        var output = proc.StandardOutput.ReadToEnd() + proc.StandardError.ReadToEnd();
-        proc.WaitForExit(20000);
-        return (proc.ExitCode, output.Trim());
+
+        // 两个流并行读：以前顺序 ReadToEnd，先读的那个流要等 EOF，而子进程可能正卡在写另一个流上，互相死等。
+        var stdout = proc.StandardOutput.ReadToEndAsync();
+        var stderr = proc.StandardError.ReadToEndAsync();
+
+        // 限时等退出：schtasks 卡住时绝不能再无限挂住调用线程（以前是读完才等 20 秒）。
+        if (!proc.WaitForExit(5000))
+        {
+            try { proc.Kill(entireProcessTree: true); } catch { /* 可能已经自己退了 */ }
+            proc.WaitForExit(2000);
+            // Kill 之后再收流，正常会立刻拿到 EOF；收流本身也限时，绝不变成死等。
+            return (-1, (ReadPending(stdout, stderr) + "（schtasks 超时 5 秒，已终止）").Trim());
+        }
+
+        // 只有确认已退出才能读 ExitCode：超时后读会抛 InvalidOperationException。
+        var output = Task.WhenAll(stdout, stderr).GetAwaiter().GetResult();
+        return (proc.ExitCode, (output[0] + output[1]).Trim());
+    }
+
+    /// <summary>Kill 之后收流：最多等 1 秒，取不到就只拼已读完的部分。</summary>
+    private static string ReadPending(Task<string> stdout, Task<string> stderr)
+    {
+        var all = Task.WhenAll(stdout, stderr);
+        try
+        {
+            if (all.Wait(1000)) return all.Result[0] + all.Result[1];
+        }
+        catch
+        {
+            // 管道被 Kill 打断：忽略读取异常，退化成拼已拿到的内容
+        }
+        return (stdout.IsCompletedSuccessfully ? stdout.Result : "") + (stderr.IsCompletedSuccessfully ? stderr.Result : "");
     }
 }

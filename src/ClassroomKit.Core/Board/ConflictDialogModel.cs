@@ -18,8 +18,12 @@ public readonly record struct ConflictKeyPress(ConflictChoice? Choice, bool Togg
 /// </summary>
 public sealed class ConflictDialogModel
 {
+    /// <summary>悬停暂停的总上限：最多累计 15 秒，防止鼠标停在窗口上导致倒计时永久冻结。</summary>
+    public const int MaxPausedMs = 15_000;
+
     private readonly int _totalMs;
     private int _elapsedMs;
+    private int _pausedMs;
 
     public ConflictDialogModel(int timeoutSec = 60)
     {
@@ -35,8 +39,15 @@ public sealed class ConflictDialogModel
     /// <summary>用户勾了「今天不再提醒」。</summary>
     public bool SnoozeToday { get; private set; }
 
-    /// <summary>鼠标悬停时暂停倒计时（正在读文案就别催他）。</summary>
+    /// <summary>
+    /// 鼠标悬停时暂停倒计时（正在读文案就别催他）。
+    /// 暂停有上限（<see cref="MaxPausedMs"/>）：鼠标一直停在窗口上最多只把倒计时往后推 15 秒，
+    /// 否则指针恰好停在弹窗里就把倒计时永久冻住，窗口再也不关、后面的流程全卡在这里。
+    /// </summary>
     public bool Paused { get; set; }
+
+    /// <summary>悬停暂停的额度已经用完（再悬停也不再延后倒计时）。</summary>
+    public bool PauseExhausted => _pausedMs >= MaxPausedMs;
 
     /// <summary>倒计时走完、已自动按「都保留」处理。</summary>
     public bool Expired { get; private set; }
@@ -52,7 +63,15 @@ public sealed class ConflictDialogModel
     public bool Tick(int elapsedMs)
     {
         if (Chosen is not null || Expired) return false;
-        if (!Paused) _elapsedMs += Math.Max(0, elapsedMs);
+        var delta = Math.Max(0, elapsedMs);
+        if (Paused && _pausedMs < MaxPausedMs)
+        {
+            // 悬停只把这拍算进暂停额度、不推进倒计时；额度用完就照常推进
+            _pausedMs = Math.Min(MaxPausedMs, _pausedMs + delta);
+            return false;
+        }
+
+        _elapsedMs += delta;
         if (_elapsedMs < _totalMs) return false;
 
         Expired = true;

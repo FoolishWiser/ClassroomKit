@@ -39,6 +39,8 @@ public partial class DiagnosePage : UserControl
 
     private void OnLogsChanged()
     {
+        // 页面被切走（后台页）时别再 ScrollIntoView：布局照样要算一遍，纯属白烧
+        if (!IsVisible) return;
         if (_viewModel is not null) ScrollToEnd(_viewModel);
     }
 

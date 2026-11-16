@@ -11,6 +11,7 @@ public partial class HotspotComponent : ComponentBase
 {
     private readonly PluginSettingsStore _store;
     private readonly DispatcherTimer _timer;
+    private int _refreshing;
 
     public HotspotComponent(PluginSettingsStore store)
     {
@@ -38,24 +39,34 @@ public partial class HotspotComponent : ComponentBase
 
     private async Task RefreshAsync()
     {
-        // 课表那一行单独跑，不拖慢热点状态的刷新
-        _ = UpdateLessonLineAsync();
-
-        var client = _store.CreateClient();
-        var (state, _) = await client.TryGetStateAsync();
-        if (state is null)
+        // 上一轮还没回来定时器又到了：直接跳过，别把请求叠起来
+        if (Interlocked.Exchange(ref _refreshing, 1) == 1) return;
+        try
         {
-            Headline.Text = "热点";
-            Detail.Text = "守护未运行";
-            return;
-        }
+            // 课表那一行单独跑，不拖慢热点状态的刷新
+            _ = UpdateLessonLineAsync();
 
-        var hotspot = state.Hotspot;
-        var on = hotspot?.State is "on" or "running" or "starting" or "restarting";
-        Headline.Text = on ? "热点 ON" : "热点 OFF";
-        Detail.Text = hotspot is null
-            ? "—"
-            : (hotspot.Ssid ?? "—") + " · " + hotspot.Clients + "/" + hotspot.TargetClients;
+            // PluginSettingsStore 内部复用同一个客户端，这里不用每次 new
+            var client = _store.CreateClient();
+            var (state, _) = await client.TryGetStateAsync();
+            if (state is null)
+            {
+                Headline.Text = "热点";
+                Detail.Text = "守护未运行";
+                return;
+            }
+
+            var hotspot = state.Hotspot;
+            var on = hotspot?.State is "on" or "running" or "starting" or "restarting";
+            Headline.Text = on ? "热点 ON" : "热点 OFF";
+            Detail.Text = hotspot is null
+                ? "—"
+                : (hotspot.Ssid ?? "—") + " · " + hotspot.Clients + "/" + hotspot.TargetClients;
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _refreshing, 0);
+        }
     }
 
     /// <summary>课表联动的一行小字：下一节什么课、还有几分钟。没数据就整行藏起来，不占地方。</summary>
@@ -63,7 +74,7 @@ public partial class HotspotComponent : ComponentBase
     {
         try
         {
-            var lesson = await _store.CreateClient().GetLessonAsync();
+            var lesson = await _store.CreateClient().GetLessonAsync();   // 客户端是复用的
             if (!lesson.Available || string.IsNullOrWhiteSpace(lesson.NextSubject))
             {
                 LessonLine.IsVisible = false;

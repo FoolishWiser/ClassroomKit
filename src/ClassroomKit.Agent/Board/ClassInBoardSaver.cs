@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using ClassroomKit.Agent.Shell;
 using ClassroomKit.Core.Board;
 using ClassroomKit.Core.Logging;
@@ -48,6 +48,21 @@ public sealed class ClassInBoardSaver
 
     /// <param name="launchIfNeeded">null = 用配置里的 boardSave.launchIfNeeded。</param>
     public BoardSaveResult Save(bool closeAfterSave, bool? launchIfNeeded)
+    {
+        // 上一次保存如果被打断（窗口提前关闭、进程被杀），可能留下按住的 ALT / 鼠标键，
+        // 那样整机键盘鼠标都会「像坏了」——开始前先清一次，结束时无论成败再清一次。
+        Input.ReleaseAllInputs();
+        try
+        {
+            return SaveCore(closeAfterSave, launchIfNeeded);
+        }
+        finally
+        {
+            Input.ReleaseAllInputs();
+        }
+    }
+
+    private BoardSaveResult SaveCore(bool closeAfterSave, bool? launchIfNeeded)
     {
         var total = Stopwatch.StartNew();
         var steps = new List<BoardSaveStep>();

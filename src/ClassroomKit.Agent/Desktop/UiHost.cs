@@ -73,7 +73,16 @@ internal static class UiHost
             var handle = _showEvent;
             if (handle is null) return;
             handle.WaitOne();
-            _app?.Dispatcher.BeginInvoke(new Action(Show));
+
+            // 这一拍 Show 抛异常不能把循环带出去：线程一退，托盘再点「打开主界面」就永远没反应了
+            try
+            {
+                _app?.Dispatcher.BeginInvoke(new Action(Show));
+            }
+            catch
+            {
+                // 忽略这一拍，等下个唤醒信号
+            }
         }
     }
 
@@ -86,8 +95,14 @@ internal static class UiHost
             ClosedHook(_window);
         }
 
+        // 只有在窗口原本不可见或最小化时才抢前台并闪一下 Topmost：
+        // 已经在前台时反复切 Topmost 会把用户正在用的别的程序顶掉（焦点来回跳，看着就像死机）。
+        var needForeground = !_window.IsVisible || _window.WindowState == WindowState.Minimized;
+
         _window.Show();
         if (_window.WindowState == WindowState.Minimized) _window.WindowState = WindowState.Normal;
+        if (!needForeground) return;
+
         _window.Activate();
         _window.Topmost = true;
         _window.Topmost = false;

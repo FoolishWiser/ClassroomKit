@@ -72,8 +72,22 @@ internal static class Program
         using var mutex = new Mutex(true, MutexName, out var created);
         if (!created)
         {
-            // 已有实例在跑：不重复开热点、不抢端口，直接把策略确保为开就退出
-            try { Commands.Ensure(); } catch { /* 已有实例可能刚起来，忽略 */ }
+            // 已有实例在跑：不重复开热点、不抢端口。
+            // 60 秒冷却内的重复启动只把已有实例的窗口叫出来，不再派生新进程：
+            // 主实例 /api/state 卡住时，原来每次启动都会 Ensure() 出一条新的派生链。
+            try
+            {
+                if (Commands.EnsureCooldownHit())
+                {
+                    Desktop.UiHost.SignalShow();
+                    return 0;
+                }
+
+                Commands.MarkEnsureAttempt();
+                Commands.Ensure();
+            }
+            catch { /* 已有实例可能刚起来，忽略 */ }
+
             Desktop.UiHost.SignalShow();
             return 0;
         }

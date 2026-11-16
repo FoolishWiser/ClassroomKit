@@ -43,7 +43,8 @@ public sealed class AgentRuntime : IDisposable
         Api.AttachGuard(Guard);
         Api.ApplyPolicy = SetPolicy;
         Api.ApplySettings = ApplySettings;
-        Api.FixPeersAsync = (ct) => Task.FromResult(Commands.FixPeersCore(Log));
+        // HTTP 入口不许弹 UAC：用户可能不在电脑前，安全桌面会把整台机器卡住
+        Api.FixPeersAsync = (ct) => Task.FromResult(Commands.FixPeersCore(Log, allowPrompt: false));
         Api.LaunchBcuAsync = (ct) => Task.FromResult(BcuLauncher.Launch(Config.Current.Bcu));
         Api.GetUplinks = UplinksDto;
 
@@ -141,6 +142,9 @@ public sealed class AgentRuntime : IDisposable
     {
         Log.Info($"ClassroomKit Agent 启动 v{DisplayVersion()}");
         Log.Info($"配置：{Paths.ConfigPath}｜面板：{BaseUrl}｜上行策略：{(Config.Current.Hotspot.AllowWifiUplink ? "允许 Wi-Fi" : "仅有线")}");
+        // 上一次如果是被强杀/断电退出的，可能把 ALT 或鼠标左键留在按下状态；开机先清一遍。
+        try { Board.Input.ReleaseAllInputs(); } catch { }
+
         using (var self = System.Diagnostics.Process.GetCurrentProcess())
         {
             if (self.SessionId == 0)
@@ -609,10 +613,19 @@ public sealed class AgentRuntime : IDisposable
                 Verb = "runas",
                 WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
             };
+            if (!Shell.AdminElevation.CanPrompt())
+                return (false, "当前没有可交互的桌面会话，护航任务需要到电脑前手动装一次");
+
             using var process = System.Diagnostics.Process.Start(psi);
             if (process is null) return (false, "无法启动安装进程");
-            process.WaitForExit(120000);
+            if (!process.WaitForExit(120000))
+            {
+                try { process.Kill(entireProcessTree: true); } catch { }
+                return (false, "安装护航任务超时（2 分钟），已终止：请稍后重试");
+            }
 
+            // 装任务的是另一个进程，它清不了本进程的 30 秒缓存；这里显式失效一次再查。
+            Tasks.ScheduledTaskInstaller.InvalidateServiceCache();
             return Tasks.ScheduledTaskInstaller.IsServiceInstalled()
                 ? (true, "护航任务已安装并运行")
                 : (false, "安装未完成：可能取消了管理员授权，可再点一次");
@@ -806,5 +819,6 @@ public sealed class AgentRuntime : IDisposable
     {
         Stop();
         _cts.Dispose();
+        Log.Flush();   // 队列里的日志在退出前尽量落盘（最多等 2 秒）
     }
 }

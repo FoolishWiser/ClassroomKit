@@ -8,7 +8,7 @@
 -->
 <Project>
   <PropertyGroup>
-    <Version>0.6.3</Version>
+    <Version>0.6.4</Version>
     <AssemblyVersion>$(Version.Split('-')[0]).0</AssemblyVersion>
     <FileVersion>$(Version.Split('-')[0]).0</FileVersion>
     <Product>ClassroomKit</Product>

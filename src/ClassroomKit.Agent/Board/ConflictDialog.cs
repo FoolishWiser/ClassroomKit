@@ -248,7 +248,9 @@ public sealed class ConflictDialog : Forms.Form
 
             _bar.Value = _model.Progress;
             _bar.Invalidate();
-            _countdown.Text = ConflictDialogModel.CountdownText(_model.SecondsLeft) + (_model.Paused ? "（已暂停）" : "");
+            // 悬停最多只把倒计时推后 15 秒；额度用完后即使鼠标还停在窗口上也在走，不能再显示「已暂停」
+            var paused = _model.Paused && !_model.PauseExhausted;
+            _countdown.Text = ConflictDialogModel.CountdownText(_model.SecondsLeft) + (paused ? "（已暂停）" : "");
         }
         catch (ObjectDisposedException)
         {

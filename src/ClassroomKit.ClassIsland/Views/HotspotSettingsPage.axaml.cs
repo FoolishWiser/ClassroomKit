@@ -18,6 +18,7 @@ public partial class HotspotSettingsPage : SettingsPageBase
     private readonly PluginSettingsStore _store;
     private readonly DispatcherTimer _timer;
     private AgentState? _state;
+    private int _refreshing;
 
     public HotspotSettingsPage(PluginSettingsStore store)
     {
@@ -58,14 +59,24 @@ public partial class HotspotSettingsPage : SettingsPageBase
 
     private async Task RefreshAsync()
     {
-        await RefreshStateAsync();
-        await RefreshLessonAsync();
+        // 3 秒定时器可能在上一轮请求还没回来时再触发：跳过这一轮，别叠加请求
+        if (Interlocked.Exchange(ref _refreshing, 1) == 1) return;
+        try
+        {
+            await RefreshStateAsync();
+            await RefreshLessonAsync();
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _refreshing, 0);
+        }
     }
 
     private async Task RefreshStateAsync()
     {
         try
         {
+            // PluginSettingsStore 复用同一个客户端；设置里的地址/令牌改了才会换新实例
             var client = _store.CreateClient();
             var (state, error) = await client.TryGetStateAsync();
             if (state is null)

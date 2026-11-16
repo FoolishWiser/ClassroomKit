@@ -399,9 +399,62 @@ ClassroomKit.Agent {Version}
             }
         }
 
+        // 主实例在但 /api/state 没响应：60 秒内只允许派生一次，避免 --ensure 自我派生出一串新进程
+        if (EnsureCooldownHit())
+        {
+            Console.WriteLine("60 秒内已尝试启动过守护，跳过本次派生");
+            return 0;
+        }
+
+        MarkEnsureAttempt();
         StartDaemon();
         Console.WriteLine("已启动 ClassroomKit.Agent");
         return 0;
+    }
+
+    /// <summary>派生尝试的时间戳文件（60 秒冷却）。</summary>
+    private static string EnsureStampPath => Path.Combine(Paths.DataDir, "ensure.last");
+
+    private static readonly TimeSpan EnsureCooldown = TimeSpan.FromSeconds(60);
+
+    /// <summary>本进程刚写过时间戳（Program 先写再调 Ensure），本次调用不该被自己写的记录拦下。</summary>
+    private static bool _attemptMarkedHere;
+
+    /// <summary>60 秒冷却是否命中：上次派生尝试还在冷却期内。</summary>
+    internal static bool EnsureCooldownHit()
+    {
+        if (_attemptMarkedHere) return false;
+
+        try
+        {
+            if (!File.Exists(EnsureStampPath)) return false;
+            if (!long.TryParse(File.ReadAllText(EnsureStampPath).Trim(), out var ticks)) return false;
+
+            var age = DateTime.UtcNow - new DateTime(ticks, DateTimeKind.Utc);
+            // 时钟往回跳（age 为负）就当没命中，否则会一直卡在冷却里
+            return age >= TimeSpan.Zero && age < EnsureCooldown;
+        }
+        catch
+        {
+            return false;   // 读不到冷却文件就当没命中：宁可多试一次，也不能永远不启动
+        }
+    }
+
+    /// <summary>原子写一次派生尝试时间戳（临时文件 + Move 覆盖），失败忽略。</summary>
+    internal static void MarkEnsureAttempt()
+    {
+        _attemptMarkedHere = true;
+        try
+        {
+            Directory.CreateDirectory(Paths.DataDir);
+            var tmp = EnsureStampPath + "." + Environment.ProcessId + ".tmp";
+            File.WriteAllText(tmp, DateTime.UtcNow.Ticks.ToString());
+            File.Move(tmp, EnsureStampPath, true);
+        }
+        catch
+        {
+            // 冷却文件写不进（权限/磁盘）不阻塞启动，最多是冷却失效
+        }
     }
 
     public static int SetPolicy(bool enabled)
@@ -444,8 +497,12 @@ ClassroomKit.Agent {Version}
         return ok ? 0 : 1;
     }
 
-    /// <summary>写 WifiMaxPeers 并重启 icssvc；没提权就拉起自己一次（会弹 UAC）。</summary>
-    public static (bool Ok, string Message) FixPeersCore(AppLog? log)
+    /// <summary>
+    /// 写 WifiMaxPeers 并重启 icssvc；没提权就拉起自己一次（会弹 UAC）。
+    /// allowPrompt=false 用于网页面板/HTTP 这类「用户可能不在电脑前」的入口：
+    /// UAC 的同意界面会接管整台机器的键鼠，没人点就会一直挂着，绝不能在后台线程上等。
+    /// </summary>
+    public static (bool Ok, string Message) FixPeersCore(AppLog? log, bool allowPrompt = true)
     {
         var store = new ConfigStore(Paths.ConfigPath);
         var peers = Math.Clamp(store.Current.Hotspot.RegistryPeers, 9, 64);
@@ -459,6 +516,11 @@ ClassroomKit.Agent {Version}
             catch
             {
                 // 忽略
+            }
+
+            if (!allowPrompt)
+            {
+                return (false, "需要管理员权限：请到这台电脑上点一次「突破设备数限制」并确认授权");
             }
 
             var code = AdminElevation.RunElevatedAndWait("--fix-peers");
@@ -677,7 +739,8 @@ ClassroomKit.Agent {Version}
     {
         try
         {
-            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+            // 4 秒：/api/state 在机器卡顿时可能 2 秒才回，超时太短会被当成没启动而反复派生
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(4) };
             using var request = new HttpRequestMessage(HttpMethod.Get, $"http://127.0.0.1:{port}/api/state");
             request.Headers.Add("X-Token", token);
             using var response = client.Send(request);

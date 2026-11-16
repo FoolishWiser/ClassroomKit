@@ -23,7 +23,7 @@ public sealed record PluginLocation(string? Dir, string? Root, string Version, s
 /// <summary>
 /// 定位并安装 ClassIsland 插件（cipx）。定位顺序：
 ///   1. 正在运行的 ClassIsland / ClassIsland.Desktop 进程所在目录；
-///   2. %LOCALAPPDATA%、%APPDATA%、%PROGRAMDATA%、%PROGRAMFILES% 下名字含 ClassIsland 的目录（深度 ≤ 4）；
+///   2. %LOCALAPPDATA%、%APPDATA%、%PROGRAMDATA%、%PROGRAMFILES%（以及用户目录）下名字含 ClassIsland 的目录（深度 ≤ 3，单次扫描有时间预算）；
 ///   3. 卸载注册表项里的 InstallLocation。
 /// 插件目录 = &lt;根&gt;\data\Plugins\classroomkit.hotspot 或 &lt;根&gt;\Plugins\classroomkit.hotspot；
 /// 只有插件目录已存在（或同级 Plugins 目录存在）才算「可以装」，避免往不相干的目录里写文件。
@@ -32,8 +32,11 @@ public sealed class PluginInstaller
 {
     public const string PluginId = "classroomkit.hotspot";
 
-    private const int MaxScanDepth = 4;
-    private const int MaxScanDirsPerRoot = 4000;
+    private const int MaxScanDepth = 3;
+    private const int MaxScanDirsPerRoot = 1500;
+
+    /// <summary>单次根目录扫描的时间预算：超时就带着已找到的结果收手，避免用户目录巨大时把守护卡住。</summary>
+    private static readonly TimeSpan ScanBudget = TimeSpan.FromSeconds(8);
 
     private static readonly string[] ProcessNames = { "ClassIsland", "ClassIsland.Desktop" };
 
@@ -43,6 +46,12 @@ public sealed class PluginInstaller
         "node_modules", ".git", ".vs", "Temp", "Cache", "Package Cache"
     };
 
+    /// <summary>根目录扫描要遍历用户目录，结果缓存 5 分钟；需要立刻重扫时调 InvalidateRootCache。</summary>
+    private static readonly TimeSpan RootCacheTtl = TimeSpan.FromMinutes(5);
+    private static readonly object RootCacheGate = new();
+    private static IReadOnlyList<string>? _rootCache;
+    private static DateTimeOffset _rootCacheAt = DateTimeOffset.MinValue;
+
     private readonly AppLog? _log;
 
     public PluginInstaller(AppLog? log = null) => _log = log;
@@ -51,8 +60,9 @@ public sealed class PluginInstaller
     public PluginLocation Detect()
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var watch = Stopwatch.StartNew();
 
-        foreach (var (root, source) in CandidateRoots())
+        foreach (var (root, source) in CandidateRoots(watch))
         {
             if (string.IsNullOrWhiteSpace(root)) continue;
             var full = SafeFullPath(root);
@@ -132,18 +142,49 @@ public sealed class PluginInstaller
         return false;
     }
 
-    /// <summary>本机所有可能是 ClassIsland 根目录的路径（已去重，只返回存在的目录）。</summary>
+    /// <summary>本机所有可能是 ClassIsland 根目录的路径（已去重，只返回存在的目录；结果缓存 5 分钟）。</summary>
     public IReadOnlyList<string> FindRoots()
     {
+        lock (RootCacheGate)
+        {
+            var cached = _rootCache;
+            if (cached is not null && DateTimeOffset.Now - _rootCacheAt <= RootCacheTtl)
+                return cached;
+        }
+
         var list = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (root, _) in CandidateRoots())
+        var watch = Stopwatch.StartNew();
+        foreach (var (root, _) in CandidateRoots(watch))
         {
+            // 时间预算：扫不动了就先返回已经找到的，别让调用方等到底
+            if (watch.Elapsed > ScanBudget)
+            {
+                _log?.Warn($"扫描 ClassIsland 根目录超过 {ScanBudget.TotalSeconds:F0} 秒，已中止并返回找到的 {list.Count} 个目录");
+                break;
+            }
+
             var full = SafeFullPath(root);
             if (full is not null && seen.Add(full)) list.Add(full);
         }
 
+        lock (RootCacheGate)
+        {
+            _rootCache = list;
+            _rootCacheAt = DateTimeOffset.Now;
+        }
+
         return list;
+    }
+
+    /// <summary>清掉根目录扫描的 5 分钟缓存（装/卸 ClassIsland 或需要立刻重新探测时调用）。</summary>
+    public static void InvalidateRootCache()
+    {
+        lock (RootCacheGate)
+        {
+            _rootCache = null;
+            _rootCacheAt = DateTimeOffset.MinValue;
+        }
     }
 
     /// <summary>读已装插件的版本（读不到返回空串）。</summary>
@@ -190,7 +231,7 @@ public sealed class PluginInstaller
     private static PluginLocation BuildLocation(string root, string dir, string source) =>
         new(dir, root, Directory.Exists(dir) ? ReadVersion(dir) : "", source);
 
-    private IEnumerable<(string Root, string Source)> CandidateRoots()
+    private IEnumerable<(string Root, string Source)> CandidateRoots(Stopwatch watch)
     {
         foreach (var root in ProcessRoots())
         {
@@ -199,7 +240,7 @@ public sealed class PluginInstaller
 
         foreach (var baseDir in ScanRoots())
         {
-            foreach (var dir in FindClassIslandDirs(baseDir))
+            foreach (var dir in FindClassIslandDirs(baseDir, watch))
                 yield return (dir, "扫描 " + baseDir);
         }
 
@@ -267,11 +308,12 @@ public sealed class PluginInstaller
         }
     }
 
-    /// <summary>广度优先找名字含 ClassIsland 的目录（深度 ≤ MaxScanDepth）。</summary>
-    private static List<string> FindClassIslandDirs(string root)
+    /// <summary>广度优先找名字含 ClassIsland 的目录（深度 ≤ MaxScanDepth，单次扫描最多 ScanBudget）。</summary>
+    private static List<string> FindClassIslandDirs(string root, Stopwatch watch)
     {
         var results = new List<string>();
         if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root)) return results;
+        if (watch.Elapsed > ScanBudget) return results;
 
         var queue = new Queue<(string Path, int Depth)>();
         queue.Enqueue((root, 0));
@@ -279,6 +321,9 @@ public sealed class PluginInstaller
 
         while (queue.Count > 0 && visited < MaxScanDirsPerRoot)
         {
+            // 每处理一个目录看一眼时间预算：用户目录动辄几万个目录，磁盘一慢必须能中途收手
+            if (watch.Elapsed > ScanBudget) break;
+
             var (current, depth) = queue.Dequeue();
             visited++;
 

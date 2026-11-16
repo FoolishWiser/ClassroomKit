@@ -26,15 +26,31 @@ internal static class ConflictDialogTests
             Eq(ConflictChoice.KeepBoth, model.Chosen ?? ConflictChoice.KeepBoth, "超时默认都保留");
         });
 
-        await Run("鼠标悬停暂停倒计时", () =>
+        await Run("鼠标悬停暂停倒计时（最多延长 15 秒）", () =>
         {
             var model = new ConflictDialogModel(10);
             model.Paused = true;
             False(model.Tick(9_000), "暂停时不应推进");
             Eq(10, model.SecondsLeft, "暂停期间剩余秒不变");
+            False(model.PauseExhausted, "9 秒还没到暂停上限");
             model.Paused = false;
             False(model.Tick(5_000), "恢复后继续");
             Eq(5, model.SecondsLeft, "恢复后剩余 5 秒");
+        });
+
+        await Run("悬停额度用完就照常倒计时（不会永久冻结）", () =>
+        {
+            var model = new ConflictDialogModel(30);
+            model.Paused = true;
+            False(model.Tick(9_000), "第一拍：暂停不推进");
+            Eq(30, model.SecondsLeft, "额度用完前剩余秒不变");
+            False(model.Tick(9_000), "第二拍：额度补满 15 秒，这一拍仍不推进");
+            True(model.PauseExhausted, "暂停额度已用完");
+            Eq(30, model.SecondsLeft, "额度用完后剩余秒仍从原处开始");
+
+            False(model.Tick(1_000), "额度用完后鼠标还停着也照常推进");
+            Eq(29, model.SecondsLeft, "推进了 1 秒");
+            True(model.PauseExhausted, "额度不会回补");
         });
 
         await Run("只认第一次选择", () =>
