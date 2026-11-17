@@ -347,7 +347,8 @@ ClassroomKit.Agent {Version}
     {
         var store = new ConfigStore(Paths.ConfigPath);
         var log = new AppLog(Paths.LogDir);
-        var watcher = new ConflictWatcher(log, () => store.Current.Conflict, () => store.Current.Conflict.ExtraFullscreenProcesses);
+        var watcher = new ConflictWatcher(log, () => store.Current.Conflict, () => store.Current.Habits,
+            () => store.Current.Conflict.ExtraFullscreenProcesses, () => null);
         var situation = watcher.Evaluate();
 
         Console.WriteLine(JsonSerializer.Serialize(new

@@ -12,19 +12,27 @@ public sealed class ConflictWatcher : IDisposable
 {
     private readonly AppLog _log;
     private readonly Func<ConflictConfig> _config;
+    private readonly Func<HabitsConfig> _habits;
     private readonly Func<IReadOnlyList<string>> _extraFullscreen;
+    private readonly Func<string?> _subject;
     private readonly ConflictGuard _guard = new();
     private readonly Action<bool>? _setSnoozeToday;
 
     private System.Threading.Timer? _timer;
     private BoardSituation _last = new();
+    private int _busy;
+    private bool _sampled;
+    private string _lastHabitNote = "";
 
-    public ConflictWatcher(AppLog log, Func<ConflictConfig> config, Func<IReadOnlyList<string>> extraFullscreen,
+    public ConflictWatcher(AppLog log, Func<ConflictConfig> config, Func<HabitsConfig> habits,
+        Func<IReadOnlyList<string>> extraFullscreen, Func<string?> subject,
         Action<bool>? setSnoozeToday = null)
     {
         _log = log;
         _config = config;
+        _habits = habits;
         _extraFullscreen = extraFullscreen;
+        _subject = subject;
         _setSnoozeToday = setSnoozeToday;
     }
 
@@ -35,6 +43,12 @@ public sealed class ConflictWatcher : IDisposable
 
     public ConflictGuard Guard => _guard;
 
+    /// <summary>最近一次习惯判定（桌面「高级」页展示用）。</summary>
+    public HabitDecision? LastDecision { get; private set; }
+
+    /// <summary>本拍实际执行的习惯动作描述，例如「静默关闭希沃白板」。</summary>
+    public string LastHabitAction { get; private set; } = "";
+
     public void Start(int intervalMs = 2000)
     {
         _timer ??= new System.Threading.Timer(_ => Tick(), null, 1500, Math.Max(500, intervalMs));
@@ -42,6 +56,7 @@ public sealed class ConflictWatcher : IDisposable
 
     private void Tick()
     {
+        if (Interlocked.Exchange(ref _busy, 1) == 1) return;
         try
         {
             var cfg = _config();
@@ -49,14 +64,33 @@ public sealed class ConflictWatcher : IDisposable
             _guard.Cooldown = TimeSpan.FromMinutes(Math.Clamp(cfg.CooldownMinutes, 1, 24 * 60));
             _guard.SnoozeUntil = ConflictSnooze.Parse(cfg.SnoozeDate);
 
+            var previous = _last;
+            var firstSample = !_sampled;
             var situation = Evaluate();
             var now = DateTimeOffset.Now;
-            var wasActive = _last.ShouldPrompt;
+            var wasActive = previous.ShouldPrompt;
             _last = situation;
+            _sampled = true;
 
             if (situation.ShouldPrompt && !wasActive)
             {
                 _log.Info($"检测到板书软件冲突：{situation.Describe()}");
+            }
+
+            var decision = SubjectHabitPolicy.Decide(
+                _habits?.Invoke(), _subject?.Invoke(), situation, previous, firstSample);
+            LastDecision = decision;
+            NoteHabit(decision);
+
+            if (decision.Action == HabitAction.CloseCompetitors)
+            {
+                ApplyHabitClose(decision);
+                return;
+            }
+
+            if (decision.Action == HabitAction.SuppressPrompt)
+            {
+                return;
             }
 
             if (_guard.ShouldPrompt(situation, now))
@@ -70,13 +104,67 @@ public sealed class ConflictWatcher : IDisposable
         {
             _log.Debug($"冲突检测异常：{ex.Message}");
         }
+        finally
+        {
+            Interlocked.Exchange(ref _busy, 0);
+        }
+    }
+
+    /// <summary>习惯判定只在原因变化时记一条日志，避免每 2 秒刷屏。</summary>
+    private void NoteHabit(HabitDecision decision)
+    {
+        if (decision.Action == HabitAction.Prompt)
+        {
+            _lastHabitNote = "";
+            return;
+        }
+
+        var note = decision.Action + "：" + decision.Reason;
+        if (string.Equals(note, _lastHabitNote, StringComparison.Ordinal)) return;
+        _lastHabitNote = note;
+        if (decision.Action == HabitAction.CloseCompetitors)
+            _log.Warn(decision.Reason);
+        else
+            _log.Info(decision.Reason);
+    }
+
+    private void ApplyHabitClose(HabitDecision decision)
+    {
+        var closed = new List<string>();
+        foreach (var app in decision.Close)
+        {
+            switch (app)
+            {
+                case HabitApp.Seewo:
+                {
+                    var (ok, msg) = AppCloser.CloseSeewo();
+                    closed.Add(msg);
+                    if (!ok) _log.Warn(msg);
+                    break;
+                }
+                case HabitApp.ClassIn:
+                {
+                    var (ok, msg) = AppCloser.CloseClassIn();
+                    closed.Add(msg);
+                    if (!ok) _log.Warn(msg);
+                    break;
+                }
+                case HabitApp.Wps:
+                    // WPS 里有老师没保存的演示文稿，不替老师关。
+                    _log.Info("习惯判定想关闭 WPS，但为避免丢未保存内容已跳过");
+                    break;
+            }
+        }
+
+        LastHabitAction = closed.Count > 0 ? string.Join("；", closed) : decision.Reason;
+        if (LastHabitAction.Length == 0) LastHabitAction = "静默让路";
     }
 
     public BoardSituation Evaluate()
     {
         var (screenW, screenH) = WindowScanner.ScreenSize();
         var windows = WindowScanner.Scan();
-        return WindowClassifier.Situate(windows, screenW, screenH, _extraFullscreen());
+        return WindowClassifier.Situate(windows, screenW, screenH, _extraFullscreen(), _config().IgnoreProcesses);
     }
 
     /// <summary>ClassIsland / 面板手动触发：忽略冷却，直接弹（若当前情境成立）。</summary>

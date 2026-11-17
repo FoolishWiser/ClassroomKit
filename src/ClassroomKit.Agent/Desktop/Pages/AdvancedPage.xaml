@@ -1,0 +1,113 @@
+<UserControl x:Class="ClassroomKit.Agent.Desktop.Pages.AdvancedPage"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Foreground="{DynamicResource TextPrimary}"
+        Background="Transparent">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="0,0,4,28" MaxWidth="900" HorizontalAlignment="Left">
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <TextBlock Text="习惯模式" Style="{StaticResource H2}" />
+                    <TextBlock Text="熟知老师习惯再开启：开了以后，某个科目上课时冲突窗会按这里的设置自动处理，没设置过的科目照常弹窗。"
+                               Style="{StaticResource Caption}" Margin="0,6,0,0" TextWrapping="Wrap" />
+                    <CheckBox Content="开启习惯模式（按科目自动处理板书软件冲突）" Margin="0,16,0,0"
+                              IsChecked="{Binding EditHabitsEnabled}" />
+                    <CheckBox Content="保留冲突弹窗（关掉 = 只按习惯静默处理，完全不打扰老师）" Margin="0,10,0,0"
+                              IsChecked="{Binding EditConflictEnabled}" />
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource Card}" Margin="0,16,0,0">
+                <StackPanel>
+                    <TextBlock Text="当前状态" Style="{StaticResource H2}" />
+                    <TextBlock Text="{Binding HabitStatusText}" Style="{StaticResource Secondary}" Margin="0,8,0,0"
+                               TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding HabitLastActionText}" Style="{StaticResource Caption}" Margin="0,6,0,0"
+                               TextWrapping="Wrap" />
+                    <Button Content="预览冲突窗" Style="{StaticResource GhostButton}" Margin="0,14,0,0"
+                            HorizontalAlignment="Left" Command="{Binding PreviewConflictCommand}" />
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource Card}" Margin="0,16,0,0">
+                <StackPanel>
+                    <TextBlock Text="按科目设置" Style="{StaticResource H2}" />
+                    <TextBlock Text="习惯软件 = 这个科目上课常用的板书 / 演示软件；理解 = 冲突交给我决定；不理解 = 静默关掉另一款，不弹窗。"
+                               Style="{StaticResource Caption}" Margin="0,6,0,0" TextWrapping="Wrap" />
+
+                    <Grid Margin="0,18,0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="130" />
+                            <ColumnDefinition Width="190" />
+                            <ColumnDefinition Width="260" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="科目" Style="{StaticResource FieldLabel}" Margin="0" />
+                        <TextBlock Grid.Column="1" Text="习惯软件" Style="{StaticResource FieldLabel}" Margin="0" />
+                        <TextBlock Grid.Column="2" Text="理解程度" Style="{StaticResource FieldLabel}" Margin="0" />
+                    </Grid>
+
+                    <ItemsControl ItemsSource="{Binding HabitRows}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="130" />
+                                        <ColumnDefinition Width="190" />
+                                        <ColumnDefinition Width="260" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{Binding Subject}" Style="{StaticResource Body}"
+                                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                    <ComboBox Grid.Column="1" Width="170" HorizontalAlignment="Left"
+                                              ItemsSource="{Binding DataContext.HabitAppOptions, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                              SelectedValuePath="Value" SelectedValue="{Binding App, Mode=TwoWay}">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding Label}" Foreground="{DynamicResource TextPrimary}" />
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <ComboBox Grid.Column="2" Width="240" HorizontalAlignment="Left"
+                                              IsEnabled="{Binding HasApp}"
+                                              ItemsSource="{Binding DataContext.HabitUnderstandOptions, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                              SelectedValuePath="Value" SelectedValue="{Binding Understand, Mode=TwoWay}">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding Label}" Foreground="{DynamicResource TextPrimary}" />
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <Button Grid.Column="3" Content="清除" Style="{StaticResource GhostButton}" Margin="10,0,0,0"
+                                            Command="{Binding DataContext.ClearHabitRuleCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <TextBlock Text="没有列出来的科目？手动加一个：" Style="{StaticResource Caption}" Margin="0,10,0,0" />
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <TextBox Width="200" Text="{Binding NewHabitSubjectText, UpdateSourceTrigger=PropertyChanged}"
+                                 VerticalContentAlignment="Center" />
+                        <Button Content="添加科目" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0"
+                                Command="{Binding AddHabitSubjectCommand}" />
+                        <Button Content="保存习惯设置" Style="{StaticResource PrimaryButton}" Margin="16,0,0,0"
+                                Command="{Binding SaveHabitsCommand}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource Card}" Margin="0,16,0,0">
+                <StackPanel>
+                    <TextBlock Text="忽略这些进程" Style="{StaticResource H2}" />
+                    <TextBlock Text="每行一个（也可用逗号分隔）。进程名或窗口标题包含这些字样时，一律不当成板书软件 —— 例如希沃的 PPT 助手。"
+                               Style="{StaticResource Caption}" Margin="0,6,0,0" TextWrapping="Wrap" />
+                    <TextBox Margin="0,12,0,0" Height="88" AcceptsReturn="True" TextWrapping="Wrap"
+                             VerticalScrollBarVisibility="Auto"
+                             Text="{Binding EditIgnoreProcesses, UpdateSourceTrigger=PropertyChanged}" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

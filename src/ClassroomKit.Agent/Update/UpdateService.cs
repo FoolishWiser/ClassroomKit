@@ -351,7 +351,7 @@ public sealed class UpdateService
                 try
                 {
                     await DownloadAssetAsync(asset, target,
-                        p => Set(Status with { Phase = UpdatePhase.Downloading, Progress = hasPlugin ? p * 0.9 : p }),
+                        p => Set(Status with { Phase = UpdatePhase.Downloading, Progress = UpdateProgress.ForInstaller(p, hasPlugin) }),
                         ct).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
@@ -976,7 +976,7 @@ public sealed class UpdateService
             {
                 _log.Info($"下载 ClassIsland 插件包：{asset.Name}（{asset.Size / 1024.0:F0} KB）");
                 await DownloadAssetAsync(asset, target,
-                    p => Set(Status with { Phase = UpdatePhase.Downloading, Progress = 90 + p * 0.1 }),
+                    p => Set(Status with { Phase = UpdatePhase.Downloading, Progress = UpdateProgress.ForPlugin(p) }),
                     ct).ConfigureAwait(false);
             }
 
@@ -1091,6 +1091,8 @@ public sealed class UpdateService
         AssetName = Path.GetFileName(_installerPath),
         AssetSize = _installerPath is not null && File.Exists(_installerPath) ? new FileInfo(_installerPath).Length : 0,
         Phase = UpdatePhase.Ready,
+        // 走完下载才叫 Ready：进度条到这里必须满格，否则面板会显示「已下载」却停在 90%。
+        Progress = UpdateProgress.Max,
         CheckedAt = _checkedAt
     };
 
@@ -1109,11 +1111,13 @@ public sealed class UpdateService
     /// <summary>把插件字段投影到状态上（调用方持有 _lock）。</summary>
     private UpdateStatus Decorate(UpdateStatus status) => status with
     {
+        // 进度只允许 0–100：上游回调偶尔会给 NaN/越界值，别让界面画出满格或负条。
+        Progress = UpdateProgress.Clamp(status.Progress),
         PluginDetected = _pluginDetected,
         PluginCurrent = _pluginCurrent,
         PluginLatest = _pluginLatest,
         PluginAvailable = _pluginAvailable,
-        PluginProgress = _pluginProgress,
+        PluginProgress = Math.Clamp(_pluginProgress, 0, 1),
         PluginError = _pluginError,
         PluginText = _pluginText,
         PluginCanUpdate = _pluginAvailable && _pluginRelease is not null

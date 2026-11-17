@@ -129,6 +129,60 @@ internal static class BoardTests
                 True(s.OtherFullscreen, "应标记为其它全屏");
             });
 
+            await Run("希沃 PPT 助手（SeewoIwbAssistant）不是白板，不参与冲突", () =>
+            {
+                var helper = Win("SeewoIwbAssistant", "HwndWrapper[SeewoIwbAssistant]", "希沃课堂助手", 550, 200, -175, 880, topmost: true);
+                Eq(BoardKind.Unknown, WindowClassifier.Classify(helper, ScreenW, ScreenH));
+                True(WindowClassifier.LooksLikeSeewoHelper(helper), "应识别为希沃助手");
+                False(WindowClassifier.LooksLikeSeewoWhiteboard(helper), "助手不算白板");
+
+                // 只开 WPS 放映 + ClassInX 悬浮窗 + 希沃助手 → 原来会误弹，现在不弹
+                var s = WindowClassifier.Situate(new[] { ClassInFloating(), WpsShow(), helper }, ScreenW, ScreenH);
+                False(s.SeewoFloating, "助手不能被当成希沃悬浮窗");
+                False(s.ShouldPrompt, "只有 WPS 和 ClassInX 时不应弹窗");
+            });
+
+            await Run("真希沃白板仍然被认成 SeewoFloating", () =>
+            {
+                Eq(BoardKind.SeewoFloating, WindowClassifier.Classify(SeewoFloating(), ScreenW, ScreenH));
+                True(WindowClassifier.LooksLikeSeewoWhiteboard(SeewoFloating()), "EasiNote 是白板");
+            });
+
+            await Run("最小化的窗口不参与判定（矩形是 -32000 不能当全屏）", () =>
+            {
+                var minimized = new WindowInfo
+                {
+                    ProcessName = "wpp",
+                    ClassName = "PP12FrameClass",
+                    Title = "演示文稿2 - WPS Office",
+                    Visible = true,
+                    Minimized = true,
+                    Width = 1400,
+                    Height = 1000
+                };
+                Eq(BoardKind.Unknown, WindowClassifier.Classify(minimized, ScreenW, ScreenH));
+            });
+
+            await Run("忽略名单：进程名或标题命中就不参与冲突", () =>
+            {
+                var s = WindowClassifier.Situate(new[] { ClassInFloating(), SeewoFloating(), SeewoBoard() }, ScreenW, ScreenH,
+                    ignore: new[] { "EasiNote" });
+                False(s.SeewoFloating, "忽略后希沃悬浮窗不算");
+                False(s.SeewoFullscreen, "忽略后希沃全屏不算");
+
+                var byTitle = WindowClassifier.Classify(SeewoBoard(), ScreenW, ScreenH, ignore: new[] { "希沃白板" });
+                Eq(BoardKind.Unknown, byTitle, "标题命中同样忽略");
+            });
+
+            await Run("WPS 编辑窗计入 WPS 活动，但不单独构成弹窗条件", () =>
+            {
+                var s = WindowClassifier.Situate(new[] { WpsEditor() }, ScreenW, ScreenH);
+                True(s.WpsEditor, "编辑窗应被记录");
+                True(s.WpsActive, "编辑态也算在用 WPS");
+                False(s.ShouldPrompt, "只有编辑窗时不弹窗");
+                Contains(s.Describe(), "WPS编辑");
+            });
+
             await Run("冷却：同一情境只弹一次，40 分钟内不重复", () =>
             {
                 var guard = new ConflictGuard { Enabled = true, Cooldown = TimeSpan.FromMinutes(40) };

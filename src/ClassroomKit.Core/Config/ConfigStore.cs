@@ -105,6 +105,8 @@ public sealed class ConfigStore
             cfg.Update.InstallWindow = InstallWindow.Normalize(cfg.Update.InstallWindow);
             cfg.Tray ??= new TrayConfig();
             cfg.Tray.Normalize();
+            cfg.Habits ??= new HabitsConfig();
+            cfg.Habits.Normalize();
             cfg.BoardSave ??= new BoardSaveConfig();
             if (cfg.BoardSave.LaunchTimeoutSec is < 5 or > 600) cfg.BoardSave.LaunchTimeoutSec = 60;
             if (string.IsNullOrWhiteSpace(cfg.BoardSave.NameTemplate))
@@ -117,6 +119,12 @@ public sealed class ConfigStore
             if (cfg.Conflict.CooldownMinutes is < 1 or > 1440) cfg.Conflict.CooldownMinutes = 40;
             if (ConflictSnooze.Parse(cfg.Conflict.SnoozeDate) is null) cfg.Conflict.SnoozeDate = "";
             cfg.Conflict.ExtraFullscreenProcesses ??= new List<string>();
+            cfg.Conflict.IgnoreProcesses ??= new List<string>();
+            cfg.Conflict.IgnoreProcesses = cfg.Conflict.IgnoreProcesses
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
             cfg.Hosts ??= new HostsConfig();
             if (cfg.Hosts.Sources is null || cfg.Hosts.Sources.Count == 0)
                 cfg.Hosts.Sources = new List<string>(HostsAccelerator.DefaultSources);

@@ -12,6 +12,7 @@ public sealed record UiSnapshot(
     UiLesson Lesson,
     UiUpdate Update,
     UiHosts Hosts,
+    UiAdvanced Advanced,
     IReadOnlyList<UiLogLine> Logs,
     DateTimeOffset At);
 
@@ -46,7 +47,9 @@ public sealed record UiUpdate(
     string PluginDetail,
     double PluginProgress,
     string PluginError,
-    bool PluginCanUpdate);
+    bool PluginCanUpdate,
+    /// <summary>UpdateService 的阶段名（Downloading / Ready / ...），界面据此决定是否显示进度条。</summary>
+    string Phase);
 
 public sealed record UiHosts(
     bool Enabled,
@@ -56,3 +59,11 @@ public sealed record UiHosts(
     bool ServiceInstalled,
     bool ServiceAlive,
     bool Writable);
+
+/// <summary>「高级」页：习惯模式开关、当前科目与最近一次自动处理。</summary>
+public sealed record UiAdvanced(
+    bool HabitsEnabled,
+    bool ConflictEnabled,
+    string CurrentSubject,
+    string LastAction,
+    int RuleCount);

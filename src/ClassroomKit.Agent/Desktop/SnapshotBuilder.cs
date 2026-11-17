@@ -68,7 +68,8 @@ internal static class SnapshotBuilder
                 string.IsNullOrEmpty(update.PluginError) ? "" : update.PluginError,
                 update.PluginProgress,
                 update.PluginError ?? "",
-                update.PluginCanUpdate),
+                update.PluginCanUpdate,
+                update.Phase.ToString()),
             new UiHosts(
                 config.Hosts.Enabled,
                 hosts.Applied,
@@ -77,6 +78,12 @@ internal static class SnapshotBuilder
                 hosts.ServiceInstalled,
                 hosts.ServiceAlive,
                 hosts.Writable),
+            new UiAdvanced(
+                config.Habits.Enabled,
+                config.Conflict.Enabled,
+                lesson?.CurrentSubject ?? "-",
+                rt.ConflictWatcher.LastHabitAction,
+                config.Habits.Rules.Count),
             rt.Log.Snapshot(200).Select(e => new UiLogLine(e.Time, e.Level, e.Message)).ToArray(),
             DateTimeOffset.Now);
     }

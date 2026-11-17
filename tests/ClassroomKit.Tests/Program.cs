@@ -36,6 +36,10 @@ internal static class Program
         await RecipeTests.RunAsync();
 
         Console.WriteLine();
+        Console.WriteLine("[科目习惯策略]");
+        await HabitTests.RunAsync();
+
+        Console.WriteLine();
         Console.WriteLine("[GitHub 升级]");
         await UpdateTests.RunAsync();
 

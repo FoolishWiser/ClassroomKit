@@ -67,13 +67,18 @@ public sealed class AgentRuntime : IDisposable
 
         Recipe = UiRecipe.Load(Paths.RecipePath);
         BoardSaver = new ClassInBoardSaver(Log, Recipe, () => Config.Current.BoardSave);
-        ConflictWatcher = new ConflictWatcher(Log, () => Config.Current.Conflict,
-            () => Config.Current.Conflict.ExtraFullscreenProcesses, SaveConflictSnooze);
 
+        // 先起课表与科目，冲突巡检才能按「当前科目」查老师习惯。
         Subjects = new ClassIslandSubjectCatalog(Log);
         Lesson = new LessonRuntime(Log, () => Config.Current.Lesson, Paths.LessonStatePath);
         Lesson.AvailableSubjects = () => Subjects.Current;
         Lesson.ReminderDue = decision => ReminderRequested?.Invoke(decision);
+
+        ConflictWatcher = new ConflictWatcher(Log, () => Config.Current.Conflict,
+            () => Config.Current.Habits,
+            () => Config.Current.Conflict.ExtraFullscreenProcesses,
+            () => Lesson.State().Snapshot?.CurrentSubject,
+            SaveConflictSnooze);
 
         Api.SaveBoard = SaveBoard;
         Api.SaveBoardNamed = SaveBoardNamed;
@@ -737,7 +742,7 @@ public sealed class AgentRuntime : IDisposable
         htmlUrl = status.HtmlUrl,
         assetName = status.AssetName,
         assetSize = status.AssetSize,
-        progress = Math.Round(status.Progress, 1),
+        progress = Math.Round(UpdateProgress.Clamp(status.Progress), 1),
         hasUpdate = status.HasUpdate,
         silent = status.Silent,
         error = status.Error,
@@ -753,7 +758,7 @@ public sealed class AgentRuntime : IDisposable
         pluginCurrent = status.PluginCurrent,
         pluginLatest = status.PluginLatest,
         pluginAvailable = status.PluginAvailable,
-        pluginProgress = Math.Round(status.PluginProgress, 1),
+        pluginProgress = Math.Round(Math.Clamp(status.PluginProgress, 0, 1), 1),
         pluginError = status.PluginError,
         pluginText = status.PluginText,
         pluginCanUpdate = status.PluginCanUpdate,

@@ -24,7 +24,13 @@
                             <TextBlock Text="最新版本 " Style="{StaticResource Secondary}" />
                             <TextBlock Text="{Binding UpdateLatestText}" Style="{StaticResource Secondary}" FontWeight="SemiBold" />
                         </StackPanel>
-                        <ProgressBar Margin="0,16,0,0" Maximum="1" Value="{Binding UpdateProgress, Mode=OneWay}" Height="6" />
+                        <StackPanel Orientation="Horizontal" Margin="0,16,0,0"
+                                    Visibility="{Binding UpdateProgressVisible, Converter={StaticResource BoolVisibility}}">
+                            <ProgressBar Width="260" Maximum="100" Value="{Binding UpdateProgress, Mode=OneWay}" Height="6"
+                                         VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding UpdateProgressText}" Style="{StaticResource Caption}"
+                                       Margin="10,0,0,0" VerticalAlignment="Center" />
+                        </StackPanel>
                         <TextBlock Text="{Binding UpdateError}" Style="{StaticResource Caption}" Margin="0,8,0,0"
                                    Foreground="{DynamicResource Danger}" />
                     </StackPanel>

@@ -126,6 +126,29 @@ internal static class UiTests
             Contains(lesson, "SubjectOptions", "科目候选来自视图模型");
             Contains(lesson, "SubjectChip", "勾选项使用胶囊样式");
         });
+
+        await Run("高级页存在且带「熟知老师习惯再开启」，升级进度条按百分比显示", () =>
+        {
+            var root = RepoRoot();
+            var advanced = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/Desktop/Pages/AdvancedPage.xaml"));
+            Contains(advanced, "熟知老师习惯再开启", "开启前要先提示");
+            Contains(advanced, "HabitRows", "按科目列表来自视图模型");
+            Contains(advanced, "HabitAppOptions", "习惯软件下拉");
+            Contains(advanced, "HabitUnderstandOptions", "理解程度下拉");
+            False(advanced.Contains("DisplayMemberPath", StringComparison.Ordinal), "高级页也不许用 DisplayMemberPath");
+
+            var window = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/Desktop/MainWindow.xaml"));
+            Contains(window, "pages:AdvancedPage", "主界面要挂上高级页");
+
+            var vm = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/Desktop/MainViewModel.cs"));
+            Contains(vm, "PageAdvanced", "导航项");
+            Contains(vm, "SaveHabitsCommand", "保存习惯设置");
+
+            var update = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/Desktop/Pages/UpdatePage.xaml"));
+            Contains(update, "Maximum=\"100\"", "进度条按 0–100 画，别再写 Maximum=1");
+            Contains(update, "UpdateProgressText", "要有百分比文字");
+            Contains(update, "UpdateProgressVisible", "空闲时藏起进度条");
+        });
     }
 
     /// <summary>测试输出目录向上找仓库根（src 与 Directory.Build.props 所在处）。</summary>

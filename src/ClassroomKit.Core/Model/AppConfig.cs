@@ -16,6 +16,7 @@ public sealed class AppConfig
     public TrayConfig Tray { get; set; } = new();
     public BoardSaveConfig BoardSave { get; set; } = new();
     public ConflictConfig Conflict { get; set; } = new();
+    public HabitsConfig Habits { get; set; } = new();
     public UpdateConfig Update { get; set; } = new();
     public HostsConfig Hosts { get; set; } = new();
     public LessonConfig Lesson { get; set; } = new();
@@ -160,6 +161,9 @@ public sealed class ConflictConfig
     public List<string> ExtraFullscreenProcesses { get; set; } = new();
     /// <summary>「今天不再提醒」的截止日（yyyy-MM-dd）；空 = 不暂停。当天有效，第二天自动恢复。</summary>
     public string SnoozeDate { get; set; } = "";
+
+    /// <summary>按进程名或窗口标题的子串忽略（未知的希沃助手进程可手工兜底）。</summary>
+    public List<string> IgnoreProcesses { get; set; } = new();
 }
 
 /// <summary>GitHub 访问加速（类似 Watt Toolkit 的 hosts 修改）。</summary>

@@ -42,6 +42,49 @@ public sealed class SubjectOption : ObservableObject
     }
 }
 
+/// <summary>「高级」页里一个科目的习惯设置行：科目固定，习惯软件与理解程度可改。</summary>
+public sealed class HabitRow : ObservableObject
+{
+    private readonly Action<HabitRow> _changed;
+    private string _app;
+    private string _understand;
+
+    public HabitRow(string subject, string app, string understand, Action<HabitRow> changed)
+    {
+        Subject = subject;
+        _app = app;
+        _understand = understand;
+        _changed = changed;
+    }
+
+    public string Subject { get; }
+
+    /// <summary>classin | seewo | wps；空 = 未设置（保存时这条规则会被丢掉）。</summary>
+    public string App
+    {
+        get => _app;
+        set
+        {
+            if (!Set(ref _app, value)) return;
+            Raise(nameof(HasApp));
+            _changed(this);
+        }
+    }
+
+    /// <summary>understand = 理解（冲突时照常弹窗）；silent = 不理解（静默关闭另一款）。</summary>
+    public string Understand
+    {
+        get => _understand;
+        set
+        {
+            if (!Set(ref _understand, value)) return;
+            _changed(this);
+        }
+    }
+
+    public bool HasApp => (App ?? "").Length > 0;
+}
+
 public sealed record DiagRow(string Title, string Status, string Detail, string Next)
 {
     public string StatusText => Status switch { "ok" => "正常", "warn" => "注意", _ => "有问题" };
@@ -55,6 +98,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public const string PageLesson = "lesson";
     public const string PageUpdate = "update";
     public const string PageDiagnose = "diagnose";
+    public const string PageAdvanced = "advanced";
     public const string PageSettings = "settings";
 
     private readonly AgentRuntime _rt;
@@ -109,6 +153,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private string _diagnoseMeta = "自检会把热点、上行、hosts、板书目录逐条过一遍；日志区跟着实时刷新。";
     private bool _logFollow = true;
     private string _logMinLevel = "all";
+    private string _updateProgressText = "";
+    private bool _updateProgressVisible;
+    private string _habitStatusText = "";
+    private string _habitLastActionText = "还没有自动处理过";
+
+    private readonly List<HabitRule> _habitEdits = new();
+    private bool _editHabitsEnabled;
+    private bool _editConflictEnabled = true;
+    private string _editIgnoreProcesses = "";
+    private string _habitSignature = "";
+    private string _newHabitSubjectText = "";
 
     private string _editSsid = "";
     private string _editPassphrase = "";
@@ -152,6 +207,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             new NavItem(PageLesson, "课表与板书", "\uE787", "监控"),
             new NavItem(PageUpdate, "升级", "\uE895", "维护"),
             new NavItem(PageDiagnose, "自检与日志", "\uE9D9", "维护"),
+            new NavItem(PageAdvanced, "高级", "\uE7EF", "维护"),
             new NavItem(PageSettings, "设置", "\uE713", "维护")
         };
         PagesView = new ListCollectionView(Pages.ToList());
@@ -256,6 +312,21 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         AddSubjectCommand = new RelayCommand(AddSubject);
         ClearSubjectSelectionCommand = new RelayCommand(ClearSubjectSelection);
         SaveTrayCommand = new RelayCommand(SaveTray);
+        SaveHabitsCommand = new RelayCommand(SaveHabits);
+        AddHabitSubjectCommand = new RelayCommand(AddHabitSubject);
+        ClearHabitRuleCommand = new RelayCommand(param =>
+        {
+            if (param is not HabitRow row) return;
+            _habitEdits.RemoveAll(x => string.Equals(x.Subject, row.Subject, StringComparison.OrdinalIgnoreCase));
+            _settingsDirty = true;
+            RebuildHabitRows(force: true);
+            Toast($"已清除「{row.Subject}」的习惯设置，记得保存");
+        });
+        PreviewConflictCommand = new RelayCommand(() =>
+        {
+            _rt.Api.PreviewConflict?.Invoke();
+            Toast("已请求预览冲突窗（只弹窗，不会关闭任何程序）");
+        });
 
         LoadEditFields();
         _toastTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher.CurrentDispatcher)
@@ -314,6 +385,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         PageLesson => "课表提醒、生效科目与板书命名",
         PageUpdate => "版本、安装包与 ClassIsland 插件",
         PageDiagnose => "一键体检与实时日志",
+        PageAdvanced => "按科目记住老师习惯，冲突时自动让路",
         PageSettings => "界面、托盘、升级与护航",
         _ => ""
     };
@@ -346,10 +418,31 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public RelayCommand AddSubjectCommand { get; }
     public RelayCommand ClearSubjectSelectionCommand { get; }
     public RelayCommand SaveTrayCommand { get; }
+    public RelayCommand SaveHabitsCommand { get; }
+    public RelayCommand AddHabitSubjectCommand { get; }
+    public RelayCommand ClearHabitRuleCommand { get; }
+    public RelayCommand PreviewConflictCommand { get; }
 
     public ObservableCollection<DiagRow> DiagnoseRows { get; } = new();
     public ObservableCollection<SubjectOption> SubjectOptions { get; } = new();
     public ObservableCollection<UiLogLine> LogEntries { get; } = new();
+    public ObservableCollection<HabitRow> HabitRows { get; } = new();
+
+    /// <summary>习惯软件下拉项：空值 = 未设置。</summary>
+    public IReadOnlyList<UiOption> HabitAppOptions { get; } = new[]
+    {
+        new UiOption("", "未设置"),
+        new UiOption("classin", "ClassInX"),
+        new UiOption("seewo", "希沃白板"),
+        new UiOption("wps", "WPS")
+    };
+
+    /// <summary>理解程度：理解 = 弹窗交给老师；不理解 = 静默关掉另一款。</summary>
+    public IReadOnlyList<UiOption> HabitUnderstandOptions { get; } = new[]
+    {
+        new UiOption("understand", "理解 · 冲突时弹窗交给我"),
+        new UiOption("silent", "不理解 · 静默关闭另一款")
+    };
 
     /// <summary>日志追加后触发（页面据此决定要不要滚到底）。</summary>
     public event Action? LogsChanged;
@@ -376,6 +469,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string UpdateNotes { get => _updateNotes; private set => Set(ref _updateNotes, value); }
     public string UpdateError { get => _updateError; private set => Set(ref _updateError, value); }
     public double UpdateProgress { get => _updateProgress; private set => Set(ref _updateProgress, value); }
+    /// <summary>只有正在下载或已下载好时才显示进度条，空闲时整条藏起来，免得 0% 被当成「卡住」。</summary>
+    public bool UpdateProgressVisible { get => _updateProgressVisible; private set => Set(ref _updateProgressVisible, value); }
+    public string UpdateProgressText { get => _updateProgressText; private set => Set(ref _updateProgressText, value); }
     public bool HasUpdate { get => _hasUpdate; private set => Set(ref _hasUpdate, value); }
     public string HostsText { get => _hostsText; private set => Set(ref _hostsText, value); }
     public string HostsCountText { get => _hostsCountText; private set => Set(ref _hostsCountText, value); }
@@ -445,6 +541,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public bool EditTraySaveKeepOpen { get => _editTraySaveKeepOpen; set => SetDirty(ref _editTraySaveKeepOpen, value); }
     public bool EditTraySaveWithoutRename { get => _editTraySaveWithoutRename; set => SetDirty(ref _editTraySaveWithoutRename, value); }
     public bool EditTrayShowPreviewReminder { get => _editTrayShowPreviewReminder; set => SetDirty(ref _editTrayShowPreviewReminder, value); }
+    public bool EditHabitsEnabled { get => _editHabitsEnabled; set => SetDirty(ref _editHabitsEnabled, value); }
+    public bool EditConflictEnabled { get => _editConflictEnabled; set => SetDirty(ref _editConflictEnabled, value); }
+    public string EditIgnoreProcesses { get => _editIgnoreProcesses; set => SetDirty(ref _editIgnoreProcesses, value); }
+    public string NewHabitSubjectText { get => _newHabitSubjectText; set => Set(ref _newHabitSubjectText, value); }
+    public string HabitStatusText { get => _habitStatusText; private set => Set(ref _habitStatusText, value); }
+    public string HabitLastActionText { get => _habitLastActionText; private set => Set(ref _habitLastActionText, value); }
 
     public IReadOnlyList<UiOption> TimeoutOptions { get; } = UiOptions.TimeoutActions;
 
@@ -518,6 +620,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         UpdateNotes = s.Update.Notes;
         UpdateError = s.Update.Error;
         UpdateProgress = s.Update.Progress;
+        UpdateProgressVisible = s.Update.Phase is "Downloading" or "Ready";
+        UpdateProgressText = ClassroomKit.Core.Update.UpdateProgress.Describe(s.Update.Phase, s.Update.Progress);
         HasUpdate = s.Update.HasUpdate;
         UpdatePluginText = s.Update.PluginText;
         UpdatePluginDetail = s.Update.PluginDetail;
@@ -533,6 +637,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             : s.Hosts.ServiceAlive
                 ? "护航任务运行中（SYSTEM，每 5 分钟自检）"
                 : "护航任务已安装，但最近 20 分钟没有心跳";
+
+        HabitStatusText = !s.Advanced.HabitsEnabled
+            ? "习惯模式关闭：冲突照常弹窗交给老师"
+            : s.Advanced.RuleCount == 0
+                ? "习惯模式已开启，但还没有设置任何科目"
+                : $"习惯模式已开启 · {s.Advanced.RuleCount} 条规则 · 当前科目 {s.Advanced.CurrentSubject}";
+        HabitLastActionText = string.IsNullOrWhiteSpace(s.Advanced.LastAction)
+            ? "还没有自动处理过"
+            : s.Advanced.LastAction;
+        RebuildHabitRows();
 
         var hint = _rt.Lesson.NameHint(DateTimeOffset.Now);
         var index = _rt.Lesson.State().Snapshot?.LessonIndex ?? 0;
@@ -635,10 +749,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         EditTraySaveKeepOpen = c.Tray.SaveKeepOpen;
         EditTraySaveWithoutRename = c.Tray.SaveWithoutRename;
         EditTrayShowPreviewReminder = c.Tray.ShowPreviewReminder;
+        EditHabitsEnabled = c.Habits.Enabled;
+        EditConflictEnabled = c.Conflict.Enabled;
+        EditIgnoreProcesses = string.Join("\n", c.Conflict.IgnoreProcesses ?? new List<string>());
+        _habitEdits.Clear();
+        foreach (var rule in c.Habits.Rules)
+            _habitEdits.Add(new HabitRule { Subject = rule.Subject, App = rule.App, Understand = rule.Understand });
         _editSubjects.Clear();
         _editSubjects.AddRange(c.Lesson.Subjects ?? new List<string>());
         RebuildSubjectHint();
         SyncSubjects(Array.Empty<string>());
+        RebuildHabitRows(force: true);
         _settingsDirty = false;
     }
 
@@ -717,6 +838,49 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _ = RefreshAsync(true);
     }
 
+    private void SaveHabits()
+    {
+        _rt.Config.Mutate(c =>
+        {
+            c.Habits.Enabled = EditHabitsEnabled;
+            c.Habits.Rules = _habitEdits
+                .Select(x => new HabitRule { Subject = x.Subject, App = x.App, Understand = x.Understand })
+                .ToList();
+            c.Habits.Normalize();
+            c.Conflict.Enabled = EditConflictEnabled;
+            c.Conflict.IgnoreProcesses = SplitProcessList(EditIgnoreProcesses);
+        });
+        _habitEdits.Clear();
+        foreach (var rule in _rt.Config.Current.Habits.Rules)
+            _habitEdits.Add(new HabitRule { Subject = rule.Subject, App = rule.App, Understand = rule.Understand });
+        _settingsDirty = false;
+        RebuildHabitRows(force: true);
+        Toast(EditHabitsEnabled ? "习惯设置已保存，下一轮巡检生效" : "习惯模式已关闭，冲突恢复弹窗");
+        _ = RefreshAsync(true);
+    }
+
+    /// <summary>忽略列表：换行、逗号、分号都当分隔符，去掉空白与重复。</summary>
+    private static List<string> SplitProcessList(string? text) =>
+        (text ?? "")
+            .Split(new[] { '\n', '\r', ',', '，', ';', '；' },
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private void AddHabitSubject()
+    {
+        var name = (NewHabitSubjectText ?? "").Trim();
+        if (name.Length == 0) return;
+        if (!_habitEdits.Any(x => string.Equals(x.Subject, name, StringComparison.OrdinalIgnoreCase)))
+        {
+            _habitEdits.Add(new HabitRule { Subject = name, App = "", Understand = true });
+            _settingsDirty = true;
+            RebuildHabitRows(force: true);
+            Toast($"已添加科目「{name}」，选好习惯软件后点保存");
+        }
+        NewHabitSubjectText = "";
+    }
+
     private void AddSubject()
     {
         var name = (NewSubjectText ?? "").Trim();
@@ -759,6 +923,53 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void RebuildSubjectHint() =>
         SubjectHint = _editSubjects.Count == 0 ? "未勾选 = 所有科目都提醒" : $"已勾选 {_editSubjects.Count} 个科目";
+
+    /// <summary>高级页的科目行 = 课表推送 ∪ 生效科目候选 ∪ 配置里的规则 ∪ 手动添加；候选没变就不重排。</summary>
+    private void RebuildHabitRows(bool force = false)
+    {
+        var candidates = new List<string>();
+        void Add(string? name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return;
+            var trimmed = name.Trim();
+            if (!candidates.Any(x => string.Equals(x, trimmed, StringComparison.OrdinalIgnoreCase))) candidates.Add(trimmed);
+        }
+
+        foreach (var name in _rt.Lesson.AvailableSubjects?.Invoke() ?? Array.Empty<string>()) Add(name);
+        foreach (var option in SubjectOptions) Add(option.Name);
+        foreach (var name in _rt.Config.Current.Lesson.Subjects ?? new List<string>()) Add(name);
+        foreach (var rule in _rt.Config.Current.Habits.Rules) Add(rule.Subject);
+        foreach (var rule in _habitEdits) Add(rule.Subject);
+
+        var signature = string.Join('\u0001', candidates);
+        if (!force && signature == _habitSignature) return;
+        _habitSignature = signature;
+
+        HabitRows.Clear();
+        foreach (var subject in candidates)
+        {
+            var rule = _habitEdits.FirstOrDefault(x => string.Equals(x.Subject, subject, StringComparison.OrdinalIgnoreCase));
+            HabitRows.Add(new HabitRow(
+                subject,
+                rule?.App ?? "",
+                rule is { Understand: false } ? "silent" : "understand",
+                OnHabitRowChanged));
+        }
+    }
+
+    /// <summary>行里的下拉一改就回写到编辑列表；保存前只改内存，不写盘。</summary>
+    private void OnHabitRowChanged(HabitRow row)
+    {
+        var rule = _habitEdits.FirstOrDefault(x => string.Equals(x.Subject, row.Subject, StringComparison.OrdinalIgnoreCase));
+        if (rule is null)
+        {
+            rule = new HabitRule { Subject = row.Subject };
+            _habitEdits.Add(rule);
+        }
+        rule.App = row.App ?? "";
+        rule.Understand = row.Understand != "silent";
+        _settingsDirty = true;
+    }
 
     /// <summary>候选科目 = 课表推送 ∪ 配置里已勾选 ∪ 手动添加；只在候选变化时重排，别每秒清空勾选。</summary>
     public void SyncSubjects(IReadOnlyList<string> fromSchedule, bool force = false)

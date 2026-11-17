@@ -158,6 +158,7 @@
                     <pages:LessonPage Visibility="{Binding PageKey, Converter={StaticResource PageVisibility}, ConverterParameter=lesson}" />
                     <pages:UpdatePage Visibility="{Binding PageKey, Converter={StaticResource PageVisibility}, ConverterParameter=update}" />
                     <pages:DiagnosePage Visibility="{Binding PageKey, Converter={StaticResource PageVisibility}, ConverterParameter=diagnose}" />
+                    <pages:AdvancedPage Visibility="{Binding PageKey, Converter={StaticResource PageVisibility}, ConverterParameter=advanced}" />
                     <pages:SettingsPage Visibility="{Binding PageKey, Converter={StaticResource PageVisibility}, ConverterParameter=settings}" />
                 </Grid>
 
