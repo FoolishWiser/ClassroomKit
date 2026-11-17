@@ -39,6 +39,11 @@ public sealed class HotspotConfig
     public bool AllowWifiUplink { get; set; }
     public int GuardIntervalSec { get; set; } = 15;
     public bool AutoStartOnLaunch { get; set; } = true;
+    /// <summary>
+    /// 热点报「已开」但零客户端、Wi-Fi Direct 适配器长时间收不到任何字节时自动复位无线网卡。
+    /// 默认关：空教室整夜无人连接时 RX 也恒为 0，自动复位会平白打断希沃传屏等 Wi-Fi Direct 应用。
+    /// </summary>
+    public bool RestartAdapterOnIdleNoRx { get; set; }
 }
 
 public sealed class UplinkConfig

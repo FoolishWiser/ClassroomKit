@@ -16,8 +16,14 @@ internal sealed class FakeTethering : ITethering
     public bool StartSucceeds { get; set; } = true;
     public bool ConfigureSucceeds { get; set; } = true;
     public bool ThrowOnSnapshot { get; set; }
+    /// <summary>启动后停在 Starting（模拟 8821CU 复位网卡后 10–30 秒才真正 On）。</summary>
+    public bool StartLeavesTransition { get; set; }
+    public bool RestartAdapterSucceeds { get; set; } = true;
+    /// <summary>Wi-Fi Direct 适配器的累计接收字节。</summary>
+    public long ApReceivedBytes { get; set; }
 
     public int StartCalls { get; private set; }
+    public int RestartAdapterCalls { get; private set; }
     public int StopCalls { get; private set; }
     public int ConfigureCalls { get; private set; }
     public int TimeoutFixCalls { get; private set; }
@@ -45,7 +51,7 @@ internal sealed class FakeTethering : ITethering
     public Task<bool> StartAsync(CancellationToken ct)
     {
         StartCalls++;
-        if (StartSucceeds) State = OperationalState.On;
+        if (StartSucceeds) State = StartLeavesTransition ? OperationalState.Starting : OperationalState.On;
         return Task.FromResult(StartSucceeds);
     }
 
@@ -69,6 +75,16 @@ internal sealed class FakeTethering : ITethering
         TimeoutFixCalls++;
         NoConnectionsTimeout = false;
         return Task.FromResult(true);
+    }
+
+    public Task<long?> GetAccessPointReceivedBytesAsync(CancellationToken ct) =>
+        Task.FromResult<long?>(ApReceivedBytes);
+
+    public Task<bool> RestartWirelessAdapterAsync(CancellationToken ct)
+    {
+        RestartAdapterCalls++;
+        if (RestartAdapterSucceeds) State = OperationalState.Off;
+        return Task.FromResult(RestartAdapterSucceeds);
     }
 
     public Task<IReadOnlyList<TetherClient>> GetClientsAsync(CancellationToken ct) =>

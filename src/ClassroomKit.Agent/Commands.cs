@@ -37,6 +37,7 @@ ClassroomKit.Agent {Version}
   --status          输出当前状态（JSON）
   --probe           收集本机能力信息（JSON），用于 P0 评估
   --fix-peers       提权写入 WifiMaxPeers 并重启 icssvc（放宽设备数上限）
+  --restart-wifi    复位无线网卡再重开热点（修「手机能看到热点却连不上」的假启动，需要管理员）
   --install-task    注册登录自启计划任务
   --uninstall-task  删除登录自启计划任务
   --install-service 注册 SYSTEM 护航任务（hosts 写入 + 静默升级；需要管理员）
@@ -488,6 +489,30 @@ ClassroomKit.Agent {Version}
         var (ok, message) = ScheduledTaskInstaller.Uninstall();
         Console.WriteLine(message);
         return ok ? 0 : 1;
+    }
+
+    /// <summary>
+    /// 应急入口：复位的物理无线网卡后再开热点。8821CU 这类老驱动在 soft-AP 下会「假启动」——
+    /// 状态机说 On、适配器 Up、IP 也有，但空口不发信标，手机连不上，只有复位网卡能救回来。
+    /// </summary>
+    public static int RestartWifiCli()
+    {
+        Console.WriteLine("正在复位无线网卡（约 10–30 秒）…");
+        var ok = WlanAdapter.RestartAsync(CancellationToken.None).GetAwaiter().GetResult();
+        if (!ok)
+        {
+            Console.WriteLine("复位失败：需要以管理员身份运行，或这块网卡的驱动不支持 Restart-NetAdapter");
+            return 1;
+        }
+
+        var store = new ConfigStore(Paths.ConfigPath);
+        var log = new AppLog(null);
+        var tethering = new TetheringService(new UplinkProbe(log), () => store.Current);
+        var started = tethering.StartAsync(CancellationToken.None).GetAwaiter().GetResult();
+        Console.WriteLine(started
+            ? "网卡已复位，热点已重新开启（等 10–30 秒再让手机连）"
+            : "网卡已复位，但重开热点失败：" + (tethering.LastError ?? "未知原因"));
+        return started ? 0 : 1;
     }
 
     public static int FixPeersCli()

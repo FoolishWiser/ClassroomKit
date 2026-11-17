@@ -11,4 +11,10 @@ public interface ITethering
     Task<bool> ConfigureAccessPointAsync(string ssid, string passphrase, CancellationToken ct);
     Task<bool> EnsureNoConnectionsTimeoutDisabledAsync(CancellationToken ct);
     Task<IReadOnlyList<TetherClient>> GetClientsAsync(CancellationToken ct);
+
+    /// <summary>Wi-Fi Direct 虚拟适配器的累计接收字节；读不到返回 null。</summary>
+    Task<long?> GetAccessPointReceivedBytesAsync(CancellationToken ct);
+
+    /// <summary>复位物理无线网卡（假启动的唯一可靠恢复手段，需要管理员）。</summary>
+    Task<bool> RestartWirelessAdapterAsync(CancellationToken ct);
 }

@@ -239,6 +239,15 @@ public sealed class TetheringService : ITethering
         }
     }
 
+    public Task<long?> GetAccessPointReceivedBytesAsync(CancellationToken ct) => WlanAdapter.ReadApReceivedBytesAsync(ct);
+
+    public Task<bool> RestartWirelessAdapterAsync(CancellationToken ct) => Task.Run(async () =>
+    {
+        var ok = await WlanAdapter.RestartAsync(ct).ConfigureAwait(false);
+        LastError = ok ? null : "复位无线网卡失败：需要管理员权限（或网卡驱动不支持 Restart-NetAdapter）";
+        return ok;
+    }, ct);
+
     private NetworkOperatorTetheringManager? TryCreateManager(out string? error)
     {
         error = null;

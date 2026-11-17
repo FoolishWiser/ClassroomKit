@@ -25,10 +25,20 @@ public sealed class HotspotGuard
     private static readonly int[] BackoffSeconds = { 60, 300, 1800 };
     private const int DriftRecoveryFailStreak = 5;
 
+    /// <summary>零客户端时采样 Wi-Fi Direct 适配器收包的最小间隔。</summary>
+    private static readonly TimeSpan RxSampleInterval = TimeSpan.FromSeconds(60);
+    /// <summary>收包一直不涨多久之后才认定「假启动」（有信标但空口收不到东西）。</summary>
+    private static readonly TimeSpan RxIdleThreshold = TimeSpan.FromSeconds(300);
+    /// <summary>两次自动复位网卡之间的最小间隔，避免空教室整夜反复复位。</summary>
+    private static readonly TimeSpan AdapterResetCooldown = TimeSpan.FromMinutes(15);
+    private static readonly TimeSpan DriftWarnWindow = TimeSpan.FromMinutes(10);
+    private const int DriftWarnCount = 3;
+
     private readonly ITethering _tethering;
     private readonly Func<AppConfig> _config;
     private readonly AppLog _log;
     private readonly Func<DateTimeOffset> _now;
+    private readonly TimeSpan _startTimeout;
 
     private int _failStreak;
     private DateTimeOffset _nextAttempt = DateTimeOffset.MinValue;
@@ -36,13 +46,27 @@ public sealed class HotspotGuard
     private bool _timeoutWarned;
     private OperationalState _lastState = OperationalState.Unknown;
 
-    public HotspotGuard(ITethering tethering, Func<AppConfig> config, AppLog log, Func<DateTimeOffset>? now = null)
+    private DateTimeOffset? _onSince;
+    private DateTimeOffset _rxSampleAt = DateTimeOffset.MinValue;
+    private long? _rxBaseline;
+    private DateTimeOffset _rxBaselineAt;
+    private bool _rxIdleWarned;
+    private DateTimeOffset _lastAdapterReset = DateTimeOffset.MinValue;
+    private int _driftFixes;
+    private DateTimeOffset _driftWindowStart = DateTimeOffset.MinValue;
+
+    public HotspotGuard(ITethering tethering, Func<AppConfig> config, AppLog log,
+        Func<DateTimeOffset>? now = null, TimeSpan? startTimeout = null)
     {
         _tethering = tethering;
         _config = config;
         _log = log;
         _now = now ?? (() => DateTimeOffset.Now);
+        _startTimeout = startTimeout ?? TimeSpan.FromSeconds(30);
     }
+
+    /// <summary>「热点报已开、但零客户端且长期收不到包」的健康提示，面板/自检用。</summary>
+    public string? HealthWarning { get; private set; }
 
     public GuardState State { get; private set; } = GuardState.Unknown;
     public string? LastError { get; private set; }
@@ -136,6 +160,7 @@ public sealed class HotspotGuard
                 if (ok)
                 {
                     _log.Warn("热点配置被改动，已自动改回");
+                    CountDriftFix();
                     await RefreshSnapshotAsync(ct);
                 }
             }
@@ -143,11 +168,20 @@ public sealed class HotspotGuard
             try { Clients = await _tethering.GetClientsAsync(ct); }
             catch { Clients = Array.Empty<TetherClient>(); }
 
+            _onSince ??= _now();
+            await CheckIdleNoRxAsync(snap, cfg, ct);
+
             SetState(GuardState.On);
             return;
         }
 
         _lastState = snap.OperationalState;
+        _onSince = null;
+        _rxBaseline = null;
+        _rxBaselineAt = default;
+        _rxIdleWarned = false;
+        HealthWarning = null;
+
         if (snap.OperationalState == OperationalState.Starting)
         {
             SetState(GuardState.Starting, "系统正在启动热点");
@@ -165,11 +199,19 @@ public sealed class HotspotGuard
         var started = await SafeAsync(() => _tethering.StartAsync(ct), "开启热点");
         if (started)
         {
-            _failStreak = 0;
-            _nextAttempt = DateTimeOffset.MinValue;
             LastSuccess = _now();
-            await RefreshSnapshotAsync(ct);
-            SetState(GuardState.On);
+            if (await WaitForOnAsync(ct))
+            {
+                _failStreak = 0;
+                _nextAttempt = DateTimeOffset.MinValue;
+                await RefreshSnapshotAsync(ct);
+                SetState(GuardState.On);
+            }
+            else
+            {
+                // 8821CU 复位网卡后要 10–30 秒才真正 On：别当场判失败，下一轮巡检接着看。
+                SetState(GuardState.Starting, "已发出启动，等待系统就绪");
+            }
             return;
         }
 
@@ -178,6 +220,114 @@ public sealed class HotspotGuard
         var delay = BackoffSeconds[idx];
         _nextAttempt = now.AddSeconds(delay);
         SetState(GuardState.Backoff, $"连续失败 {_failStreak} 次，{delay}s 后重试");
+    }
+
+    /// <summary>等系统真的进 On（启动后立刻读常常还是 InTransition）。</summary>
+    private async Task<bool> WaitForOnAsync(CancellationToken ct)
+    {
+        var deadline = DateTimeOffset.UtcNow + _startTimeout;
+        var interval = TimeSpan.FromMilliseconds(Math.Clamp(_startTimeout.TotalMilliseconds / 10, 100, 1000));
+
+        while (true)
+        {
+            try
+            {
+                var snap = await _tethering.GetSnapshotAsync(ct);
+                if (snap.OperationalState == OperationalState.On)
+                {
+                    LastSnapshot = snap;
+                    return true;
+                }
+            }
+            catch
+            {
+                // 读不到就再等一会
+            }
+
+            var remain = deadline - DateTimeOffset.UtcNow;
+            if (remain <= TimeSpan.Zero) return false;
+
+            try { await Task.Delay(remain < interval ? remain : interval, ct); }
+            catch (OperationCanceledException) { return false; }
+        }
+    }
+
+    /// <summary>
+    /// 8821CU 的 soft-AP「假启动」：状态机 On、适配器 Up、IP 正常，但空口不发信标，
+    /// 手机能看到 SSID 却连不上，接收计数恒为 0。这里只负责观测与告警；
+    /// 是否自动复位网卡由 hotspot.restartAdapterOnIdleNoRx 决定（默认关，免得空教室整夜复位）。
+    /// 判断依据只能是「客户端数 + AP 收发计数」，本机 netsh 扫描看不到自己的 GO，不能拿来判。
+    /// </summary>
+    private async Task CheckIdleNoRxAsync(TetheringSnapshot snap, HotspotConfig cfg, CancellationToken ct)
+    {
+        if (snap.ClientCount > 0)
+        {
+            _rxBaseline = null;
+            _rxBaselineAt = default;
+            _rxIdleWarned = false;
+            HealthWarning = null;
+            return;
+        }
+
+        var now = _now();
+        if (now - _rxSampleAt < RxSampleInterval) return;
+        _rxSampleAt = now;
+
+        long? rx;
+        try { rx = await _tethering.GetAccessPointReceivedBytesAsync(ct); }
+        catch { return; }
+        if (rx is null) return;
+
+        if (_rxBaseline is null || rx > _rxBaseline)
+        {
+            _rxBaseline = rx;
+            _rxBaselineAt = now;
+            return;
+        }
+
+        if (now - _rxBaselineAt < RxIdleThreshold) return;
+
+        var minutes = (now - (_onSince ?? now)).TotalMinutes;
+        HealthWarning = $"热点已开 {minutes:F0} 分钟、零客户端，AP 累计收包一直是 {rx} 字节：可能是「假启动」" +
+                        "（手机能看到热点却连不上）。判断只看客户端数与 AP 收发计数，不要用本机 netsh 扫描。";
+
+        if (!_rxIdleWarned)
+        {
+            _rxIdleWarned = true;
+            _log.Warn(HealthWarning + " 需要时执行 --restart-wifi 复位网卡。");
+        }
+
+        if (!cfg.RestartAdapterOnIdleNoRx) return;
+        if (now - _lastAdapterReset < AdapterResetCooldown) return;
+
+        _lastAdapterReset = now;
+        _log.Warn("按配置自动复位无线网卡，恢复热点广播");
+        var ok = await SafeAsync(() => _tethering.RestartWirelessAdapterAsync(ct), "复位无线网卡");
+        if (!ok) return;
+
+        _rxBaseline = null;
+        _rxBaselineAt = default;
+        _rxIdleWarned = false;
+        await SafeAsync(() => _tethering.StartAsync(ct), "复位后重开热点");
+        await RefreshSnapshotAsync(ct);
+    }
+
+    /// <summary>系统反复把热点配置改回去时提醒一次：多半是 Windows「移动热点」里还开着另一份设置。</summary>
+    private void CountDriftFix()
+    {
+        var now = _now();
+        if (now - _driftWindowStart > DriftWarnWindow)
+        {
+            _driftWindowStart = now;
+            _driftFixes = 0;
+        }
+
+        _driftFixes++;
+        if (_driftFixes == DriftWarnCount)
+        {
+            _log.Warn("热点配置 10 分钟内被系统改了 3 次：Windows「移动热点」里还有一份设置开着，" +
+                      "请把两边的密码/名称改成一致，否则手机连接会时好时坏。");
+        }
     }
 
     private void CheckCapacity(TetheringSnapshot snap, HotspotConfig cfg)

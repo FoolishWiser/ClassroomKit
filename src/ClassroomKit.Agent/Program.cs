@@ -26,6 +26,7 @@ internal static class Program
                 "--status" => Commands.Status(),
                 "--probe" => Commands.ProbeCli(),
                 "--fix-peers" => Commands.FixPeersCli(),
+                "--restart-wifi" => Commands.RestartWifiCli(),
                 "--install-task" => Commands.InstallTask(),
                 "--panel" => Commands.Panel(),
                 "--uplinks" => Commands.UplinksCli(),

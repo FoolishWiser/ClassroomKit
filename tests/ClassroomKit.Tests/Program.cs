@@ -90,12 +90,12 @@ internal static class Program
 
     private sealed record Fixture(HotspotGuard Guard, FakeTethering Fake, AppConfig Config, Clock Clock);
 
-    private static Fixture NewGuard()
+    private static Fixture NewGuard(TimeSpan? startTimeout = null)
     {
         var fake = new FakeTethering();
         var cfg = ConfigStore.CreateDefault();
         var clock = new Clock();
-        var guard = new HotspotGuard(fake, () => cfg, new AppLog(null), () => clock.Now);
+        var guard = new HotspotGuard(fake, () => cfg, new AppLog(null), () => clock.Now, startTimeout);
         return new Fixture(guard, fake, cfg, clock);
     }
 
@@ -378,6 +378,61 @@ internal static class Program
             Eq(GuardState.Failed, f.Guard.State, "状态");
             Contains(f.Guard.LastError ?? "", "网卡被占用", "错误信息");
             Eq(0, f.Fake.StartCalls, "不该尝试启动");
+        });
+
+        await Run("启动后要等系统真的 On，不能自己先报开好", async () =>
+        {
+            var f = NewGuard(TimeSpan.FromMilliseconds(300));
+            f.Fake.StartLeavesTransition = true;
+            await f.Guard.TickOnceAsync(Ct);
+            Eq(1, f.Fake.StartCalls, "启动次数");
+            Eq(GuardState.Starting, f.Guard.State, "系统还在切状态，不能报 On");
+        });
+
+        await Run("热点开着但长期零收包时告警（疑似假启动）", async () =>
+        {
+            var f = NewGuard();
+            f.Fake.State = OperationalState.On;
+            f.Fake.ApReceivedBytes = 0;
+            await f.Guard.TickOnceAsync(Ct);
+            f.Clock.Advance(120);
+            await f.Guard.TickOnceAsync(Ct);
+            Eq<string?>(null, f.Guard.HealthWarning, "不到 5 分钟不该告警");
+            f.Clock.Advance(200);
+            await f.Guard.TickOnceAsync(Ct);
+            Contains(f.Guard.HealthWarning ?? "", "假启动", "应收包不动应告警");
+            Eq(0, f.Fake.RestartAdapterCalls, "没开自动复位时不许动网卡");
+        });
+
+        await Run("收包在涨就不算假启动", async () =>
+        {
+            var f = NewGuard();
+            f.Fake.State = OperationalState.On;
+            f.Fake.ApReceivedBytes = 0;
+            await f.Guard.TickOnceAsync(Ct);
+            f.Fake.ApReceivedBytes = 4096;
+            f.Clock.Advance(120);
+            await f.Guard.TickOnceAsync(Ct);
+            f.Clock.Advance(400);
+            f.Fake.ApReceivedBytes = 8192;
+            await f.Guard.TickOnceAsync(Ct);
+            Eq<string?>(null, f.Guard.HealthWarning, "有收包说明真的在工作");
+            Eq(0, f.Fake.RestartAdapterCalls, "不该复位网卡");
+        });
+
+        await Run("开了自动复位后假启动会被复位并重开", async () =>
+        {
+            var f = NewGuard();
+            f.Config.Hotspot.RestartAdapterOnIdleNoRx = true;
+            f.Fake.State = OperationalState.On;
+            f.Fake.ApReceivedBytes = 0;
+            await f.Guard.TickOnceAsync(Ct);
+            f.Clock.Advance(120);
+            await f.Guard.TickOnceAsync(Ct);
+            f.Clock.Advance(200);
+            await f.Guard.TickOnceAsync(Ct);
+            Eq(1, f.Fake.RestartAdapterCalls, "应复位一次网卡");
+            Eq(1, f.Fake.StartCalls, "复位后应重开热点");
         });
     }
 
