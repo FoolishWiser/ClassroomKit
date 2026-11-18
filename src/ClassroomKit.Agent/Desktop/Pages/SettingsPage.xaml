@@ -85,6 +85,8 @@
                                 Command="{Binding OpenLogsCommand}" />
                         <Button Content="检查更新" Style="{StaticResource GhostButton}" Margin="8,0,0,0"
                                 Command="{Binding CheckUpdateCommand}" />
+                        <Button Content="重新显示教程引导" Style="{StaticResource GhostButton}" Margin="8,0,0,0"
+                                Command="{Binding RestartOnboardingCommand}" />
                     </StackPanel>
                 </StackPanel>
             </Border>

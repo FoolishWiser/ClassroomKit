@@ -21,8 +21,14 @@ public sealed class ConfigStore
         FilePath = filePath;
         var loaded = Load(filePath);
         _config = loaded ?? CreateDefault();
+        CreatedNew = loaded is null;
 
-        var dirty = loaded is null;
+        // 老版本写出来的配置里没有 onboardingDone 字段：升级上来的老用户不弹首次引导。
+        // 新建配置会立刻落盘并写入该字段（false），之后是否弹只看 createdNew 与用户是否点过完成。
+        var legacy = loaded is not null && !HasOnboardingField(filePath);
+        if (legacy) loaded!.Ui.OnboardingDone = true;
+
+        var dirty = loaded is null || legacy;
         if (loaded is not null && loaded.SchemaVersion < CurrentSchemaVersion)
         {
             MigratedFrom = loaded.SchemaVersion;
@@ -41,6 +47,25 @@ public sealed class ConfigStore
 
     /// <summary>本次加载从哪个结构版本迁移过来；0 表示没有迁移。</summary>
     public int MigratedFrom { get; private set; }
+
+    /// <summary>
+    /// 本次启动是不是拿不到已有配置（文件不存在或内容坏掉），即真正的空白配置。
+    /// 教程引导只在「空白配置 + 用户没看完」时自动弹出（0.7.0 起）。
+    /// </summary>
+    public bool CreatedNew { get; }
+
+    private static bool HasOnboardingField(string filePath)
+    {
+        try
+        {
+            return File.ReadAllText(filePath).Contains("\"onboardingDone\"", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            // 读不到就当作老配置：宁可少弹一次引导，也不要在老师上课时突然挡屏
+            return false;
+        }
+    }
 
     /// <summary>
     /// 结构迁移：只补字段/盖章，绝不改用户已有值。

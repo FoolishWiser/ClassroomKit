@@ -20,7 +20,7 @@
     </shell:WindowChrome.WindowChrome>
 
     <Window.Resources>
-        <!-- 页面切换：淡入 + 轻微上移，六个页面实例常驻，状态不丢 -->
+        <!-- 页面切换：淡入 + 轻微上移，七个页面实例常驻，状态不丢 -->
         <Style TargetType="{x:Type UserControl}">
             <Setter Property="Opacity" Value="0" />
             <Setter Property="RenderTransform">
@@ -199,6 +199,37 @@
                     </Grid>
                 </Border>
             </Grid>
+        </Grid>
+
+        <!-- 首次启动教程引导（0.7.0）：只有空白配置才会自动弹；完成/跳过写盘，之后可在设置里重开 -->
+        <Grid Grid.RowSpan="2" Background="#B3000000"
+              Visibility="{Binding ShowOnboarding, Converter={StaticResource BoolVisibility}}">
+            <Border Style="{StaticResource Card}" Width="640" Padding="26"
+                    HorizontalAlignment="Center" VerticalAlignment="Center">
+                <StackPanel>
+                    <TextBlock Text="欢迎使用 ClassroomKit" FontSize="20" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextPrimary}" />
+                    <TextBlock Text="先花两分钟把这台机器配好；中途可以跳过，之后到「设置 · 关于」能再看。"
+                               Style="{StaticResource Caption}" Margin="0,6,0,0" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding OnboardingStepText}" Style="{StaticResource Caption}" Margin="0,14,0,0" />
+                    <TextBlock Text="{Binding OnboardingTitle}" FontSize="16" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextPrimary}" Margin="0,4,0,0" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding OnboardingBody}" Style="{StaticResource Secondary}" Margin="0,8,0,0"
+                               TextWrapping="Wrap" LineHeight="22" />
+                    <StackPanel Orientation="Horizontal" Margin="0,20,0,0">
+                        <Button Content="{Binding OnboardingAction}" Style="{StaticResource PrimaryButton}"
+                                Command="{Binding GoOnboardingPageCommand}" />
+                        <Button Content="上一步" Style="{StaticResource GhostButton}" Margin="8,0,0,0"
+                                IsEnabled="{Binding OnboardingCanGoBack}"
+                                Command="{Binding PrevOnboardingCommand}" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,18,0,0" HorizontalAlignment="Right">
+                        <Button Content="跳过" Style="{StaticResource GhostButton}" Command="{Binding SkipOnboardingCommand}" />
+                        <Button Content="{Binding OnboardingNextText}" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0"
+                                Command="{Binding NextOnboardingCommand}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
         </Grid>
     </Grid>
 </Window>

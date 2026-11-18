@@ -52,6 +52,10 @@ internal static class Program
         await HostsTests.RunAsync();
 
         Console.WriteLine();
+        Console.WriteLine("[教程引导]");
+        await OnboardingTests.RunAsync();
+
+        Console.WriteLine();
         Console.WriteLine("[配置读取]");
         await AgentConfigTests.RunAsync();
 

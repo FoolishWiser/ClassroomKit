@@ -9,6 +9,7 @@ using ClassroomKit.Core.Board;
 using ClassroomKit.Core.Config;
 using ClassroomKit.Core.Lesson;
 using ClassroomKit.Core.Model;
+using ClassroomKit.Core.Onboarding;
 using ClassroomKit.Core.Ui;
 using ClassroomKit.Core.Update;
 
@@ -111,6 +112,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private bool _loadedOnce;
     private bool _settingsDirty;
     private bool _live = true;
+    private bool _onboardingVisible;
+    private int _onboardingStep;
 
     private string _pageKey;
     private string _pageTitle = "概览";
@@ -214,6 +217,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         PagesView.GroupDescriptions.Add(new PropertyGroupDescription(nameof(NavItem.Group)));
         _pageKey = ui.LastPage is { Length: > 0 } p && Pages.Any(x => x.Key == p) ? p : PageOverview;
         _pageTitle = Pages.First(x => x.Key == _pageKey).Title;
+
+        // 0.7.0：没看过教程才自动弹；升级上来的老配置在 ConfigStore 里已被盖章成「已看过」，不会挡屏
+        ShowOnboarding = OnboardingGuide.ShouldShow(ui.OnboardingDone);
+        if (ShowOnboarding) SetOnboardingStep(0);
 
         ToggleHotspotCommand = new RelayCommand(() => Run(() =>
         {
@@ -327,6 +334,26 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _rt.Api.PreviewConflict?.Invoke();
             Toast("已请求预览冲突窗（只弹窗，不会关闭任何程序）");
         });
+        NextOnboardingCommand = new RelayCommand(() =>
+        {
+            if (OnboardingAtEnd) FinishOnboarding("教程看完了。以后想看，到 设置 · 关于 点「重新显示教程引导」");
+            else SetOnboardingStep(_onboardingStep + 1);
+        });
+        PrevOnboardingCommand = new RelayCommand(() => SetOnboardingStep(_onboardingStep - 1));
+        SkipOnboardingCommand = new RelayCommand(() =>
+            FinishOnboarding("已跳过教程。以后想看，到 设置 · 关于 点「重新显示教程引导」"));
+        RestartOnboardingCommand = new RelayCommand(() =>
+        {
+            try { _rt.Config.Mutate(c => c.Ui.OnboardingDone = false); } catch { /* 写不进去也不耽误这次显示 */ }
+            SetOnboardingStep(0);
+            ShowOnboarding = true;
+            Toast("教程已重新打开");
+        });
+        GoOnboardingPageCommand = new RelayCommand(() =>
+        {
+            PageKey = OnboardingCurrent.Page;
+            Toast("已切到「" + PageTitle + "」");
+        });
 
         LoadEditFields();
         _toastTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher.CurrentDispatcher)
@@ -422,6 +449,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public RelayCommand AddHabitSubjectCommand { get; }
     public RelayCommand ClearHabitRuleCommand { get; }
     public RelayCommand PreviewConflictCommand { get; }
+    public RelayCommand NextOnboardingCommand { get; }
+    public RelayCommand PrevOnboardingCommand { get; }
+    public RelayCommand SkipOnboardingCommand { get; }
+    public RelayCommand RestartOnboardingCommand { get; }
+    public RelayCommand GoOnboardingPageCommand { get; }
 
     public ObservableCollection<DiagRow> DiagnoseRows { get; } = new();
     public ObservableCollection<SubjectOption> SubjectOptions { get; } = new();
@@ -472,6 +504,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     /// <summary>只有正在下载或已下载好时才显示进度条，空闲时整条藏起来，免得 0% 被当成「卡住」。</summary>
     public bool UpdateProgressVisible { get => _updateProgressVisible; private set => Set(ref _updateProgressVisible, value); }
     public string UpdateProgressText { get => _updateProgressText; private set => Set(ref _updateProgressText, value); }
+
+    /// <summary>首次启动的教程引导遮罩是否显示（0.7.0 起）。</summary>
+    public bool ShowOnboarding { get => _onboardingVisible; private set => Set(ref _onboardingVisible, value); }
+    public OnboardingStep OnboardingCurrent => OnboardingGuide.Steps[Math.Clamp(_onboardingStep, 0, OnboardingGuide.Steps.Count - 1)];
+    public string OnboardingStepText => $"{_onboardingStep + 1} / {OnboardingGuide.Steps.Count}";
+    public string OnboardingTitle => OnboardingCurrent.Title;
+    public string OnboardingBody => OnboardingCurrent.Body;
+    public string OnboardingAction => OnboardingCurrent.Action;
+    public string OnboardingNextText => OnboardingAtEnd ? "完成" : "下一步";
+    public bool OnboardingAtStart => _onboardingStep <= 0;
+    public bool OnboardingAtEnd => _onboardingStep >= OnboardingGuide.Steps.Count - 1;
+    public bool OnboardingCanGoBack => !OnboardingAtStart;
     public bool HasUpdate { get => _hasUpdate; private set => Set(ref _hasUpdate, value); }
     public string HostsText { get => _hostsText; private set => Set(ref _hostsText, value); }
     public string HostsCountText { get => _hostsCountText; private set => Set(ref _hostsCountText, value); }
@@ -1083,6 +1127,34 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         finally
         {
             Diagnosing = false;
+        }
+    }
+
+    private void SetOnboardingStep(int step)
+    {
+        _onboardingStep = Math.Clamp(step, 0, OnboardingGuide.Steps.Count - 1);
+        Raise(nameof(OnboardingCurrent));
+        Raise(nameof(OnboardingStepText));
+        Raise(nameof(OnboardingTitle));
+        Raise(nameof(OnboardingBody));
+        Raise(nameof(OnboardingAction));
+        Raise(nameof(OnboardingNextText));
+        Raise(nameof(OnboardingAtStart));
+        Raise(nameof(OnboardingAtEnd));
+        Raise(nameof(OnboardingCanGoBack));
+    }
+
+    private void FinishOnboarding(string message)
+    {
+        ShowOnboarding = false;
+        try
+        {
+            _rt.Config.Mutate(c => c.Ui.OnboardingDone = true);
+            Toast(message);
+        }
+        catch (Exception ex)
+        {
+            Toast("教程状态保存失败：" + ex.Message, true);
         }
     }
 

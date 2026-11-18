@@ -149,6 +149,24 @@ internal static class UiTests
             Contains(update, "UpdateProgressText", "要有百分比文字");
             Contains(update, "UpdateProgressVisible", "空闲时藏起进度条");
         });
+
+        await Run("空白配置的教程引导挂在主界面，设置里能重新打开", () =>
+        {
+            var root = RepoRoot();
+            var window = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/Desktop/MainWindow.xaml"));
+            Contains(window, "ShowOnboarding", "引导遮罩绑定视图模型");
+            Contains(window, "OnboardingNextText", "下一步/完成按钮");
+            Contains(window, "OnboardingAction", "「去看看」按钮");
+            Contains(window, "Grid.RowSpan=\"2\"", "遮罩要盖住标题栏与内容区");
+
+            var settings = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/Desktop/Pages/SettingsPage.xaml"));
+            Contains(settings, "重新显示教程引导", "设置里能重开");
+            Contains(settings, "RestartOnboardingCommand", "重开命令");
+
+            var vm = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/Desktop/MainViewModel.cs"));
+            Contains(vm, "OnboardingGuide.ShouldShow", "没看过教程才弹");
+            Contains(vm, "FinishOnboarding", "完成/跳过要落盘");
+        });
     }
 
     /// <summary>测试输出目录向上找仓库根（src 与 Directory.Build.props 所在处）。</summary>

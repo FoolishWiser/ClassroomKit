@@ -229,6 +229,12 @@ public sealed class UiConfig
     /// <summary>light | dark | system</summary>
     public string Theme { get; set; } = "system";
 
+    /// <summary>
+    /// 首次启动的教程引导是否已经看过（0.7.0 起）。点「完成」或「跳过」都会置 true；
+    /// 老版本配置里没有这个字段，升级上来时按「已看过」处理，不会突然挡在老师面前。
+    /// </summary>
+    public bool OnboardingDone { get; set; }
+
     public void Normalize()
     {
         WindowWidth = Math.Clamp(WindowWidth, 960, 3840);
