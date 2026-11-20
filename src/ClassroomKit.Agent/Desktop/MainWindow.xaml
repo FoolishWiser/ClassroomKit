@@ -160,6 +160,7 @@
                     <pages:DiagnosePage Visibility="{Binding PageKey, Converter={StaticResource PageVisibility}, ConverterParameter=diagnose}" />
                     <pages:AdvancedPage Visibility="{Binding PageKey, Converter={StaticResource PageVisibility}, ConverterParameter=advanced}" />
                     <pages:SettingsPage Visibility="{Binding PageKey, Converter={StaticResource PageVisibility}, ConverterParameter=settings}" />
+                    <pages:AboutPage Visibility="{Binding PageKey, Converter={StaticResource PageVisibility}, ConverterParameter=about}" />
                 </Grid>
 
                 <!-- Toast：右下角卡片，错误时描边/底色转红 -->
@@ -211,6 +212,14 @@
                                Foreground="{DynamicResource TextPrimary}" />
                     <TextBlock Text="先花两分钟把这台机器配好；中途可以跳过，之后到「设置 · 关于」能再看。"
                                Style="{StaticResource Caption}" Margin="0,6,0,0" TextWrapping="Wrap" />
+                    <TextBlock Text="课表由 ClassIsland 提供，ClassroomKit 只负责在它旁边搭把手：装不装、什么时候装都由你决定，这里只给个入口。"
+                               Style="{StaticResource Caption}" Margin="0,6,0,0" TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                        <Button Content="打开 ClassIsland 官网" Style="{StaticResource GhostButton}"
+                                Command="{Binding OpenClassIslandSiteCommand}" />
+                        <Button Content="打开 ClassroomKit 下载页" Style="{StaticResource GhostButton}" Margin="8,0,0,0"
+                                Command="{Binding OpenReleasesCommand}" />
+                    </StackPanel>
                     <TextBlock Text="{Binding OnboardingStepText}" Style="{StaticResource Caption}" Margin="0,14,0,0" />
                     <TextBlock Text="{Binding OnboardingTitle}" FontSize="16" FontWeight="SemiBold"
                                Foreground="{DynamicResource TextPrimary}" Margin="0,4,0,0" TextWrapping="Wrap" />

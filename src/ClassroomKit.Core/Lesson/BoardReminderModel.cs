@@ -1,6 +1,6 @@
 namespace ClassroomKit.Core.Lesson;
 
-/// <summary>课前提醒窗的四个出口。</summary>
+/// <summary>课后提醒窗的四个出口。</summary>
 public enum BoardReminderChoice
 {
     /// <summary>保存板书（是否关闭 ClassInX 由 boardSave.closeAfterSave 决定）。</summary>
@@ -9,12 +9,12 @@ public enum BoardReminderChoice
     SaveAndClose,
     /// <summary>过几分钟再问。</summary>
     Snooze,
-    /// <summary>这节课不问。课不保存。</summary>
+    /// <summary>这次不问。不保存。</summary>
     Dismiss
 }
 
 /// <summary>
-/// 课前提醒窗的状态与文案（倒计时、按键、超时动作）。
+/// 课后提醒窗的状态与文案（倒计时、按键、超时动作）。
 /// 与 ConflictDialogModel 同一套路：窗口只负责画，逻辑全在这里，方便单测。
 /// </summary>
 public sealed class BoardReminderModel
@@ -53,25 +53,18 @@ public sealed class BoardReminderModel
     public int SecondsLeft => (RemainingMs + 999) / 1000;
     public double Progress => _totalMs <= 0 ? 1 : Math.Clamp((double)_elapsedMs / _totalMs, 0, 1);
 
-    /// <summary>标题：下节课 3 分钟后开始 · 数学。</summary>
-    public string Title
-    {
-        get
-        {
-            var minutes = Math.Max(1, (int)Math.Ceiling(SecondsToStart / 60.0));
-            return Subject.Length == 0
-                ? $"下节课 {minutes} 分钟后开始"
-                : $"下节课 {minutes} 分钟后开始 · {Subject}";
-        }
-    }
+    /// <summary>标题：语文 已经下课 / 下课了，存一下板书。</summary>
+    public string Title => Subject.Length == 0
+        ? "下课了，存一下板书"
+        : $"{Subject} 已经下课";
 
     /// <summary>正文明说超时会发生什么，老师才敢不点。</summary>
     public string Body => _timeoutChoice switch
     {
-        BoardReminderChoice.Save => $"ClassInX 里还有板书。{TotalSeconds} 秒后自动保存，不会关闭 ClassInX。",
-        BoardReminderChoice.SaveAndClose => $"ClassInX 里还有板书。{TotalSeconds} 秒后自动保存并关闭 ClassInX。",
-        BoardReminderChoice.Dismiss => $"ClassInX 里还有板书。{TotalSeconds} 秒后跳过本次，不会保存。",
-        _ => "ClassInX 里还有板书，等您决定后再关掉这个窗口。"
+        BoardReminderChoice.Save => $"ClassInX 里还有上一节课的板书。{TotalSeconds} 秒后自动保存，不会关闭 ClassInX。",
+        BoardReminderChoice.SaveAndClose => $"ClassInX 里还有上一节课的板书。{TotalSeconds} 秒后自动保存并关闭 ClassInX。",
+        BoardReminderChoice.Dismiss => $"ClassInX 里还有上一节课的板书。{TotalSeconds} 秒后跳过本次，不会保存。",
+        _ => "ClassInX 里还有上一节课的板书，等您决定后再关掉这个窗口。"
     };
 
     public string CountdownText => _timeoutChoice is null

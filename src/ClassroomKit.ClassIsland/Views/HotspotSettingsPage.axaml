@@ -69,7 +69,7 @@
                 <StackPanel Spacing="10">
                     <TextBlock Text="课表联动" FontSize="16" FontWeight="SemiBold" />
                     <TextBlock TextWrapping="Wrap" Opacity="0.7"
-                               Text="ClassIsland 每秒把课表状态推给守护进程：现在上什么课、下一节是什么、上一节是什么。守护据此在上课前提醒你保存板书，保存时按上一节课的名字给板书改名。这一段显示的都是守护那边的实时状态。" />
+                               Text="ClassIsland 每秒把课表状态推给守护进程：现在上什么课、下一节是什么、上一节是什么。守护据此在下课后提醒你保存板书，保存时按上一节课的名字给板书改名。这一段显示的都是守护那边的实时状态。" />
 
                     <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="6" ColumnSpacing="16">
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="课表状态" Opacity="0.7" />
@@ -91,9 +91,8 @@
                     </Grid>
 
                     <Grid ColumnDefinitions="Auto,150,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="12">
-                        <TextBlock Grid.Row="0" Grid.Column="0" Text="提前多少分钟提醒" VerticalAlignment="Center" Opacity="0.7" />
-                        <TextBox Grid.Row="0" Grid.Column="1" x:Name="LessonMinutesBox" Watermark="5" Width="90" HorizontalAlignment="Left" />
-                        <TextBlock Grid.Row="0" Grid.Column="2" Text="1–30 分钟；越大学校给的准备时间越多" VerticalAlignment="Center" Opacity="0.55" TextWrapping="Wrap" />
+                        <TextBlock Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3" TextWrapping="Wrap" Opacity="0.6"
+                                   Text="提醒时机：下课后。0.8.0 起改为课后保存，以前填的「提前多少分钟」不再生效。" />
 
                         <TextBlock Grid.Row="1" Grid.Column="0" Text="弹窗停留秒数" VerticalAlignment="Center" Opacity="0.7" />
                         <TextBox Grid.Row="1" Grid.Column="1" x:Name="LessonSecondsBox" Watermark="30" Width="90" HorizontalAlignment="Left" />
@@ -117,7 +116,7 @@
                         <TextBox Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="2" x:Name="LessonSubjectsBox"
                                  Watermark="如 物理,化学；留空 = 所有科目都提醒" />
                         <TextBlock Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="3" TextWrapping="Wrap" Opacity="0.55"
-                                   Text="逗号分隔；不区分大小写，「物理」也能匹配课表里的「物理实验」。只影响课前提醒（也就决定哪节课后会自动保存），板书文件名仍按课表科目取。" />
+                                   Text="逗号分隔；不区分大小写，「物理」也能匹配课表里的「物理实验」。只影响课后保存（也就是决定哪节课后会自动提醒），板书文件名仍按课表科目取。" />
                     </Grid>
 
                     <CheckBox x:Name="LessonCloseAfterSaveBox" Content="保存板书后顺手关闭 ClassInX" IsChecked="True" />

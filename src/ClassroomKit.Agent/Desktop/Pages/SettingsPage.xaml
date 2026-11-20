@@ -40,7 +40,7 @@
                     <TextBlock Text="「保存并关闭 ClassInX」始终保留，其余动作默认收起，按需要打开。" Style="{StaticResource Caption}" Margin="0,4,0,0" TextWrapping="Wrap" />
                     <CheckBox Content="保存，保留 ClassInX" Margin="0,16,0,0" IsChecked="{Binding EditTraySaveKeepOpen}" />
                     <CheckBox Content="保存（不按课表改名）" Margin="0,10,0,0" IsChecked="{Binding EditTraySaveWithoutRename}" />
-                    <CheckBox Content="预览课前提醒窗" Margin="0,10,0,0" IsChecked="{Binding EditTrayShowPreviewReminder}" />
+                    <CheckBox Content="预览课后提醒窗" Margin="0,10,0,0" IsChecked="{Binding EditTrayShowPreviewReminder}" />
                     <Button Content="保存托盘菜单" Style="{StaticResource PrimaryButton}" Margin="0,18,0,0"
                             HorizontalAlignment="Left" Command="{Binding SaveTrayCommand}" />
                 </StackPanel>

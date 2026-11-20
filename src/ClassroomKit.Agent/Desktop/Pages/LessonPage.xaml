@@ -52,7 +52,7 @@
                         <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
                             <Button Content="保存板书（按课表改名）" Style="{StaticResource PrimaryButton}"
                                     Command="{Binding SaveBoardNamedCommand}" />
-                            <Button Content="预览课前提醒" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0"
+                            <Button Content="预览课后提醒" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0"
                                     Command="{Binding PreviewReminderCommand}" />
                         </StackPanel>
                         <Button Content="清除课表数据，等插件重新推送" Style="{StaticResource GhostButton}"
@@ -62,26 +62,19 @@
 
                 <Border Grid.Column="2" Style="{StaticResource Card}">
                     <StackPanel>
-                        <TextBlock Text="课前提醒" Style="{StaticResource H2}" />
-                        <TextBlock Text="下一节到点前弹出提醒窗，提示保存 ClassInX 板书。" Style="{StaticResource Caption}" Margin="0,4,0,0" />
-                        <CheckBox Content="启用课前提醒" Margin="0,16,0,0" IsChecked="{Binding EditLessonEnabled}" />
+                        <TextBlock Text="课后保存板书" Style="{StaticResource H2}" />
+                        <TextBlock Text="下课后弹出提醒窗，提示保存 ClassInX 板书；连堂在最后一节下课后才提醒。" Style="{StaticResource Caption}" Margin="0,4,0,0" TextWrapping="Wrap" />
+                        <CheckBox Content="启用课后保存提醒" Margin="0,16,0,0" IsChecked="{Binding EditLessonEnabled}" />
                         <CheckBox Content="只在 ClassInX 运行时提醒" Margin="0,10,0,0" IsChecked="{Binding EditOnlyWhenClassInBoard}" />
 
-                        <Grid Margin="0,18,0,0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="12" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0">
-                                <TextBlock Text="提前" Style="{StaticResource FieldLabel}" />
-                                <controls:NumericInput Value="{Binding EditRemindMinutes, Mode=TwoWay}" Minimum="1" Maximum="30" Suffix="分钟" />
-                            </StackPanel>
-                            <StackPanel Grid.Column="2">
-                                <TextBlock Text="弹窗停留" Style="{StaticResource FieldLabel}" />
-                                <controls:NumericInput Value="{Binding EditDialogSeconds, Mode=TwoWay}" Minimum="5" Maximum="600" Suffix="秒" />
-                            </StackPanel>
-                        </Grid>
+                        <TextBlock Text="弹窗停留" Style="{StaticResource FieldLabel}" Margin="0,18,0,6" />
+                        <controls:NumericInput Value="{Binding EditDialogSeconds, Mode=TwoWay}" Minimum="5" Maximum="600" Suffix="秒" />
+
+                        <TextBlock Text="不在这些课间保存" Style="{StaticResource FieldLabel}" Margin="0,16,0,6" />
+                        <TextBox Style="{StaticResource Input}" Text="{Binding EditSkipBreakNames, UpdateSourceTrigger=PropertyChanged}"
+                                 AcceptsReturn="True" TextWrapping="Wrap" MinHeight="56" VerticalContentAlignment="Top"
+                                 Tag="每行一个课间名，例如 高一礼让、跑操（留空 = 所有课间都保存）" />
+                        <TextBlock Text="课间名取自 ClassIsland 时间点的自定义课间名，忽略大小写；连堂课的课间本来就不保存。" Style="{StaticResource Caption}" Margin="0,4,0,0" TextWrapping="Wrap" />
 
                         <TextBlock Text="倒计时结束后的动作" Style="{StaticResource FieldLabel}" Margin="0,16,0,6" />
                         <ComboBox ItemsSource="{Binding TimeoutOptions}" SelectedValue="{Binding EditTimeoutAction}"
@@ -96,7 +89,7 @@
                         <TextBlock Text="稍后提醒间隔" Style="{StaticResource FieldLabel}" Margin="0,16,0,6" />
                         <controls:NumericInput Value="{Binding EditSnoozeMinutes, Mode=TwoWay}" Minimum="1" Maximum="60" Suffix="分钟" />
 
-                        <Button Content="保存课前提醒设置" Style="{StaticResource PrimaryButton}" Margin="0,20,0,0"
+                        <Button Content="保存课后提醒设置" Style="{StaticResource PrimaryButton}" Margin="0,20,0,0"
                                 HorizontalAlignment="Left" Command="{Binding SaveLessonCommand}" />
                     </StackPanel>
                 </Border>

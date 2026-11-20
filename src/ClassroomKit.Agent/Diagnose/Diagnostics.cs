@@ -80,7 +80,7 @@ public static class Diagnostics
             folderOk ? saveFolder : $"还没有这个目录：{saveFolder}（第一次保存板书后会自动创建）");
         Add("classin", "ClassInX", ClassInBoardSaver.IsClassInRunning() ? "ok" : "warn",
             ClassInBoardSaver.IsClassInRunning() ? "正在运行" : "没有运行",
-            ClassInBoardSaver.IsClassInRunning() ? null : "上课前从桌面或开始菜单打开 ClassInX");
+            ClassInBoardSaver.IsClassInRunning() ? null : "下课前从桌面或开始菜单打开 ClassInX");
 
         // 课表联动
         var lessonAvailable = rt.Lesson.State().Snapshot is not null;

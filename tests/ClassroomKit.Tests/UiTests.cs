@@ -167,6 +167,24 @@ internal static class UiTests
             Contains(vm, "OnboardingGuide.ShouldShow", "没看过教程才弹");
             Contains(vm, "FinishOnboarding", "完成/跳过要落盘");
         });
+
+        await Run("关于页挂在主界面，欢迎遮罩只给 ClassIsland 与下载入口", () =>
+        {
+            var root = RepoRoot();
+            var window = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/Desktop/MainWindow.xaml"));
+            Contains(window, "pages:AboutPage", "主界面要挂上关于页");
+            Contains(window, "OpenClassIslandSiteCommand", "欢迎页给 ClassIsland 官网入口");
+            Contains(window, "OpenReleasesCommand", "欢迎页给下载页入口");
+
+            var about = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/Desktop/Pages/AboutPage.xaml"));
+            Contains(about, "AboutStarsText", "显示 GitHub Star");
+            Contains(about, "OpenRepoCommand", "能打开仓库");
+            Contains(about, "RefreshStarsCommand", "能刷新 Star");
+
+            var vm = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/Desktop/MainViewModel.cs"));
+            Contains(vm, "PageAbout", "导航项");
+            Contains(vm, "ConfirmHabitMode", "开启习惯模式前要确认");
+        });
     }
 
     /// <summary>测试输出目录向上找仓库根（src 与 Directory.Build.props 所在处）。</summary>

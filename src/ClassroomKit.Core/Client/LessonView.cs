@@ -1,7 +1,7 @@
 namespace ClassroomKit.Core.Client;
 
 /// <summary>
-/// GET /api/lesson 的响应：课表快照 + 课前提醒的判定结果。
+/// GET /api/lesson 的响应：课表快照 + 课后保存的判定结果。
 /// 插件用它画状态、排错，也能看出「为什么现在没提醒」。
 /// </summary>
 public sealed record LessonView
@@ -38,7 +38,7 @@ public sealed record LessonView
     public LessonReminderView Reminder { get; init; } = new();
 }
 
-/// <summary>课前提醒的配置与当前判定。</summary>
+/// <summary>课后保存的配置与当前判定。</summary>
 public sealed record LessonReminderView
 {
     public bool Enabled { get; init; }

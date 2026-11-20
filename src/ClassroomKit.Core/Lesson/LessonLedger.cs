@@ -2,7 +2,7 @@ using ClassroomKit.Core.Model;
 
 namespace ClassroomKit.Core.Lesson;
 
-/// <summary>一次「要不要弹课前提醒」的判定结果。Reason 便于日志与单测定位。</summary>
+/// <summary>一次「要不要弹课后提醒」的判定结果。Reason 便于日志与单测定位。</summary>
 public readonly record struct ReminderDecision(
     bool Show,
     string Reason,
@@ -95,12 +95,32 @@ public sealed class LessonLedger
         return age.Value > limit;
     }
 
-    /// <summary>同一节课的去重 key：下一节课的开始时刻（本地时间，精确到分钟）。</summary>
-    public static string KeyOf(LessonSnapshot snapshot) =>
-        snapshot.NextStartAt is { } start
-            ? start.ToString("yyyy-MM-dd HH:mm")
-            : "";
+    /// <summary>
+    /// 去重 key：课间用「本课间 + 下一节开始时刻」，放学后用「日期 + 刚上完的科目」。
+    /// 这样连堂课间、同一个课间反复推送都不会重复弹。
+    /// </summary>
+    public static string KeyOf(LessonSnapshot snapshot)
+    {
+        if (snapshot.State == LessonStates.Breaking)
+        {
+            return snapshot.NextStartAt is { } start
+                ? "break|" + start.ToString("yyyy-MM-dd HH:mm")
+                : "break|" + snapshot.At.ToString("yyyy-MM-dd") + "|" + snapshot.LessonIndex;
+        }
 
+        if (snapshot.State == LessonStates.AfterSchool)
+        {
+            return "after|" + snapshot.At.ToString("yyyy-MM-dd") + "|" + (snapshot.PreviousSubject ?? "");
+        }
+
+        if (snapshot.NextStartAt is { } next) return next.ToString("yyyy-MM-dd HH:mm");
+        return "";
+    }
+
+    /// <summary>
+    /// 0.8.0 起改为「下课后保存」：课间判断刚上完的那一节，放学后保存最后一节。
+    /// 连堂课间（下一节科目 == 刚上完科目）不弹；课间名命中 SkipBreakNames 也不弹。
+    /// </summary>
     public ReminderDecision Evaluate(DateTimeOffset now, LessonConfig config)
     {
         if (config is null || !config.Enabled) return ReminderDecision.No("disabled");
@@ -109,30 +129,57 @@ public sealed class LessonLedger
         if (snapshot is null) return ReminderDecision.No("no-data");
         if (!snapshot.PlanLoaded) return ReminderDecision.No("no-plan");
         if (IsStale(now, config.StaleMinutes)) return ReminderDecision.No("stale");
-        if (LessonStates.IsInClass(snapshot.State)) return ReminderDecision.No("in-class");
-        if (snapshot.State == LessonStates.AfterSchool) return ReminderDecision.No("after-school");
-        if (!snapshot.HasNext) return ReminderDecision.No("no-next");
 
-        // 科目定向：只看下一节是什么课；空列表不限制，配了科目但课表没给科目名也算不匹配
-        if (!LessonSubjects.Matches(snapshot.NextSubject, config.Subjects))
+        var state = snapshot.State;
+        if (state != LessonStates.Breaking && state != LessonStates.AfterSchool)
+            return ReminderDecision.No(state == LessonStates.Class || state == LessonStates.Prepare ? "in-class" : "not-breaking");
+
+        var subject = snapshot.PreviousSubject;
+        if (string.IsNullOrWhiteSpace(subject)) return ReminderDecision.No("no-previous");
+
+        // 科目定向：课间看刚上完的那一节（板书是它的），空列表不限制
+        if (!LessonSubjects.Matches(subject, config.Subjects))
             return ReminderDecision.No("subject-skipped");
 
-        var key = KeyOf(snapshot);
-        var start = snapshot.NextStartAt!.Value;
-        var seconds = (int)Math.Round((start - now).TotalSeconds);
-        if (seconds <= 0) return ReminderDecision.No("started", key);
+        if (state == LessonStates.Breaking)
+        {
+            // 连堂：下一节还是同一门课，中间不存，等最后一节下课再存
+            if (snapshot.HasNext && SameSubject(snapshot.NextSubject, subject))
+                return ReminderDecision.No("continuous");
 
-        var lead = Math.Clamp(config.RemindMinutesBefore, 1, 30) * 60;
-        if (seconds > lead)
-            return new ReminderDecision(false, "too-early", key, start, snapshot.NextSubject, seconds);
+            if (MatchesBreak(snapshot.BreakName, config.SkipBreakNames))
+                return ReminderDecision.No("break-skipped");
+        }
+
+        var key = KeyOf(snapshot);
+        var remindAt = state == LessonStates.Breaking ? snapshot.NextStartAt : now;
+        var seconds = snapshot.NextStartAt is { } start ? (int)Math.Round((start - now).TotalSeconds) : 0;
 
         if (_snoozedUntil is { } snoozed && snoozed > now)
-            return new ReminderDecision(false, "snoozed", key, start, snapshot.NextSubject, seconds);
+            return new ReminderDecision(false, "snoozed", key, remindAt, subject, seconds);
 
         if (_lastRemindedKey.Length > 0 && _lastRemindedKey == key)
-            return new ReminderDecision(false, "already", key, start, snapshot.NextSubject, seconds);
+            return new ReminderDecision(false, "already", key, remindAt, subject, seconds);
 
-        return new ReminderDecision(true, "ok", key, start, snapshot.NextSubject, seconds);
+        return new ReminderDecision(true, "ok", key, remindAt, subject, seconds);
+    }
+
+    private static bool SameSubject(string? a, string? b)
+    {
+        if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b)) return false;
+        return string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool MatchesBreak(string? name, IReadOnlyList<string>? skip)
+    {
+        if (string.IsNullOrWhiteSpace(name) || skip is null || skip.Count == 0) return false;
+        var trimmed = name.Trim();
+        foreach (var item in skip)
+        {
+            if (string.IsNullOrWhiteSpace(item)) continue;
+            if (string.Equals(trimmed, item.Trim(), StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
     }
 
     /// <summary>已经弹过（或用户明确忽略）：这节课不再打扰。</summary>

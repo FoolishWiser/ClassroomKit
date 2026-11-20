@@ -36,7 +36,6 @@ public partial class HotspotSettingsPage : SettingsPageBase
         TokenSourceText.Text = AgentAccess.DescribeTokenSource(settings);
 
         // 课表联动：先填本地存的值，刷新时再用守护的实际生效值覆盖显示
-        LessonMinutesBox.Text = settings.LessonRemindMinutes.ToString(CultureInfo.InvariantCulture);
         LessonSecondsBox.Text = settings.LessonDialogSeconds.ToString(CultureInfo.InvariantCulture);
         LessonTemplateBox.Text = settings.BoardNameTemplate;
         LessonSubjectsBox.Text = settings.LessonSubjects;
@@ -322,13 +321,12 @@ public partial class HotspotSettingsPage : SettingsPageBase
     private string CurrentTimeoutAction()
         => LessonTimeoutBox.SelectedItem is ComboBoxItem { Tag: string tag } ? tag : "save";
 
-    /// <summary>保存课表联动设置：课本地的那份，同时写给守护（板书配置 + 课前提醒配置）。</summary>
+    /// <summary>保存课表联动设置：课本地的那份，同时写给守护（板书配置 + 课后保存配置）。</summary>
     private async void OnLessonSaveClick(object? sender, RoutedEventArgs e)
     {
         LessonMessage.Text = "";
 
         var settings = _store.Current.Clone();
-        settings.LessonRemindMinutes = ParseInt(LessonMinutesBox.Text, settings.LessonRemindMinutes, 1, 30);
         settings.LessonDialogSeconds = ParseInt(LessonSecondsBox.Text, settings.LessonDialogSeconds, 5, 600);
         settings.LessonTimeoutAction = CurrentTimeoutAction();
         settings.BoardNameTemplate = LessonTemplateBox.Text?.Trim() ?? "";
@@ -338,7 +336,6 @@ public partial class HotspotSettingsPage : SettingsPageBase
         _store.Save(settings);
 
         // 回填被收进区间的值，让界面显示的就是实际生效的
-        LessonMinutesBox.Text = settings.LessonRemindMinutes.ToString(CultureInfo.InvariantCulture);
         LessonSecondsBox.Text = settings.LessonDialogSeconds.ToString(CultureInfo.InvariantCulture);
         LessonTemplateBox.Text = settings.BoardNameTemplate;
         LessonSubjectsBox.Text = settings.LessonSubjects;
@@ -361,7 +358,7 @@ public partial class HotspotSettingsPage : SettingsPageBase
             ["timeoutAction"] = settings.LessonTimeoutAction,
             ["subjects"] = settings.LessonSubjects,
         });
-        lines.Add("课前提醒：" + lesson);
+        lines.Add("课后提醒：" + lesson);
 
         LessonMessage.Text = string.Join("；", lines);
         await RefreshAsync();

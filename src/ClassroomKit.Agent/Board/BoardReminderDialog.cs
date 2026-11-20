@@ -7,7 +7,7 @@ using Forms = System.Windows.Forms;
 namespace ClassroomKit.Agent.Board;
 
 /// <summary>
-/// 课前提醒窗：无边框圆角卡片，倒计时超时按配置自动行动（默认保存板书、不关 ClassInX）。
+/// 课后提醒窗：无边框圆角卡片，倒计时超时按配置自动行动（默认保存板书、不关 ClassInX）。
 /// 倒计时一直走，键盘 1/2/3/Esc 可直接选择。
 /// </summary>
 public sealed class BoardReminderDialog : Forms.Form
@@ -37,7 +37,7 @@ public sealed class BoardReminderDialog : Forms.Form
     {
         _model = model;
 
-        Text = "ClassroomKit 课前提醒";
+        Text = "ClassroomKit 课后提醒";
         FormBorderStyle = Forms.FormBorderStyle.None;
         StartPosition = Forms.FormStartPosition.CenterScreen;
         ShowInTaskbar = true;
@@ -191,7 +191,7 @@ public sealed class BoardReminderDialog : Forms.Form
 
         var textLeft = badge.Right + S(16);
         var textWidth = Width - textLeft - S(Pad);
-        TextRenderer.DrawText(g, "课前提醒", new Drawing.Font("Microsoft YaHei UI", S(13), Drawing.FontStyle.Regular, Drawing.GraphicsUnit.Pixel),
+        TextRenderer.DrawText(g, "课后提醒", new Drawing.Font("Microsoft YaHei UI", S(13), Drawing.FontStyle.Regular, Drawing.GraphicsUnit.Pixel),
             new Drawing.Rectangle(textLeft, badge.Top + S(2), textWidth, S(20)), Muted, Forms.TextFormatFlags.NoPadding);
         TextRenderer.DrawText(g, _model.Title, new Drawing.Font("Microsoft YaHei UI", S(23), Drawing.FontStyle.Bold, Drawing.GraphicsUnit.Pixel),
             new Drawing.Rectangle(textLeft, badge.Top + S(22), textWidth, S(34)), Ink,

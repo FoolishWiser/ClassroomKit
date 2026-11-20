@@ -91,7 +91,7 @@ public sealed class ApiServer
     public Action? ClearLesson { get; set; }
     /// <summary>保存板书并可选按上一节课改名（参数：保存后关闭、按课表改名）。</summary>
     public Func<bool, bool, (bool Ok, string Message)>? SaveBoardNamed { get; set; }
-    /// <summary>预览课前提醒弹窗（不真的保存）。</summary>
+    /// <summary>预览课后提醒弹窗（不真的保存）。</summary>
     public Func<(bool Ok, string Message)>? PreviewBoardReminder { get; set; }
     /// <summary>稍后提醒 / 取消稍后（0 = 取消，其余 = 分钟）。</summary>
     public Func<int, (bool Ok, string Message)>? SnoozeBoardReminder { get; set; }
@@ -653,7 +653,7 @@ public sealed class ApiServer
 
                 var lesson = _config.Current.Lesson;
                 var scope = lesson.Subjects.Count == 0 ? "所有科目" : string.Join("、", lesson.Subjects);
-                _log.Info($"课前提醒设置已保存：{(lesson.Enabled ? "开" : "关")}｜提前 {lesson.RemindMinutesBefore} 分钟｜{lesson.DialogSeconds} 秒后{DescTimeout(lesson.TimeoutAction)}｜生效科目：{scope}");
+                _log.Info($"课后保存设置已保存：{(lesson.Enabled ? "开" : "关")}｜弹窗 {lesson.DialogSeconds} 秒后{DescTimeout(lesson.TimeoutAction)}｜生效科目：{scope}｜跳过课间：{(lesson.SkipBreakNames.Count == 0 ? "无" : string.Join("、", lesson.SkipBreakNames))}");
                 return HttpResponse.Json(JsonSerializer.Serialize(new
                 {
                     ok = true,

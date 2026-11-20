@@ -72,7 +72,7 @@ public sealed class TrayConfig
     /// <summary>托盘菜单里显示「保存（不按课表改名）」。</summary>
     public bool SaveWithoutRename { get; set; }
 
-    /// <summary>托盘菜单里显示「预览课前提醒窗」。</summary>
+    /// <summary>托盘菜单里显示「预览课后提醒窗」。</summary>
     public bool ShowPreviewReminder { get; set; } = true;
 
     public void Normalize()
@@ -101,12 +101,12 @@ public sealed class BoardSaveConfig
     public string NameTemplate { get; set; } = BoardFileName.DefaultTemplate;
 }
 
-/// <summary>ClassIsland 课表联动：课前提醒保存板书。</summary>
+/// <summary>ClassIsland 课表联动：下课后提醒保存板书。</summary>
 public sealed class LessonConfig
 {
     public bool Enabled { get; set; } = true;
 
-    /// <summary>上课前多少分钟弹提醒。</summary>
+    /// <summary>旧版「上课前多少分钟弹提醒」（0.8.0 起改为下课后提醒，不再参与判定，仅保留字段兼容旧配置）。</summary>
     public int RemindMinutesBefore { get; set; } = 5;
 
     /// <summary>弹窗停留多少秒。</summary>
@@ -127,13 +127,25 @@ public sealed class LessonConfig
     /// <summary>
     /// 只在哪些科目上生效（课表里的科目名，如 ["物理"]）。空列表 = 所有科目都生效，也是旧配置没有这个字段时的默认行为。
     /// 匹配规则见 <see cref="LessonSubjects"/>：去空白、忽略大小写，允许「物理」匹配「物理实验」这类包含关系。
-    /// 只约束课前提醒（自动保存板书由这个提醒触发，所以也就等于「只听物理课的」）；板书文件名的科目照旧按课表取，不受这里影响。
+    /// 只约束课后保存（自动保存板书由这个提醒触发，所以也就等于「只听物理课的」）；板书文件名的科目照旧按课表取，不受这里影响。
     /// </summary>
     public List<string> Subjects { get; set; } = new();
+
+    /// <summary>
+    /// 这些课间不保存板书（ClassIsland 时间点上的自定义课间名，如「高一礼让」；忽略大小写）。
+    /// 连堂课间本来就不会存，这里还能再排除跑操、升旗之类的短课间。
+    /// </summary>
+    public List<string> SkipBreakNames { get; set; } = new();
 
     public void Normalize()
     {
         RemindMinutesBefore = Math.Clamp(RemindMinutesBefore, 1, 30);
+        SkipBreakNames = (SkipBreakNames ?? new List<string>())
+            .Select(x => (x ?? "").Trim())
+            .Where(x => x.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(50)
+            .ToList();
         DialogSeconds = Math.Clamp(DialogSeconds, 5, 600);
         SnoozeMinutes = Math.Clamp(SnoozeMinutes, 1, 60);
         StaleMinutes = Math.Clamp(StaleMinutes, 1, 1440);

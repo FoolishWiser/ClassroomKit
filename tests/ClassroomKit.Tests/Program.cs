@@ -72,12 +72,16 @@ internal static class Program
         await ProfileSubjectsTests.RunAsync();
 
         Console.WriteLine();
-        Console.WriteLine("[课表与课前提醒]");
+        Console.WriteLine("[课表与课后保存]");
         await LessonTests.RunAsync();
 
         Console.WriteLine();
         Console.WriteLine("[界面几何与日志增量]");
         await UiTests.RunAsync();
+
+        Console.WriteLine();
+        Console.WriteLine("[关于页与板书完整性]");
+        await ReleaseTests.RunAsync();
 
         Console.WriteLine();
         Console.WriteLine("[插件包与配置版本]");

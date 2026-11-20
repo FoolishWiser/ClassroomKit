@@ -112,7 +112,7 @@ public sealed class AgentRuntime : IDisposable
     public ClassIslandSubjectCatalog Subjects { get; }
     public LessonRuntime Lesson { get; }
 
-    /// <summary>到点该弹课前提醒窗时触发（由托盘层切到 UI 线程）。</summary>
+    /// <summary>到点该弹课后提醒窗时触发（由托盘层切到 UI 线程）。</summary>
     public Action<ReminderDecision>? ReminderRequested { get; set; }
 
     /// <summary>面板/接口请求预览冲突窗时触发（由托盘层弹到 UI 线程）。</summary>
@@ -557,7 +557,7 @@ public sealed class AgentRuntime : IDisposable
     }
 
     /// <summary>
-    /// 课前提醒巡检：每 5 秒看一次课表账本，到点就交给托盘弹窗。
+    /// 课后保存巡检：每 5 秒看一次课表账本，下课（或放学）后交给托盘弹窗。
     /// 先 MarkReminded 再弹窗：弹窗本身是模态的，不先记账会在弹窗期间重复触发。
     /// </summary>
     private async Task LessonLoopAsync()
@@ -577,12 +577,13 @@ public sealed class AgentRuntime : IDisposable
                     {
                         if (cfg.OnlyWhenClassInBoard && !ClassInBoardSaver.IsClassInRunning())
                         {
-                            Log.Info("课前提醒：ClassInX 没有运行，这次不弹窗");
+                            Log.Info("课后保存：ClassInX 没有运行，这次不弹窗");
                         }
                         else
                         {
                             Lesson.MarkReminded(decision.Key);
-                            Log.Info($"课前提醒：{decision.Subject ?? "下一节"}{decision.SecondsToStart / 60} 分钟后上课，弹出保存板书提示");
+                            var when = Lesson.State().Snapshot?.State == LessonStates.AfterSchool ? "已经放学" : "已经下课";
+                            Log.Info($"课后保存：{decision.Subject ?? "上一节"}{when}，弹出保存板书提示");
                             ReminderRequested?.Invoke(decision);
                         }
                     }
@@ -590,7 +591,7 @@ public sealed class AgentRuntime : IDisposable
             }
             catch (Exception ex)
             {
-                Log.Warn($"课前提醒判定异常：{ex.Message}");
+                Log.Warn($"课后保存判定异常：{ex.Message}");
             }
 
             try { await Task.Delay(TimeSpan.FromSeconds(5), _cts.Token); }
@@ -678,7 +679,7 @@ public sealed class AgentRuntime : IDisposable
             RemindAt: DateTimeOffset.Now,
             Subject: Lesson.NameHint(DateTimeOffset.Now) ?? "数学",
             SecondsToStart: Math.Clamp(cfg.RemindMinutesBefore, 1, 30) * 60));
-        return (true, "已请求弹出课前提醒预览（不会保存或关闭任何软件）");
+        return (true, "已请求弹出课后提醒预览（不会保存或关闭任何软件）");
     }
 
     internal (bool Ok, string Message) SnoozeBoardReminder(int minutes)

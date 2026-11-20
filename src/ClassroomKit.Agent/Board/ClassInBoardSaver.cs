@@ -331,17 +331,25 @@ public sealed class ClassInBoardSaver
             }
 
             files = NewFiles(startedAt);
-            if (files.Count >= 3) break;
+            if (files.Count >= 3 && FilesComplete(files)) break;
             Thread.Sleep(30);
         }
         if (confirmed > 0) Step($"确认覆盖 {confirmed} 次");
 
-        files = NewFiles(startedAt);
+        // ClassInX 会先建出 0 字节的 .pdf/.png/.edb，再把内容写进去；
+        // 0.8.0 起必须等到 PDF 有 %PDF- 头并且都写完了才算成功，否则老师拿到的是 0 kB 的板书。
+        files = WaitFilesComplete(startedAt, TimeSpan.FromSeconds(15));
         if (files.Count < 3)
         {
             var found = files.Count == 0 ? "没有发现新文件" : "只发现 " + string.Join("、", files.Select(Path.GetFileName));
             ClosePanels(panel, share);
             return Fail($"保存没有完成：{found}（目标目录 {SaveFolder}）", total, steps);
+        }
+        if (!FilesComplete(files))
+        {
+            var sizes = string.Join("、", files.OrderBy(x => x).Select(x => $"{Path.GetFileName(x)} {SizeOf(x)} 字节"));
+            ClosePanels(panel, share);
+            return Fail($"文件写了一半（{sizes}），请等 ClassInX 保存完再试一次。目标目录 {SaveFolder}", total, steps);
         }
         Step("文件已落盘");
 
@@ -752,6 +760,45 @@ public sealed class ClassInBoardSaver
             Thread.Sleep(25);
         }
         return null;
+    }
+
+    /// <summary>等到三个文件都真的写完：PDF 必须有 %PDF- 头，其余文件至少非空。</summary>
+    private static List<string> WaitFilesComplete(DateTime since, TimeSpan timeout)
+    {
+        var deadline = DateTime.Now + timeout;
+        var files = NewFiles(since);
+        while (DateTime.Now < deadline)
+        {
+            files = NewFiles(since);
+            if (files.Count >= 3 && FilesComplete(files)) return files;
+            Thread.Sleep(100);
+        }
+        return files;
+    }
+
+    private static bool FilesComplete(IReadOnlyList<string> files)
+    {
+        if (files.Count < 3) return false;
+        var hasPdf = false;
+        foreach (var file in files)
+        {
+            var ext = Path.GetExtension(file).ToLowerInvariant();
+            if (ext == ".pdf")
+            {
+                hasPdf = true;
+                if (!BoardFileCheck.LooksComplete(file)) return false;
+                continue;
+            }
+
+            if (SizeOf(file) <= 0) return false;
+        }
+        return hasPdf;
+    }
+
+    private static long SizeOf(string path)
+    {
+        try { return new FileInfo(path).Length; }
+        catch { return 0; }
     }
 
     private static List<string> NewFiles(DateTime since)

@@ -5,6 +5,7 @@ using System.Windows.Threading;
 using ClassroomKit.Agent.Diagnose;
 using ClassroomKit.Agent.Update;
 using ClassroomKit.Agent.Shell;
+using ClassroomKit.Core.About;
 using ClassroomKit.Core.Board;
 using ClassroomKit.Core.Config;
 using ClassroomKit.Core.Lesson;
@@ -101,6 +102,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public const string PageDiagnose = "diagnose";
     public const string PageAdvanced = "advanced";
     public const string PageSettings = "settings";
+    public const string PageAbout = "about";
 
     private readonly AgentRuntime _rt;
     private readonly DispatcherTimer _timer;
@@ -167,6 +169,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private string _editIgnoreProcesses = "";
     private string _habitSignature = "";
     private string _newHabitSubjectText = "";
+    private bool _habitConfirmSuppress;
+    private string _editSkipBreakNames = "";
+    private string _aboutStarsText = "—";
+    private int? _aboutStars;
+    private DateTimeOffset _starsFetchedAt = DateTimeOffset.MinValue;
 
     private string _editSsid = "";
     private string _editPassphrase = "";
@@ -211,7 +218,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             new NavItem(PageUpdate, "升级", "\uE895", "维护"),
             new NavItem(PageDiagnose, "自检与日志", "\uE9D9", "维护"),
             new NavItem(PageAdvanced, "高级", "\uE7EF", "维护"),
-            new NavItem(PageSettings, "设置", "\uE713", "维护")
+            new NavItem(PageSettings, "设置", "\uE713", "维护"),
+            new NavItem(PageAbout, "关于", "\uE946", "维护")
         };
         PagesView = new ListCollectionView(Pages.ToList());
         PagesView.GroupDescriptions.Add(new PropertyGroupDescription(nameof(NavItem.Group)));
@@ -249,7 +257,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         SaveUpdateCommand = new RelayCommand(SaveUpdate);
         SaveBoardCommand = new RelayCommand(SaveBoardNow);
         SaveBoardNamedCommand = new RelayCommand(() => RunBackground(() => _rt.SaveBoardNamed(false, _rt.Config.Current.BoardSave.NameWithLesson).Message));
-        PreviewReminderCommand = new RelayCommand(() => { _rt.Api.PreviewBoardReminder?.Invoke(); Toast("已请求预览课前提醒窗"); });
+        PreviewReminderCommand = new RelayCommand(() => { _rt.Api.PreviewBoardReminder?.Invoke(); Toast("已请求预览课后提醒窗"); });
         ClearLessonCommand = new RelayCommand(() =>
         {
             _rt.Api.ClearLesson?.Invoke();
@@ -292,6 +300,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }));
         OpenPanelCommand = new RelayCommand(() => ShellExec.Open(runtime.PanelUrl));
         OpenLogsCommand = new RelayCommand(() => ShellExec.Open(Paths.LogDir));
+        OpenRepoCommand = new RelayCommand(() => ShellExec.Open(AboutInfo.RepoUrl(AboutInfo.DefaultRepo)));
+        OpenReleasesCommand = new RelayCommand(() => ShellExec.Open(AboutInfo.ReleasesUrl(AboutInfo.DefaultRepo)));
+        OpenStarsCommand = new RelayCommand(() => ShellExec.Open(AboutInfo.StarsUrl(AboutInfo.DefaultRepo)));
+        OpenClassIslandSiteCommand = new RelayCommand(() => ShellExec.Open(AboutInfo.ClassIslandSiteUrl));
+        RefreshStarsCommand = new RelayCommand(() => { _ = RefreshStarsAsync(true); });
         CopyPasswordCommand = new RelayCommand(() =>
         {
             try
@@ -398,6 +411,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (!Set(ref _pageKey, value)) return;
             PageTitle = Pages.FirstOrDefault(x => x.Key == value)?.Title ?? "概览";
             Raise(nameof(PageSubtitle));
+            if (value == PageAbout) _ = RefreshStarsAsync(false);
             var key = value;
             _ = Task.Run(() => _rt.Config.Update(c => c.Ui.LastPage = key));
         }
@@ -414,6 +428,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         PageDiagnose => "一键体检与实时日志",
         PageAdvanced => "按科目记住老师习惯，冲突时自动让路",
         PageSettings => "界面、托盘、升级与护航",
+        PageAbout => "版本、开源仓库与更新记录",
         _ => ""
     };
     public string HealthStatus { get => _healthStatus; private set => Set(ref _healthStatus, value); }
@@ -438,6 +453,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public RelayCommand RestoreHostsCommand { get; }
     public RelayCommand OpenPanelCommand { get; }
     public RelayCommand OpenLogsCommand { get; }
+    public RelayCommand OpenRepoCommand { get; }
+    public RelayCommand OpenReleasesCommand { get; }
+    public RelayCommand OpenStarsCommand { get; }
+    public RelayCommand OpenClassIslandSiteCommand { get; }
+    public RelayCommand RefreshStarsCommand { get; }
     public RelayCommand CopyPasswordCommand { get; }
     public RelayCommand FixPeersCommand { get; }
     public RelayCommand RenameToMachineCommand { get; }
@@ -585,7 +605,29 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public bool EditTraySaveKeepOpen { get => _editTraySaveKeepOpen; set => SetDirty(ref _editTraySaveKeepOpen, value); }
     public bool EditTraySaveWithoutRename { get => _editTraySaveWithoutRename; set => SetDirty(ref _editTraySaveWithoutRename, value); }
     public bool EditTrayShowPreviewReminder { get => _editTrayShowPreviewReminder; set => SetDirty(ref _editTrayShowPreviewReminder, value); }
-    public bool EditHabitsEnabled { get => _editHabitsEnabled; set => SetDirty(ref _editHabitsEnabled, value); }
+    /// <summary>
+    /// 打开习惯模式前先吓一跳（0.8.0）：没设置习惯软件的科目在冲突时会被静默跳过，
+    /// 老师会以为程序坏了，所以先用确认框把后果说清楚；取消就保持关闭。
+    /// </summary>
+    public bool EditHabitsEnabled
+    {
+        get => _editHabitsEnabled;
+        set
+        {
+            if (value && !_editHabitsEnabled && !_habitConfirmSuppress && !ConfirmHabitMode())
+            {
+                Raise();
+                return;
+            }
+
+            SetDirty(ref _editHabitsEnabled, value);
+        }
+    }
+
+    public string EditSkipBreakNames { get => _editSkipBreakNames; set => SetDirty(ref _editSkipBreakNames, value); }
+    public string AboutStarsText { get => _aboutStarsText; private set => Set(ref _aboutStarsText, value); }
+    public string AboutRepoText => AboutInfo.DefaultRepo;
+    public string AboutClassIslandUrl => AboutInfo.ClassIslandSiteUrl;
     public bool EditConflictEnabled { get => _editConflictEnabled; set => SetDirty(ref _editConflictEnabled, value); }
     public string EditIgnoreProcesses { get => _editIgnoreProcesses; set => SetDirty(ref _editIgnoreProcesses, value); }
     public string NewHabitSubjectText { get => _newHabitSubjectText; set => Set(ref _newHabitSubjectText, value); }
@@ -793,9 +835,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         EditTraySaveKeepOpen = c.Tray.SaveKeepOpen;
         EditTraySaveWithoutRename = c.Tray.SaveWithoutRename;
         EditTrayShowPreviewReminder = c.Tray.ShowPreviewReminder;
-        EditHabitsEnabled = c.Habits.Enabled;
         EditConflictEnabled = c.Conflict.Enabled;
         EditIgnoreProcesses = string.Join("\n", c.Conflict.IgnoreProcesses ?? new List<string>());
+        _habitConfirmSuppress = true;
+        EditHabitsEnabled = c.Habits.Enabled;
+        _habitConfirmSuppress = false;
+        EditSkipBreakNames = string.Join("\n", c.Lesson.SkipBreakNames ?? new List<string>());
         _habitEdits.Clear();
         foreach (var rule in c.Habits.Rules)
             _habitEdits.Add(new HabitRule { Subject = rule.Subject, App = rule.App, Understand = rule.Understand });
@@ -805,6 +850,43 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         SyncSubjects(Array.Empty<string>());
         RebuildHabitRows(force: true);
         _settingsDirty = false;
+    }
+
+    /// <summary>开启习惯模式前的确认：把「没设置的科目会被静默跳过」说清楚。</summary>
+    private static bool ConfirmHabitMode()
+    {
+        const string text = "强烈建议熟知老师习惯后再开启。\n\n"
+            + "开启后，没有设置习惯软件的科目在冲突时将不做任何处理：既不弹窗，也不自动关闭任何软件。\n\n"
+            + "确定要开启吗？";
+        return System.Windows.MessageBox.Show(text, "开启习惯模式",
+            System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Warning,
+            System.Windows.MessageBoxResult.No) == System.Windows.MessageBoxResult.Yes;
+    }
+
+    private static readonly HttpClient StarsHttp = new() { Timeout = TimeSpan.FromSeconds(8) };
+
+    /// <summary>关于页的 star 数：30 分钟内只查一次，离线就显示「—」。</summary>
+    private async Task RefreshStarsAsync(bool force)
+    {
+        if (!force && _aboutStars is not null && DateTimeOffset.Now - _starsFetchedAt < TimeSpan.FromMinutes(30)) return;
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, AboutInfo.ApiUrl(AboutInfo.DefaultRepo));
+            request.Headers.TryAddWithoutValidation("User-Agent", "ClassroomKit");
+            using var response = await StarsHttp.SendAsync(request).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode) return;
+            var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("stargazers_count", out var element)
+                || !element.TryGetInt32(out var stars)) return;
+            _aboutStars = stars;
+            _starsFetchedAt = DateTimeOffset.Now;
+            _ = _dispatcher.BeginInvoke(new Action(() => AboutStarsText = AboutInfo.FormatStars(stars)));
+        }
+        catch
+        {
+            // 没网 / GitHub 被挡：保持「—」，不打扰老师
+        }
     }
 
     private void SaveHotspot()
@@ -833,6 +915,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             c.BoardSave.NameWithLesson = EditNameWithLesson;
             c.BoardSave.NameTemplate = string.IsNullOrWhiteSpace(EditNameTemplate) ? BoardFileName.DefaultTemplate : EditNameTemplate.Trim();
             c.Lesson.Subjects = LessonSubjects.Normalize(_editSubjects);
+            c.Lesson.SkipBreakNames = LessonSubjects.Normalize(SplitProcessList(EditSkipBreakNames));
             c.Lesson.Normalize();
         });
         _settingsDirty = false;

@@ -19,7 +19,7 @@ internal static class UiHost
 
     public static bool EffectiveThemeIsDark { get; private set; }
 
-    public static void Initialize(Application app, AgentRuntime runtime)
+    public static void Initialize(Application app, AgentRuntime runtime, bool trayOnly = false)
     {
         _app = app;
         _runtime = runtime;
@@ -35,7 +35,8 @@ internal static class UiHost
         var thread = new Thread(WaitForShowSignal) { IsBackground = true, Name = "ClassroomKit.ShowSignal" };
         thread.Start();
 
-        if (!runtime.Config.Current.Ui.StartMinimized)
+        // 开机自启只到托盘（--tray），或者配置了「启动时只驻留托盘」时都不弹主界面
+        if (!trayOnly && !runtime.Config.Current.Ui.StartMinimized)
             app.Dispatcher.BeginInvoke(new Action(Show));
     }
 

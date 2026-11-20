@@ -64,12 +64,12 @@ public sealed class LessonRuntime
         if (minutes <= 0)
         {
             _ledger.ClearSnooze();
-            _log.Info("课前提醒：已取消稍后提醒");
+            _log.Info("课后保存：已取消稍后提醒");
         }
         else
         {
             _ledger.Snooze(now, minutes);
-            _log.Info($"课前提醒：{minutes} 分钟后再提醒");
+            _log.Info($"课后保存：{minutes} 分钟后再提醒");
         }
 
         SaveState();
@@ -95,6 +95,7 @@ public sealed class LessonRuntime
             currentSubject = snapshot?.CurrentSubject,
             nextSubject = snapshot?.NextSubject,
             previousSubject = snapshot?.PreviousSubject,
+            breakName = snapshot?.BreakName,
             nextStartAt = snapshot?.NextStartAt,
             secondsToNext = snapshot?.SecondsToNext ?? 0,
             lessonIndex = snapshot?.LessonIndex ?? 0,
@@ -112,6 +113,7 @@ public sealed class LessonRuntime
                 snoozeMinutes = cfg.SnoozeMinutes,
                 staleMinutes = cfg.StaleMinutes,
                 subjects = LessonSubjects.Normalize(cfg.Subjects),
+                skipBreakNames = LessonSubjects.Normalize(cfg.SkipBreakNames),
                 lastRemindedKey = _ledger.LastRemindedKey,
                 snoozedUntil = _ledger.SnoozedUntil,
                 reason = decision.Reason,

@@ -269,6 +269,8 @@ public static class ScheduledTaskInstaller
   <Actions Context="Author">
     <Exec>
       <Command>{escaped}</Command>
+      <!-- 开机自启只到托盘：不带这个参数会把主界面顶到老师面前 -->
+      <Arguments>--tray</Arguments>
     </Exec>
   </Actions>
 </Task>

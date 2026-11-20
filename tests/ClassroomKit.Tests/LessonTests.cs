@@ -16,12 +16,13 @@ internal static class LessonTests
         string? previous = "语文",
         string? current = null,
         bool planLoaded = true,
-        int staleSeconds = 0)
+        int staleSeconds = 0,
+        string? breakName = null)
         => LessonSnapshot.FromClassIsland(
             state, current, next, previous,
             nextStart ?? Now.AddMinutes(4),
             0, 3, planLoaded,
-            Now.AddSeconds(-staleSeconds));
+            Now.AddSeconds(-staleSeconds), breakName: breakName);
 
     public static Task RunAsync()
     {
@@ -78,7 +79,6 @@ internal static class LessonTests
             Contains(result.Message, "没有需要改名");
         });
     }
-
     private static void LedgerRules()
     {
         Run("没有课表数据时不提醒", () =>
@@ -96,40 +96,64 @@ internal static class LessonTests
             Eq("no-plan", ledger.Evaluate(Now, new LessonConfig()).Reason);
         });
 
-        Run("上课中、放学后都不提醒", () =>
+        Run("上课中不提醒，下课后提醒刚上完的那一节", () =>
         {
             var cfg = new LessonConfig();
             var inClass = LessonLedger.FromState(null);
-            inClass.Accept(Snapshot(state: LessonStates.Class, current: "语文"));
+            inClass.Accept(Snapshot(state: LessonStates.Class, current: "语文", nextStart: null));
             Eq("in-class", inClass.Evaluate(Now, cfg).Reason);
 
-            var after = LessonLedger.FromState(null);
-            after.Accept(Snapshot(state: LessonStates.AfterSchool, next: null));
-            Eq("after-school", after.Evaluate(Now, cfg).Reason);
-        });
-
-        Run("离上课还早时不提醒，进入提前量才提醒", () =>
-        {
-            var cfg = new LessonConfig { RemindMinutesBefore = 5 };
-
-            var early = LessonLedger.FromState(null);
-            early.Accept(Snapshot(nextStart: Now.AddMinutes(20)));
-            Eq("too-early", early.Evaluate(Now, cfg).Reason);
-
-            var due = LessonLedger.FromState(null);
-            due.Accept(Snapshot(nextStart: Now.AddMinutes(4)));
-            var d = due.Evaluate(Now, cfg);
-            True(d.Show, "4 分钟后上课应该弹窗");
+            var breaking = LessonLedger.FromState(null);
+            breaking.Accept(Snapshot());
+            var d = breaking.Evaluate(Now, cfg);
+            True(d.Show, "课间应该提醒保存刚上完的板书");
             Eq("ok", d.Reason);
-            Eq("数学", d.Subject);
-            Eq("2026-11-14 10:04", d.Key, "去重 key 用下一节开始时刻");
+            Eq("语文", d.Subject, "科目取刚上完的那一节");
+            Eq("break|2026-11-14 10:04", d.Key, "去重 key 用本课间 + 下一节开始时刻");
+            Eq(Now.AddMinutes(4), d.RemindAt);
+            Eq(240, d.SecondsToStart, "剩余秒数按下一节开始算");
         });
 
-        Run("同一节课只提醒一次", () =>
+        Run("放学后保存最后一节", () =>
+        {
+            var ledger = LessonLedger.FromState(null);
+            ledger.Accept(Snapshot(state: LessonStates.AfterSchool, next: null, previous: "数学"));
+            var d = ledger.Evaluate(Now, new LessonConfig());
+            True(d.Show, "放学后应该提醒保存最后一节的板书");
+            Eq("数学", d.Subject);
+            Eq("after|2026-11-14|数学", d.Key);
+        });
+
+        Run("连堂课间不保存，等最后一节下课", () =>
+        {
+            var ledger = LessonLedger.FromState(null);
+            ledger.Accept(Snapshot(next: "语文", previous: "语文"));
+            var d = ledger.Evaluate(Now, new LessonConfig());
+            Eq("continuous", d.Reason);
+            False(d.Show, "连堂中间不打扰老师");
+        });
+
+        Run("课间名命中跳过清单时不保存", () =>
+        {
+            var cfg = new LessonConfig { SkipBreakNames = new List<string> { "高一礼让" } };
+            var skipped = LessonLedger.FromState(null);
+            skipped.Accept(Snapshot(breakName: "高一礼让"));
+            Eq("break-skipped", skipped.Evaluate(Now, cfg).Reason);
+
+            var normal = LessonLedger.FromState(null);
+            normal.Accept(Snapshot(breakName: "课间"));
+            True(normal.Evaluate(Now, cfg).Show, "其它课间照常提醒");
+
+            var another = LessonLedger.FromState(null);
+            another.Accept(Snapshot(breakName: "跑操"));
+            Eq("break-skipped", another.Evaluate(Now, new LessonConfig { SkipBreakNames = new List<string> { " 跑操 " } }).Reason);
+        });
+
+        Run("同一个课间只提醒一次", () =>
         {
             var cfg = new LessonConfig();
             var ledger = LessonLedger.FromState(null);
-            ledger.Accept(Snapshot(nextStart: Now.AddMinutes(3)));
+            ledger.Accept(Snapshot());
             var first = ledger.Evaluate(Now, cfg);
             True(first.Show, "第一次应弹窗");
             ledger.MarkReminded(first.Key);
@@ -140,7 +164,7 @@ internal static class LessonTests
         {
             var cfg = new LessonConfig();
             var ledger = LessonLedger.FromState(null);
-            ledger.Accept(Snapshot(nextStart: Now.AddMinutes(4)));
+            ledger.Accept(Snapshot());
             ledger.Snooze(Now, 2);
             Eq("snoozed", ledger.Evaluate(Now, cfg).Reason);
 
@@ -154,7 +178,7 @@ internal static class LessonTests
         {
             var cfg = new LessonConfig { StaleMinutes = 10 };
             var ledger = LessonLedger.FromState(null);
-            ledger.Accept(Snapshot(nextStart: Now.AddMinutes(3), staleSeconds: 11 * 60));
+            ledger.Accept(Snapshot(staleSeconds: 11 * 60));
             Eq("stale", ledger.Evaluate(Now, cfg).Reason);
         });
 
@@ -211,12 +235,12 @@ internal static class LessonTests
             Eq("保存并关闭", BoardReminderModel.Label(BoardReminderChoice.SaveAndClose));
         });
 
-        Run("标题写清几分钟后上课和科目", () =>
+        Run("标题写清刚下课的科目", () =>
         {
             var model = new BoardReminderModel(subject: "数学", secondsToStart: 300);
-            Eq("下节课 5 分钟后开始 · 数学", model.Title);
+            Eq("数学 已经下课", model.Title);
             var noSubject = new BoardReminderModel(subject: null, secondsToStart: 300);
-            Eq("下节课 5 分钟后开始", noSubject.Title);
+            Eq("下课了，存一下板书", noSubject.Title);
         });
     }
 
@@ -249,31 +273,32 @@ internal static class LessonTests
             False(LessonSubjects.Matches(null, new[] { "物理" }), "课表没给科目名不算命中");
         });
 
-        Run("生效科目：下一节不在白名单时 Evaluate 返回 subject-skipped", () =>
+        Run("生效科目：刚上完的课不在白名单时 Evaluate 返回 subject-skipped", () =>
         {
             var cfg = new LessonConfig { Subjects = new List<string> { "物理" } };
 
             var math = LessonLedger.FromState(null);
-            math.Accept(Snapshot(next: "数学", nextStart: Now.AddMinutes(4)));
+            math.Accept(Snapshot(previous: "数学"));
             var skipped = math.Evaluate(Now, cfg);
             Eq("subject-skipped", skipped.Reason);
             False(skipped.Show, "不匹配的科目不该弹窗");
             Eq("", skipped.Key, "没有进入提醒流程，也就没有去重 key");
 
             var physics = LessonLedger.FromState(null);
-            physics.Accept(Snapshot(next: "物理实验", nextStart: Now.AddMinutes(4)));
+            physics.Accept(Snapshot(previous: "物理实验"));
             var ok = physics.Evaluate(Now, cfg);
             True(ok.Show, "物理实验应算命中「物理」");
             Eq("ok", ok.Reason);
+            Eq("物理实验", ok.Subject, "保存的是刚上完的那一节");
         });
 
         Run("生效科目不影响板书命名", () =>
         {
             var cfg = new LessonConfig { Subjects = new List<string> { "物理" } };
 
-            // 课间：下一节是数学，提醒被跳过……
+            // 课间：刚上完的是数学，提醒被跳过……
             var breaking = LessonLedger.FromState(null);
-            breaking.Accept(Snapshot(next: "数学"));
+            breaking.Accept(Snapshot(previous: "数学"));
             Eq("subject-skipped", breaking.Evaluate(Now, cfg).Reason, "数学课不提醒");
 
             // ……但命名不看白名单：上课取当前科目，照旧是「数学」

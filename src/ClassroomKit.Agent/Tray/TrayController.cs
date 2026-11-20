@@ -64,7 +64,7 @@ public sealed class TrayController : IDisposable
         saveMenu.DropDownItems.Add(new Forms.ToolStripMenuItem("保存并关闭 ClassInX", null, (_, _) => SaveClassInBoard(true, closeAfter: true)));
         _saveKeepOpen = new Forms.ToolStripMenuItem("保存，保留 ClassInX", null, (_, _) => SaveClassInBoard(true, closeAfter: false));
         _saveWithoutRename = new Forms.ToolStripMenuItem("保存（不按课表改名）", null, (_, _) => SaveClassInBoard(false, closeAfter: false));
-        _savePreview = new Forms.ToolStripMenuItem("预览课前提醒窗", null, (_, _) => PreviewBoardReminder());
+        _savePreview = new Forms.ToolStripMenuItem("预览课后提醒窗", null, (_, _) => PreviewBoardReminder());
         saveMenu.DropDownItems.Add(_saveKeepOpen);
         saveMenu.DropDownItems.Add(_saveWithoutRename);
         saveMenu.DropDownItems.Add(new Forms.ToolStripSeparator());
@@ -265,7 +265,7 @@ public sealed class TrayController : IDisposable
         });
     }
 
-    /// <summary>到点该提醒时由守护回调：切到 UI 线程弹课前提醒窗，并按选择执行。</summary>
+    /// <summary>到点该提醒时由守护回调：切到 UI 线程弹课后提醒窗，并按选择执行。</summary>
     public void ShowBoardReminder(ReminderDecision decision)
     {
         void Run()
@@ -274,7 +274,7 @@ public sealed class TrayController : IDisposable
             {
                 var cfg = _runtime.Config.Current.Lesson;
                 var choice = BoardReminderDialog.Ask(decision.Subject, decision.SecondsToStart, cfg.RemindMinutesBefore, cfg.DialogSeconds, cfg.TimeoutAction);
-                _runtime.Log.Info($"课前提醒窗结果：{BoardReminderModel.Label(choice)}");
+                _runtime.Log.Info($"课后提醒窗结果：{BoardReminderModel.Label(choice)}");
 
                 switch (choice)
                 {
@@ -292,13 +292,13 @@ public sealed class TrayController : IDisposable
                         ShowBalloon("稍后提醒", $"再过 {cfg.SnoozeMinutes} 分钟提醒保存板书", true);
                         break;
                     default:
-                        _runtime.Log.Info("课前提醒：本次忽略");
+                        _runtime.Log.Info("课后提醒：本次忽略");
                         break;
                 }
             }
             catch (Exception ex)
             {
-                _runtime.Log.Warn($"课前提醒窗失败：{ex.ToString()}");
+                _runtime.Log.Warn($"课后提醒窗失败：{ex.ToString()}");
             }
         }
 
@@ -306,7 +306,7 @@ public sealed class TrayController : IDisposable
         else Run();
     }
 
-    /// <summary>托盘菜单：只预览课前提醒窗，不执行任何保存动作。</summary>
+    /// <summary>托盘菜单：只预览课后提醒窗，不执行任何保存动作。</summary>
     public void PreviewBoardReminder()
     {
         var cfg = _runtime.Config.Current.Lesson;

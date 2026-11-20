@@ -1,4 +1,5 @@
 using ClassroomKit.Agent.Shell;
+using ClassroomKit.Core.Startup;
 using ClassroomKit.Agent.Tray;
 using Forms = System.Windows.Forms;
 
@@ -19,7 +20,7 @@ internal static class Program
         {
             return command switch
             {
-                "" or "run" or "--run" => RunTray(),
+                "" or "run" or "--run" => RunTray(args),
                 "--ensure" => Commands.Ensure(),
                 "--on" or "--start" => Commands.SetPolicy(true),
                 "--off" or "--stop" => Commands.SetPolicy(false),
@@ -68,14 +69,17 @@ internal static class Program
         return Commands.Help();
     }
 
-    private static int RunTray()
+    private static int RunTray(string[] args)
     {
+        // 开机自启的任务带 --tray：只驻留托盘，不跳到老师面前抢焦点
+        var trayOnly = StartupArgs.IsTrayOnly(args);
         using var mutex = new Mutex(true, MutexName, out var created);
         if (!created)
         {
             // 已有实例在跑：不重复开热点、不抢端口。
             // 60 秒冷却内的重复启动只把已有实例的窗口叫出来，不再派生新进程：
             // 主实例 /api/state 卡住时，原来每次启动都会 Ensure() 出一条新的派生链。
+            if (trayOnly) return 0;
             try
             {
                 if (Commands.EnsureCooldownHit())
@@ -102,7 +106,7 @@ internal static class Program
         SynchronizationContext.SetSynchronizationContext(
             new System.Windows.Threading.DispatcherSynchronizationContext(app.Dispatcher));
         using var host = new Desktop.AgentHost();
-        Desktop.UiHost.Initialize(app, host.Runtime);
+        Desktop.UiHost.Initialize(app, host.Runtime, trayOnly);
         try
         {
             app.Run();

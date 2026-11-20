@@ -13,7 +13,7 @@ public sealed class PluginSettings
     // 真正生效的值存在守护的 config.json 的 lesson 段里（设置页保存时经 lesson-config 动作写过去）。
     // 这里留一份副本，守护没运行时设置页还能显示上次填过的内容。
 
-    /// <summary>上课前多少分钟提醒（1–30）。</summary>
+    /// <summary>旧版「上课前多少分钟提醒」（0.8.0 起不再生效，仅保留字段兼容旧配置）。</summary>
     public int LessonRemindMinutes { get; set; } = 5;
 
     /// <summary>提醒弹窗停留多少秒（5–600）。</summary>

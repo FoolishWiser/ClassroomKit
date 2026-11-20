@@ -39,6 +39,9 @@ public sealed record LessonSnapshot
     /// <summary>刚结束的那一节课（用于给板书文件命名）。</summary>
     public string? PreviousSubject { get; init; }
 
+    /// <summary>当前所在的课间名称（ClassIsland 时间点上的自定义课间名；非课间为空）。</summary>
+    public string? BreakName { get; init; }
+
     /// <summary>
     /// 整份课表的科目清单（ClassIsland 档案里的科目字典，去空白后按名字去重）。
     /// 空列表表示「没提供 / 不限制」，调用方按「全部科目」处理。
@@ -81,12 +84,14 @@ public sealed record LessonSnapshot
         int lessonIndex,
         bool planLoaded,
         DateTimeOffset at,
-        IEnumerable<string>? subjects = null) => new()
+        IEnumerable<string>? subjects = null,
+        string? breakName = null) => new()
         {
             State = string.IsNullOrWhiteSpace(state) ? LessonStates.None : state,
             CurrentSubject = Normalize(currentSubject),
             NextSubject = Normalize(nextSubject),
             PreviousSubject = Normalize(previousSubject),
+            BreakName = Normalize(breakName),
             NextStartAt = nextStartAt,
             SecondsToNext = Math.Max(0, secondsToNext),
             LessonIndex = Math.Max(0, lessonIndex),

@@ -13,7 +13,7 @@ namespace ClassroomKit.ClassIsland.Lesson;
 /// <summary>
 /// 课表桥：把 ClassIsland 的课表状态算成 LessonSnapshot，推给 ClassroomKit 守护进程。
 /// 插件只负责「让守护知道现在上什么课、下一节是什么、上一节是什么」；
-/// 课前提醒和板书改名都由守护决定，这里不弹任何窗、也不碰 UI。
+/// 课后提醒和板书改名都由守护决定，这里不弹任何窗、也不碰 UI。
 /// </summary>
 /// <remarks>
 /// ILessonsService 由宿主程序注册，插件的容器不一定能直接注入，所以这里从 IAppHost.Host
@@ -152,7 +152,8 @@ public sealed class LessonBridge : IDisposable
             lessonIndex,
             planLoaded,
             now,
-            ReadSubjects());
+            ReadSubjects(),
+            state == LessonStates.Breaking ? ReadBreakName(lessons, now) : null);
     }
 
     /// <summary>TimeState → 守护认的 LessonStates 字符串。</summary>
@@ -210,6 +211,7 @@ public sealed class LessonBridge : IDisposable
             || !string.Equals(last.CurrentSubject, snapshot.CurrentSubject, StringComparison.Ordinal)
             || !string.Equals(last.NextSubject, snapshot.NextSubject, StringComparison.Ordinal)
             || !string.Equals(last.PreviousSubject, snapshot.PreviousSubject, StringComparison.Ordinal)
+            || !string.Equals(last.BreakName, snapshot.BreakName, StringComparison.Ordinal)
             || last.PlanLoaded != snapshot.PlanLoaded
             || last.LessonIndex != snapshot.LessonIndex
             || !SameSubjects(last.Subjects, snapshot.Subjects)
@@ -222,6 +224,69 @@ public sealed class LessonBridge : IDisposable
 
     private static bool SameMinute(DateTimeOffset? a, DateTimeOffset? b) =>
         a is null ? b is null : b is not null && (a.Value - b.Value).Duration() < TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// 当前课间的名字（ClassIsland 时间点上的自定义课间名，如「高一礼让」）。
+    /// SDK 里这个名字挂在时间点对象上，不同版本暴露的位置不一样，所以用反射兜底：
+    /// 先看 ILessonsService.CurrentTimeLayoutItem，再看 CurrentClassPlan.ValidTimeLayoutItems 按时间匹配。
+    /// 读不到就返回 null（调用方不设置跳过规则）。
+    /// </summary>
+    private static string? ReadBreakName(ILessonsService lessons, DateTimeOffset now)
+    {
+        try
+        {
+            object? item = null;
+            var property = lessons.GetType().GetProperty("CurrentTimeLayoutItem", BindingFlags.Public | BindingFlags.Instance);
+            if (property is not null) item = property.GetValue(lessons);
+
+            if (item is null)
+            {
+                var planProperty = lessons.GetType().GetProperty("CurrentClassPlan", BindingFlags.Public | BindingFlags.Instance);
+                var plan = planProperty?.GetValue(lessons);
+                var itemsProperty = plan?.GetType().GetProperty("ValidTimeLayoutItems", BindingFlags.Public | BindingFlags.Instance);
+                if (itemsProperty?.GetValue(plan) is System.Collections.IEnumerable items)
+                {
+                    var time = now.TimeOfDay;
+                    foreach (var candidate in items)
+                    {
+                        if (candidate is null) continue;
+                        var start = ReadTimeSpan(candidate, "StartTime");
+                        var end = ReadTimeSpan(candidate, "EndTime");
+                        if (start is null) continue;
+                        if (time < start) continue;
+                        if (end is not null && time >= end) continue;
+                        item = candidate;
+                        break;
+                    }
+                }
+            }
+
+            return Clean(ReadString(item, "BreakNameText") ?? ReadString(item, "BreakName"));
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private static TimeSpan? ReadTimeSpan(object? target, string name)
+    {
+        try
+        {
+            var value = target?.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.Instance)?.GetValue(target);
+            return value is TimeSpan span ? span : null;
+        }
+        catch (Exception) { return null; }
+    }
+
+    private static string? ReadString(object? target, string name)
+    {
+        try
+        {
+            return target?.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.Instance)?.GetValue(target) as string;
+        }
+        catch (Exception) { return null; }
+    }
 
     /// <summary>科目清单按集合比较（顺序不敏感）：科目改名、增删都要重新推一次。</summary>
     private static bool SameSubjects(IReadOnlyList<string>? left, IReadOnlyList<string>? right)
