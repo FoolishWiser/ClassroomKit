@@ -43,7 +43,10 @@ public static class AgentAccess
         return File.Exists(candidate) ? candidate : null;
     }
 
-    /// <summary>守护没在跑时，用 --ensure 把它拉起来（不弹 UAC，守护会自己装计划任务）。</summary>
+    /// <summary>
+    /// 守护没在跑时先让计划任务拉起它（计划任务本身就是最高可用权限，不用再弹 UAC）；
+    /// 任务不可用时再直接 --ensure。直接启动可能触发一次管理员授权，但比什么都不做好。
+    /// </summary>
     public static bool TryStartAgent(out string message)
     {
         var exePath = FindAgentExe();
@@ -53,20 +56,51 @@ public static class AgentAccess
             return false;
         }
 
+        if (TryRunScheduledTask())
+        {
+            message = "已通过计划任务启动 ClassroomKit 守护进程。";
+            return true;
+        }
+
         try
         {
             Process.Start(new ProcessStartInfo(exePath, "--ensure")
             {
-                UseShellExecute = false,
-                CreateNoWindow = true,
+                UseShellExecute = true,
                 WorkingDirectory = Path.GetDirectoryName(exePath) ?? Environment.CurrentDirectory,
             });
-            message = "已尝试启动 ClassroomKit 守护进程。";
+            message = "已尝试启动 ClassroomKit 守护进程（可能需要在弹出的窗口里允许管理员权限）。";
             return true;
         }
         catch (Exception ex)
         {
             message = "启动 ClassroomKit 失败：" + ex.Message;
+            return false;
+        }
+    }
+
+    private static bool TryRunScheduledTask()
+    {
+        try
+        {
+            var psi = new ProcessStartInfo("schtasks.exe", "/Run /TN \"ClassroomKit-Agent\"")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+            using var process = Process.Start(psi);
+            if (process is null) return false;
+            if (!process.WaitForExit(3000))
+            {
+                try { process.Kill(); } catch { /* 超时不再等 */ }
+                return false;
+            }
+            return process.ExitCode == 0;
+        }
+        catch
+        {
             return false;
         }
     }

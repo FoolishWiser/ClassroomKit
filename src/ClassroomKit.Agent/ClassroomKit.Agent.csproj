@@ -47,11 +47,4 @@
     </Content>
   </ItemGroup>
 
-  <ItemGroup>
-    <Content Include="..\..\web\**\*">
-      <Link>web\%(RecursiveDir)%(Filename)%(Extension)</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-  </ItemGroup>
-
 </Project>

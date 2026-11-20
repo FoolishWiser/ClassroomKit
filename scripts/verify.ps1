@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   全功能验收：装完之后跑一遍，逐条打 OK/FAIL，最后给汇总。
 .DESCRIPTION
@@ -134,10 +134,7 @@ if (-not $cfg) {
     }
 
     # ---------- 文件完整性 ----------
-    foreach ($f in @("web\index.html", "web\app.js", "web\style.css")) {
-        $p = Join-Path $InstallDir $f
-        Add-Result "文件：$f" (Test-Path $p)
-    }
+    Add-Result "文件：安装目录下没有 web 静态目录" (-not (Test-Path (Join-Path $InstallDir "web")))
 
     # ---------- CLI ----------
     Test-Name "--version 输出合法版本号" {
@@ -185,14 +182,27 @@ if (-not $cfg) {
     }
     Test-Name "GET /api/clients" { $c = Api "/api/clients"; return @(($null -ne $c.count -and $null -ne $c.targetClients), "count=$($c.count)/$($c.targetClients)") }
     Test-Name "GET /api/logs?take=20 有内容" { $l = Api "/api/logs?take=20"; return @(($l.lines.Count -gt 0), "行数=$($l.lines.Count)") }
-    Test-Name "静态面板首页可访问" {
-        $r = Invoke-WebRequest -Uri (Url "/") -TimeoutSec 10
-        return @(($r.StatusCode -eq 200 -and $r.Content -match "ClassroomKit"), "len=$($r.Content.Length)")
+    Test-Name "网页面板根路径返回 404" {
+        try {
+            $r = Invoke-WebRequest -Uri (Url "/") -TimeoutSec 10 -ErrorAction Stop
+            return @($false, "code=$([int]$r.StatusCode)（应为 404）")
+        } catch {
+            $code = [int]$_.Exception.Response.StatusCode
+            return @(($code -eq 404), "code=$code")
+        }
     }
-    Test-Name "路径穿越被拒（%2e%2e 直接送到服务端）" {
-        # 用 curl --path-as-is，避免 .NET 客户端提前把 .. 规范化掉
-        $code = (& curl.exe -s -o NUL -w "%{http_code}" --path-as-is "$base/web/../../config.json?t=$token")
-        return @(($code -eq "403" -or $code -eq "404"), "code=$code")
+    Test-Name "GET /index.html 返回 404" {
+        try {
+            $r = Invoke-WebRequest -Uri (Url "/index.html") -TimeoutSec 10 -ErrorAction Stop
+            return @($false, "code=$([int]$r.StatusCode)（应为 404）")
+        } catch {
+            $code = [int]$_.Exception.Response.StatusCode
+            return @(($code -eq 404), "code=$code")
+        }
+    }
+    Test-Name "GET /api/health 仍可访问" {
+        $h = Api "/api/health"
+        return @(($null -ne $h.version), "version=$($h.version)")
     }
 
     # ---------- 系统上限与自动关 ----------

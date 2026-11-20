@@ -26,7 +26,7 @@
                             </StackPanel>
                         </StackPanel>
                     </StackPanel>
-                    <TextBlock Text="教室一体机助手：热点守护、课表联动、板书保存、hosts 加速都在这一份程序里。桌面端与网页面板共享同一份配置。"
+                    <TextBlock Text="教室一体机助手：热点守护、课表联动、板书保存、hosts 加速都在这一份程序里。桌面端与 ClassIsland 插件共享同一份配置。"
                                Style="{StaticResource Secondary}" Margin="0,16,0,0" TextWrapping="Wrap" />
 
                     <Border Style="{StaticResource CardSoft}" Margin="0,18,0,0" Padding="16">
@@ -62,7 +62,6 @@
                     <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
                         <Button Content="打开下载页" Style="{StaticResource PrimaryButton}" Command="{Binding OpenReleasesCommand}" />
                         <Button Content="检查更新" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" Command="{Binding CheckUpdateCommand}" />
-                        <Button Content="打开网页面板" Style="{StaticResource GhostButton}" Margin="8,0,0,0" Command="{Binding OpenPanelCommand}" />
                         <Button Content="打开日志目录" Style="{StaticResource GhostButton}" Margin="8,0,0,0" Command="{Binding OpenLogsCommand}" />
                     </StackPanel>
                 </StackPanel>

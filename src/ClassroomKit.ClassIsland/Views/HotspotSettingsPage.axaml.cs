@@ -193,22 +193,6 @@ public partial class HotspotSettingsPage : SettingsPageBase
         _ = RefreshAsync();
     }
 
-    private void OnPanelClick(object? sender, RoutedEventArgs e)
-    {
-        try
-        {
-            var settings = _store.Current;
-            var baseUrl = settings.BaseUrl.TrimEnd('/');
-            var token = AgentAccess.ResolveToken(settings);
-            var url = string.IsNullOrEmpty(token) ? baseUrl + "/" : baseUrl + "/?t=" + Uri.EscapeDataString(token);
-            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
-        }
-        catch (Exception ex)
-        {
-            StatusMessage.Text = "打不开控制面板：" + ex.Message;
-        }
-    }
-
     // ---------------- 课表联动 ----------------
 
     /// <summary>读守护手里的课表视图（现在上什么课、下一节、上一节、该不该提醒）。读不到就安静地留空。</summary>

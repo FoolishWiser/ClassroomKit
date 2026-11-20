@@ -160,7 +160,9 @@ internal static class UiTests
             Contains(window, "OnboardingAction", "「去看看」按钮");
             Contains(window, "PauseOnboardingCommand", "能先收起教程");
             Contains(window, "OnOnboardingBackdrop", "点空白处收起");
-            False(window.Contains("Grid.RowSpan=\"2\"", StringComparison.Ordinal), "遮罩不许盖住导航与标题栏");
+            Contains(window, "HabitConfirmOverlay", "习惯模式确认层要独立存在");
+            var habitOverlay = window.IndexOf("HabitConfirmOverlay", StringComparison.Ordinal);
+            False(window[..habitOverlay].Contains("Grid.RowSpan=\"2\"", StringComparison.Ordinal), "教程遮罩不许盖住导航与标题栏");
             Contains(window, "ContinueOnboardingCommand", "左下角能接着看");
 
             var settings = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/Desktop/Pages/SettingsPage.xaml"));
@@ -192,8 +194,53 @@ internal static class UiTests
 
             var vm = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/Desktop/MainViewModel.cs"));
             Contains(vm, "PageAbout", "导航项");
-            Contains(vm, "ConfirmHabitMode", "开启习惯模式前要确认");
+            Contains(vm, "HabitConfirmVisible", "开启习惯模式前要确认");
+            Contains(vm, "ConfirmHabitModeCommand", "确认后真正打开开关");
         });
+
+        await Run("0.8.2：最大化图标、习惯确认层、默认管理员与去网页面板", () =>
+        {
+            var root = RepoRoot();
+            var window = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/Desktop/MainWindow.xaml"));
+            Contains(window, "x:Name=\"MaxGlyph\"", "最大化图标要有具名 TextBlock");
+            Contains(window, "HabitConfirmOverlay", "习惯确认层在主窗口内");
+            Contains(window, "HabitConfirmVisible", "确认层按视图模型显示");
+            Contains(window, "ConfirmHabitModeCommand", "确认按钮");
+            Contains(window, "CancelHabitModeCommand", "取消按钮");
+
+            var windowCode = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/Desktop/MainWindow.xaml.cs"));
+            Contains(windowCode, "MaxGlyph.Text", "只改字形文字，不要替换 Content");
+            False(windowCode.Contains("MaxButton.Content", StringComparison.Ordinal), "不能再把 MaxButton.Content 换成裸字符串");
+
+            var vm = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/Desktop/MainViewModel.cs"));
+            Contains(vm, "HabitConfirmVisible", "确认层状态");
+            Contains(vm, "ConfirmHabitModeCommand", "确认命令");
+            Contains(vm, "CancelHabitModeCommand", "取消命令");
+            False(vm.Contains("MessageBox.Show", StringComparison.Ordinal), "确认框不再走系统 MessageBox");
+
+            var manifest = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/app.manifest"));
+            Contains(manifest, "level=\"highestAvailable\"", "默认按最高可用权限运行");
+
+            var task = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/Tasks/ScheduledTaskInstaller.cs"));
+            Contains(task, "<RunLevel>HighestAvailable</RunLevel>", "登录自启任务也要最高可用权限");
+
+            var plugin = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.ClassIsland/Client/AgentAccess.cs"));
+            Contains(plugin, "schtasks.exe", "插件先用计划任务拉起守护");
+            Contains(plugin, "ClassroomKit-Agent", "计划任务名");
+            Contains(plugin, "UseShellExecute = true", "任务不可用时才走 ShellExecute");
+
+            var csproj = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/ClassroomKit.Agent.csproj"));
+            False(csproj.Contains("web", StringComparison.OrdinalIgnoreCase), "工程里不应再打包 web 目录");
+            False(Directory.Exists(Path.Combine(root, "web")), "仓库里不应再有 web 目录");
+
+            var api = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Core/Api/ApiServer.cs"));
+            False(api.Contains("ServeStaticAsync", StringComparison.Ordinal), "不再提供静态文件服务");
+            Contains(api, "HttpResponse.Text(\"not found\", 404)", "非 /api 一律 404");
+
+            var about = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/Desktop/Pages/AboutPage.xaml"));
+            False(about.Contains("网页面板", StringComparison.Ordinal), "关于页不再提网页面板");
+        });
+
     }
 
     /// <summary>测试输出目录向上找仓库根（src 与 Directory.Build.props 所在处）。</summary>

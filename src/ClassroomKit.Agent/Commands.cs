@@ -48,7 +48,6 @@ ClassroomKit.Agent {Version}
   --service-tick    （护航任务内部使用）处理一次 hosts / 静默安装请求
   --check-update    检查 GitHub 上有没有新版本（JSON；--pre 连预发布版一起看）
   --update          检查 → 下载 → 静默安装（装了护航任务就不弹 UAC；--dry-run 只检查）
-  --panel           用默认浏览器打开 Web 控制面板（带令牌）
   --uplinks         列出本机网卡并输出上行选择结果（JSON）
   --save-board      保存 ClassInX 板书（三种格式）并按上一节课改名；默认不关闭 ClassInX
                     --close 保存后关闭 ClassInX；--no-name 不改名；--no-launch 不自动启动 ClassInX
@@ -56,7 +55,7 @@ ClassroomKit.Agent {Version}
   --lesson-status   课表联动状态（JSON：当前/下一节/提醒判定）
   --lesson-reminder-test 打印「现在会不会提醒、还差多久」（JSON；加 --show 直接弹窗）
   --diagnose        一键自检（JSON：热点/上行/自启/护航/hosts/课表/升级）
-  --rotate-token    换一个面板令牌（已打开的页面需要重新用新链接）
+  --rotate-token    换一个本地 API 令牌（ClassIsland 插件要重新填）
   --probe-classin   重新探测 ClassInX 保存界面（更新 ui-recipe.json）
   --conflict-check  检查当前是否存在板书软件全屏冲突（JSON）
   --conflict-preview 预览冲突提示窗（无人值守时可加 --timeout 8）
@@ -525,7 +524,7 @@ ClassroomKit.Agent {Version}
 
     /// <summary>
     /// 写 WifiMaxPeers 并重启 icssvc；没提权就拉起自己一次（会弹 UAC）。
-    /// allowPrompt=false 用于网页面板/HTTP 这类「用户可能不在电脑前」的入口：
+    /// allowPrompt=false 用于 HTTP API 这类「用户可能不在电脑前」的入口：
     /// UAC 的同意界面会接管整台机器的键鼠，没人点就会一直挂着，绝不能在后台线程上等。
     /// </summary>
     public static (bool Ok, string Message) FixPeersCore(AppLog? log, bool allowPrompt = true)
@@ -623,20 +622,8 @@ ClassroomKit.Agent {Version}
 
     public static int Panel()
     {
-        var store = new ConfigStore(Paths.ConfigPath);
-        var url = $"http://127.0.0.1:{store.Current.Port}/?t={store.Current.Token}";
-        try
-        {
-            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
-            Console.WriteLine(url);
-            return 0;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"打开浏览器失败：{ex.Message}");
-            Console.WriteLine(url);
-            return 1;
-        }
+        Console.WriteLine("网页面板已在 0.8.2 移除；ClassroomKit 现在只有桌面端，以及给 ClassIsland 插件用的本地 /api。");
+        return 2;
     }
 
     /// <summary>诊断用：列出所有网卡与最终选中的上行（JSON）。</summary>
@@ -746,13 +733,25 @@ ClassroomKit.Agent {Version}
 
     private static void StartDaemon()
     {
-        var psi = new ProcessStartInfo(Paths.ExePath)
+        try
         {
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            WorkingDirectory = Paths.ExeDir
-        };
-        Process.Start(psi)?.Dispose();
+            var psi = new ProcessStartInfo(Paths.ExePath)
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = Paths.ExeDir
+            };
+            Process.Start(psi)?.Dispose();
+        }
+        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 740)
+        {
+            // 0.8.2 清单改成 highestAvailable：标准账户直接 CreateProcess 会被 740 拒绝，改走 ShellExecute。
+            Process.Start(new ProcessStartInfo(Paths.ExePath)
+            {
+                UseShellExecute = true,
+                WorkingDirectory = Paths.ExeDir
+            })?.Dispose();
+        }
     }
 
     private static bool IsRunning(ConfigStore store, out string? stateJson)

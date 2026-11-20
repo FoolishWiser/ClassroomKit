@@ -2,7 +2,7 @@
 
 装在教室一体机上的小工具，管四件老师每天都会碰到的事：**下课后提醒保存板书**、**把板书存成看得懂的文件名**、**学生手机连得上的热点**，外加 **板书软件冲突提示**。GitHub 访问慢和静默升级也顺手处理了。
 
-单文件 exe（约 80 MB，自包含，目标机不用装 .NET）；原生桌面主界面 + 托盘常驻 + 本地网页面板。
+单文件 exe（约 80 MB，自包含，目标机不用装 .NET）；原生桌面主界面 + 托盘常驻；管理员账户下默认以管理员权限运行，标准账户也能启动。
 
 ![主界面](docs/img/ui-overview.png)
 
@@ -14,17 +14,17 @@
 
 预编译包在 [Releases](https://github.com/FoolishWiser/ClassroomKit/releases/latest)：
 
-- `ClassroomKit-0.8.1-x64.msi`（约 74 MB，推荐）
-- `ClassroomKit-0.8.1-win-x64.zip`（绿色版）
-- `ClassroomKit-0.8.1.cipx`（ClassIsland 2.1 插件，装进 ClassIsland，不是安装包）
+- `ClassroomKit-0.8.2-x64.msi`（约 74 MB，推荐）
+- `ClassroomKit-0.8.2-win-x64.zip`（绿色版）
+- `ClassroomKit-0.8.2.cipx`（ClassIsland 2.1 插件，装进 ClassIsland，不是安装包）
 
 ```text
-双击 ClassroomKit-0.8.1-x64.msi
+双击 ClassroomKit-0.8.2-x64.msi
 # 或静默安装：
-msiexec /i ClassroomKit-0.8.1-x64.msi /qn
+msiexec /i ClassroomKit-0.8.2-x64.msi /qn
 ```
 
-装完自动落地到 `C:\Program Files\ClassroomKit`、建配置目录、放宽设备上限到 16 台、注册登录自启与 SYSTEM 护航任务，并立刻拉起守护。开始菜单会多一项「ClassroomKit 助手」。
+装完自动落地到 `C:\Program Files\ClassroomKit`、建配置目录、放宽设备上限到 16 台、注册登录自启与 SYSTEM 护航任务，并立刻拉起守护。开始菜单会多一项「ClassroomKit 助手」。0.8.2 起默认按「最高可用权限」启动：管理员账户直接提权，标准账户仍以普通权限运行。
 
 插件：ClassIsland → 设置 → 插件 → 从本地安装 → 选 `.cipx` → 重启 ClassIsland。**装不装插件不影响上网**，只影响课表相关能力。
 
@@ -38,7 +38,7 @@ msiexec /i ClassroomKit-0.8.1-x64.msi /qn
 
 **学生热点**。开机就有，被关 / SSID 被改 / 网卡抽风都会自动恢复；上限从 Windows 默认 8 台放到 16 台。默认热点名 = 计算机名、密码每机随机，推车换教室时手机不会粘在旧热点上。多块网卡时自己挑真有外网的那块，谁都没外网就退回局域网兜底。0.6.6 起还能识别网卡「假启动」并给出复位办法。
 
-**板书软件冲突**。每 2 秒看一眼窗口，希沃白板与 ClassInX 的悬浮窗叠在全屏内容上时弹一次置顶提示（都保留 / 保留其一 / 都不保留，40 分钟冷却）。0.6.7 起可以在「高级」页按科目记住老师习惯：理解 = 冲突时弹窗交给老师，不理解 = 老师打开习惯软件时静默关掉另一款；没设置习惯的科目在开启习惯模式后不弹窗也不关软件（0.8.1 起开启前会先确认一次）。
+**板书软件冲突**。每 2 秒看一眼窗口，希沃白板与 ClassInX 的悬浮窗叠在全屏内容上时弹一次置顶提示（都保留 / 保留其一 / 都不保留，40 分钟冷却）。0.6.7 起可以在「高级」页按科目记住老师习惯：理解 = 冲突时弹窗交给老师，不理解 = 老师打开习惯软件时静默关掉另一款；没设置习惯的科目在开启习惯模式后不弹窗也不关软件（0.8.2 起开启前会在窗口内先确认一次）。
 
 **GitHub 加速与静默升级**。全天维护一小段 GitHub hosts（直连可用时不动），写坏了自己还原；升级下载完交给 SYSTEM 护航任务 `msiexec /qn` 安装，不弹 UAC，代价是最多排队 5 分钟。支持时间窗、无设备连接时才自动装。
 
@@ -46,13 +46,13 @@ msiexec /i ClassroomKit-0.8.1-x64.msi /qn
 
 ## 界面与配置入口
 
-左侧八页：**概览**、**热点**、**课表与板书**、**升级**、**自检与日志**、**高级**（按科目记习惯）、**设置**、**关于**（版本 / 仓库 / Star / 下载 / 许可）。0.8.1 起整体按 WinUI 3 重做：自绘标题栏、圆角卡片、开关式控件、浅色/深色跟随系统，界面内嵌 HarmonyOS Sans 字体（不装进系统）。
+左侧八页：**概览**、**热点**、**课表与板书**、**升级**、**自检与日志**、**高级**（按科目记习惯）、**设置**、**关于**（版本 / 仓库 / Star / 下载 / 许可）。0.8.1 起整体按 WinUI 3 的视觉语言重做：自绘标题栏、圆角卡片、开关式控件、浅色/深色跟随系统，界面内嵌 HarmonyOS Sans 字体（不装进系统）。
 
 第一次用空白配置会弹四步教程（开热点 / 关联课表 / 冲突与习惯 / 自检），看完了记住；点「先收起」或按 Esc 会先收起来，切到别的页面继续用，左下角「教程引导」随时接着看；「关于」页可以重新打开。
 
 - 配置文件：`C:\ProgramData\ClassroomKit\config.json`，字段逐项说明见 [配置参考](docs/配置参考.md)
 - 命令行与 HTTP API 见 [命令行与接口](docs/接口与命令行.md)
-- 网页面板仍在：`http://127.0.0.1:36037/?t=令牌`（「设置」或托盘菜单一键打开）
+- 网页面板已在 0.8.2 移除；`http://127.0.0.1:36037/` 只保留给 ClassIsland 插件的本地 `/api`，浏览器直接访问根路径会返回 404
 
 ## 文档与开发
 
@@ -61,15 +61,16 @@ msiexec /i ClassroomKit-0.8.1-x64.msi /qn
 - [命令行与接口](docs/接口与命令行.md) —— CLI 与本地 HTTP API
 - [ClassIsland 接入](docs/ClassIsland-接入.md) —— 插件安装与课表联动；1.6/1.7 的零代码配方
 - [原理与限制](docs/原理与限制.md) —— 设备上限怎么破的、为什么不写服务、还剩下什么限制
+- [WinUI 3 评估](docs/WinUI3-评估.md) —— 为什么 0.8.x 继续用 WPF
 - [版本与发布](docs/版本与发布.md) / [更新记录](docs/release-notes.md)
 
-代码结构：`Core` 纯逻辑（Linux 可单测）、`Agent` WPF 桌面与 WinRT 热点、`ClassIsland` 插件、`web` 面板。测试零依赖：
+代码结构：`Core` 纯逻辑（Linux 可单测）、`Agent` WPF 桌面与 WinRT 热点、`ClassIsland` 插件。测试零依赖：
 
 ```text
-dotnet run --project tests/ClassroomKit.Tests -c Release   # 191 项
+dotnet run --project tests/ClassroomKit.Tests -c Release   # 192 项
 ```
 
-整机验收（43 项）在目标机跑 `verify.ps1`。
+整机验收（44 项）在目标机跑 `verify.ps1`。
 
 ## 许可
 

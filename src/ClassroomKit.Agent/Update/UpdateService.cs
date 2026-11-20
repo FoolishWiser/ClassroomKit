@@ -494,7 +494,9 @@ public sealed class UpdateService
                 try { _requestExit(); } catch { /* 退出路径由上层决定 */ }
             });
 
-            return (true, "正在安装新版本：会弹一次管理员授权，安装过程没有进度窗口，完成后程序自动重启（面板会断开几秒）");
+            return (true, "正在安装新版本：" + (AdminElevation.IsElevated()
+                ? "安装过程没有进度窗口，完成后程序自动重启（本地 API 会断开几秒）"
+                : "会弹一次管理员授权，安装过程没有进度窗口，完成后程序自动重启（本地 API 会断开几秒）"));
         }
         catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
         {

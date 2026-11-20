@@ -110,8 +110,6 @@
                             <Button Content="安装护航任务" Style="{StaticResource SecondaryButton}"
                                     Command="{Binding InstallServiceCommand}"
                                     Visibility="{Binding ServiceMissing, Converter={StaticResource BoolVisibility}}" />
-                            <Button Content="打开网页面板" Style="{StaticResource GhostButton}" Margin="8,0,0,0"
-                                    Command="{Binding OpenPanelCommand}" />
                         </StackPanel>
                     </StackPanel>
                 </Border>

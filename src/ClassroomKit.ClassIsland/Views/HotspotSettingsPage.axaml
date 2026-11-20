@@ -31,7 +31,6 @@
                         <Button x:Name="StartButton" Content="启动热点" Click="OnStartClick" />
                         <Button x:Name="StopButton" Content="关闭热点" Click="OnStopClick" />
                         <Button x:Name="FixPeersButton" Content="修复连接上限" Click="OnFixPeersClick" />
-                        <Button x:Name="PanelButton" Content="打开控制面板" Click="OnPanelClick" />
                         <Button x:Name="RefreshButton" Content="刷新" Click="OnRefreshClick" />
                     </StackPanel>
                 </StackPanel>

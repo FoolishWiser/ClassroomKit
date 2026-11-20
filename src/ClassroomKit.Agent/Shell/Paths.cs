@@ -23,5 +23,4 @@ public static class Paths
     public static string RecipePath => Path.Combine(DataDir, "ui-recipe.json");
     /// <summary>ClassIsland 课表快照与「已提醒过哪一节」的落盘状态。</summary>
     public static string LessonStatePath => Path.Combine(DataDir, "lesson-state.json");
-    public static string WebRoot => Path.Combine(ExeDir, "web");
 }

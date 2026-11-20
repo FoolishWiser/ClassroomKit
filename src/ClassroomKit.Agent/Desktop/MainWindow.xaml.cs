@@ -5,7 +5,6 @@ using System.Windows.Interop;
 using System.Windows.Media.Imaging;
 using ClassroomKit.Core.Ui;
 using Application = System.Windows.Application;
-using MessageBox = System.Windows.MessageBox;
 
 namespace ClassroomKit.Agent.Desktop;
 
@@ -57,6 +56,7 @@ public partial class MainWindow : Window
         Closing += OnClosing;
         Closed += OnClosed;
         UiHost.ThemeChanged += OnThemeChanged;
+        _viewModel.PropertyChanged += OnViewModelPropertyChanged;
         UpdateMaxButton();
     }
 
@@ -102,7 +102,7 @@ public partial class MainWindow : Window
     private void UpdateMaxButton()
     {
         var maximized = WindowState == WindowState.Maximized;
-        MaxButton.Content = maximized ? "\uE923" : "\uE922";
+        MaxGlyph.Text = maximized ? "\uE923" : "\uE922";
         MaxButton.ToolTip = maximized ? "还原" : "最大化";
     }
 
@@ -120,8 +120,29 @@ public partial class MainWindow : Window
     /// <summary>点在卡片上不算「点空白」，别把教程收掉。</summary>
     private void OnOnboardingCard(object sender, System.Windows.Input.MouseButtonEventArgs e) => e.Handled = true;
 
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(MainViewModel.HabitConfirmVisible) || !_viewModel.HabitConfirmVisible) return;
+        Dispatcher.BeginInvoke(new Action(() => CancelHabitButton.Focus()));
+    }
+
     private void OnWindowPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
+        if (_viewModel.HabitConfirmVisible)
+        {
+            if (e.Key == System.Windows.Input.Key.Escape)
+            {
+                _viewModel.CancelHabitModeCommand.Execute(null);
+                e.Handled = true;
+            }
+            else if (e.Key == System.Windows.Input.Key.Enter)
+            {
+                _viewModel.ConfirmHabitModeCommand.Execute(null);
+                e.Handled = true;
+            }
+            return;
+        }
+
         if (e.Key == System.Windows.Input.Key.Escape && _viewModel.ShowOnboarding)
         {
             _viewModel.PauseOnboardingCommand.Execute(null);

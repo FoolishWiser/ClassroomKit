@@ -241,7 +241,7 @@ public static class ScheduledTaskInstaller
   <Principals>
     <Principal id="Author">
       <GroupId>S-1-5-32-545</GroupId>
-      <RunLevel>LeastPrivilege</RunLevel>
+      <RunLevel>HighestAvailable</RunLevel>
     </Principal>
   </Principals>
   <Settings>

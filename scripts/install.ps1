@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   安装 ClassroomKit 热点守护（需要管理员）。
 .DESCRIPTION
@@ -165,9 +165,9 @@ if (-not $NoStart) {
 
 Write-Host ""
 Write-Host "安装完成" -ForegroundColor Green
-Write-Host "  控制面板：http://127.0.0.1:$($cfg.port)/?t=$($cfg.token)"
+Write-Host "  桌面端：开始菜单「ClassroomKit 助手」（本地 API 端口 $($cfg.port)，令牌在 config.json 的 token）"
 Write-Host "  热点名称：$($cfg.hotspot.ssid)    密码：$($cfg.hotspot.passphrase)"
 Write-Host "  配置：$configPath"
 Write-Host "  日志：$(Join-Path $dataDir 'logs')"
 Write-Host ""
-Write-Host "下一步：确认热点已开启 → 用手机连上试 → 再按 docs/ClassIsland.md 配课表联动" -ForegroundColor Gray
+Write-Host "下一步：确认热点已开启 → 用手机连上试 → 再按 docs/ClassIsland-接入.md 配课表联动" -ForegroundColor Gray

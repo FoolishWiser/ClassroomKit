@@ -1,8 +1,8 @@
-﻿<#
+<#
 .SYNOPSIS
   给「强力卸载」按钮装工具：下载 BCUninstaller 便携版并解到程序的 BCU 子目录。
 .DESCRIPTION
-  面板/托盘里的「强力卸载」只是拉起 BCUninstaller（Apache-2.0），不自己写卸载逻辑。
+  托盘里的「强力卸载」只是拉起 BCUninstaller（Apache-2.0），不自己写卸载逻辑。
   BCU 便携版自带 .NET 运行时（约 100 MB），不需要目标机装 .NET，解压即用。
 
   这个脚本在目标机上跑一次就行：
@@ -130,5 +130,5 @@ if (-not $KeepArchive) { Remove-Item $archive -Force -ErrorAction SilentlyContin
 Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host ""
-Write-Host "完成：面板/托盘的「强力卸载」现在能直接拉起 BCUninstaller 了" -ForegroundColor Green
+Write-Host "完成：托盘的「强力卸载」现在能直接拉起 BCUninstaller 了" -ForegroundColor Green
 Write-Host "  （热点守护不用重启，按钮实时查找这个路径）" -ForegroundColor Gray

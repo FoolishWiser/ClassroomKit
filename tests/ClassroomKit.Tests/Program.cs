@@ -455,14 +455,13 @@ internal static class Program
         await Run("HTTP 端到端（MiniHttp + ApiServer）", async () =>
         {
             var dir = TempDir();
-            File.WriteAllText(Path.Combine(dir, "index.html"), "<h1>面板</h1>");
             var store = new ConfigStore(Path.Combine(dir, "config.json"));
             var log = new AppLog(null);
             log.Info("测试日志一");
             log.Info("测试日志二");
             var token = store.Current.Token;
 
-            var api = new ApiServer(store, log, dir, "0.1.0-test");
+            var api = new ApiServer(store, log, "0.1.0-test");
             string? policy = null;
             ApiServer.UserSettings? settings = null;
             api.ApplyPolicy = enabled => policy = enabled ? "on" : "off";
@@ -482,6 +481,9 @@ internal static class Program
             var health = await http.GetAsync($"/api/health?t={token}");
             Eq(200, (int)health.StatusCode, "健康检查状态码");
             Contains(await health.Content.ReadAsStringAsync(), "0.1.0-test", "健康检查版本号");
+
+            Eq(404, (int)(await http.GetAsync("/")).StatusCode, "网页面板已移除：根路径应 404");
+            Eq(404, (int)(await http.GetAsync("/index.html")).StatusCode, "静态首页应 404");
 
             Eq(401, (int)(await http.GetAsync("/api/state")).StatusCode, "无令牌应 401");
             Eq(401, (int)(await http.GetAsync("/api/state?t=wrong")).StatusCode, "错令牌应 401");
@@ -586,8 +588,8 @@ internal static class Program
             }
 
             var index = await http.GetAsync("/");
-            Eq(200, (int)index.StatusCode, "首页状态码");
-            Contains(await index.Content.ReadAsStringAsync(), "面板", "首页内容");
+            Eq(404, (int)index.StatusCode, "网页面板已移除：首页应 404");
+            Contains(await index.Content.ReadAsStringAsync(), "not found", "首页只返回纯文本 404");
 
             var missing = await http.GetAsync("/no-such-file");
             Eq(404, (int)missing.StatusCode, "缺失静态文件应 404");

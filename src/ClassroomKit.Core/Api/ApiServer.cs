@@ -22,30 +22,17 @@ public sealed class ApiServer
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
 
-    private static readonly Dictionary<string, string> Mime = new(StringComparer.OrdinalIgnoreCase)
-    {
-        [".html"] = "text/html; charset=utf-8",
-        [".js"] = "application/javascript; charset=utf-8",
-        [".css"] = "text/css; charset=utf-8",
-        [".svg"] = "image/svg+xml",
-        [".png"] = "image/png",
-        [".ico"] = "image/x-icon",
-        [".json"] = "application/json; charset=utf-8"
-    };
-
     private readonly ConfigStore _config;
     private readonly AppLog _log;
-    private readonly string _webRoot;
     private readonly string _version;
     private readonly DateTimeOffset _startedAt = DateTimeOffset.Now;
 
     private HotspotGuard? _guard;
 
-    public ApiServer(ConfigStore config, AppLog log, string webRoot, string version)
+    public ApiServer(ConfigStore config, AppLog log, string version)
     {
         _config = config;
         _log = log;
-        _webRoot = webRoot;
         _version = version;
     }
 
@@ -114,8 +101,8 @@ public sealed class ApiServer
                 return await HandleApiAsync(request, ct);
             }
 
-            if (request.Method is not ("GET" or "HEAD")) return HttpResponse.Text("method not allowed", 405);
-            return await ServeStaticAsync(request.Path);
+            // 0.8.2 起不再提供网页面板：除 /api 外一律 404，避免留下可被探测的静态目录。
+            return HttpResponse.Text("not found", 404);
         }
         catch (Exception ex)
         {
@@ -814,23 +801,6 @@ public sealed class ApiServer
                 uptimeSec = c.Uptime is null ? (int?)null : (int)c.Uptime.Value.TotalSeconds
             }).ToArray()
         };
-    }
-
-    private async Task<HttpResponse> ServeStaticAsync(string rawPath)
-    {
-        var path = rawPath == "/" ? "/index.html" : rawPath;
-        if (path.Contains("..", StringComparison.Ordinal)) return HttpResponse.Forbidden();
-
-        var rel = path.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
-        var full = Path.GetFullPath(Path.Combine(_webRoot, rel));
-        var rootFull = Path.GetFullPath(_webRoot);
-        if (!full.StartsWith(rootFull, StringComparison.Ordinal)) return HttpResponse.Forbidden();
-        if (!File.Exists(full)) return HttpResponse.NotFound();
-
-        var ext = Path.GetExtension(full);
-        var type = Mime.TryGetValue(ext, out var m) ? m : "application/octet-stream";
-        var data = await File.ReadAllBytesAsync(full);
-        return HttpResponse.Bytes(data, type);
     }
 
     private static string? ReadString(JsonElement el, string name) =>

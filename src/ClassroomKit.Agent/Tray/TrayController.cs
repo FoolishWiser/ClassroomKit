@@ -57,7 +57,6 @@ public sealed class TrayController : IDisposable
         menu.Items.Add(_statusItem);
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add(new Forms.ToolStripMenuItem("打开主界面", null, (_, _) => OpenMainWindow()));
-        menu.Items.Add(new Forms.ToolStripMenuItem("打开网页面板", null, (_, _) => OpenPanel()));
         menu.Items.Add(_pauseMenu);
         menu.Items.Add(_resumeItem);
         var saveMenu = new Forms.ToolStripMenuItem("保存板书");
@@ -185,18 +184,6 @@ public sealed class TrayController : IDisposable
         catch (Exception ex)
         {
             _runtime.Log.Warn($"打开主界面失败：{ex.Message}");
-        }
-    }
-
-    private void OpenPanel()
-    {
-        try
-        {
-            Process.Start(new ProcessStartInfo(_runtime.PanelUrl) { UseShellExecute = true });
-        }
-        catch (Exception ex)
-        {
-            _runtime.Log.Warn($"打开面板失败：{ex.Message}");
         }
     }
 

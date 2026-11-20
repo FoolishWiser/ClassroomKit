@@ -65,7 +65,7 @@
                 </Button>
                 <Button x:Name="MaxButton" Style="{StaticResource CaptionButton}" Click="OnMaximizeClick"
                         ToolTip="最大化">
-                    <TextBlock Text="&#xE922;" FontFamily="Segoe MDL2 Assets" FontSize="10" />
+                    <TextBlock x:Name="MaxGlyph" Text="&#xE922;" FontFamily="Segoe MDL2 Assets" FontSize="10" />
                 </Button>
                 <Button x:Name="CloseButton" Style="{StaticResource WindowCloseButton}" Click="OnCloseClick"
                         ToolTip="关闭">
@@ -125,16 +125,6 @@
                     </ListBox>
 
                     <StackPanel Grid.Row="1" Margin="12,6,12,14">
-                        <Button Style="{StaticResource GhostButton}" HorizontalContentAlignment="Left"
-                                HorizontalAlignment="Stretch" Height="34" Padding="10,0"
-                                Command="{Binding OpenPanelCommand}">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="&#xE774;" FontFamily="Segoe MDL2 Assets" FontSize="13"
-                                           VerticalAlignment="Center" />
-                                <TextBlock Text="打开网页面板" FontSize="12.5" Margin="10,0,0,0"
-                                           VerticalAlignment="Center" />
-                            </StackPanel>
-                        </Button>
                         <Button Style="{StaticResource GhostButton}" HorizontalContentAlignment="Left"
                                 HorizontalAlignment="Stretch" Height="34" Padding="10,0"
                                 Command="{Binding ContinueOnboardingCommand}">
@@ -272,6 +262,34 @@
                     </Border>
                 </Grid>
             </Grid>
+        </Grid>
+
+        <!-- 高级模式确认：窗口内 ContentDialog 风格，不再用系统 MessageBox -->
+        <Grid x:Name="HabitConfirmOverlay" Grid.RowSpan="2" Panel.ZIndex="50"
+              Background="{DynamicResource OverlayBackground}"
+              Visibility="{Binding HabitConfirmVisible, Converter={StaticResource BoolVisibility}}">
+            <Border Style="{StaticResource Card}" Width="460" Padding="28"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    FocusManager.IsFocusScope="True" KeyboardNavigation.TabNavigation="Cycle">
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE7BA;" FontFamily="Segoe MDL2 Assets" FontSize="22"
+                                   Foreground="{DynamicResource Warning}" VerticalAlignment="Center" />
+                        <TextBlock Text="开启习惯模式" Style="{StaticResource H2}" Margin="12,0,0,0" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock Text="强烈建议熟知老师习惯后再开启。" Style="{StaticResource Body}" Margin="0,14,0,0" />
+                    <Border Style="{StaticResource InfoBar}" Margin="0,14,0,0">
+                        <TextBlock Text="开启后，没有设置习惯软件的科目在冲突时将不做任何处理：既不弹窗，也不自动关闭任何软件。"
+                                   Style="{StaticResource Body}" TextWrapping="Wrap" />
+                    </Border>
+                    <Grid Margin="0,22,0,0">
+                        <Button x:Name="CancelHabitButton" Content="取消" Style="{StaticResource SecondaryButton}"
+                                HorizontalAlignment="Left" Command="{Binding CancelHabitModeCommand}" />
+                        <Button Content="开启" Style="{StaticResource PrimaryButton}" MinWidth="88"
+                                HorizontalAlignment="Right" Command="{Binding ConfirmHabitModeCommand}" />
+                    </Grid>
+                </StackPanel>
+            </Border>
         </Grid>
     </Grid>
 </Window>

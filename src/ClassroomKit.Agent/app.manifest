@@ -4,8 +4,8 @@
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
     <security>
       <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
-        <!-- 普通权限运行：热点 API 需要当前用户会话，且不提权 -->
-        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
+        <!-- 管理员账户默认提权（最高可用）；标准账户仍按普通权限运行，不会完全打不开 -->
+        <requestedExecutionLevel level="highestAvailable" uiAccess="false" />
       </requestedPrivileges>
     </security>
   </trustInfo>

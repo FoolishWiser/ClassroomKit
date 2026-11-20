@@ -171,6 +171,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private string _habitSignature = "";
     private string _newHabitSubjectText = "";
     private bool _habitConfirmSuppress;
+    private bool _habitConfirmVisible;
     private string _editSkipBreakNames = "";
     private string _aboutStarsText = "—";
     private int? _aboutStars;
@@ -300,7 +301,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             var (ok, msg) = await _rt.Hosts.RestoreAsync(CancellationToken.None);
             return msg;
         }));
-        OpenPanelCommand = new RelayCommand(() => ShellExec.Open(runtime.PanelUrl));
         OpenLogsCommand = new RelayCommand(() => ShellExec.Open(Paths.LogDir));
         OpenRepoCommand = new RelayCommand(() => ShellExec.Open(AboutInfo.RepoUrl(AboutInfo.DefaultRepo)));
         OpenReleasesCommand = new RelayCommand(() => ShellExec.Open(AboutInfo.ReleasesUrl(AboutInfo.DefaultRepo)));
@@ -335,6 +335,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         ClearSubjectSelectionCommand = new RelayCommand(ClearSubjectSelection);
         SaveTrayCommand = new RelayCommand(SaveTray);
         SaveHabitsCommand = new RelayCommand(SaveHabits);
+        ConfirmHabitModeCommand = new RelayCommand(() =>
+        {
+            HabitConfirmVisible = false;
+            _habitConfirmSuppress = true;
+            try { EditHabitsEnabled = true; }
+            finally { _habitConfirmSuppress = false; }
+        });
+        CancelHabitModeCommand = new RelayCommand(() =>
+        {
+            HabitConfirmVisible = false;
+            Raise(nameof(EditHabitsEnabled));
+        });
         AddHabitSubjectCommand = new RelayCommand(AddHabitSubject);
         ClearHabitRuleCommand = new RelayCommand(param =>
         {
@@ -479,7 +491,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public RelayCommand InstallServiceCommand { get; }
     public RelayCommand RefreshHostsCommand { get; }
     public RelayCommand RestoreHostsCommand { get; }
-    public RelayCommand OpenPanelCommand { get; }
     public RelayCommand OpenLogsCommand { get; }
     public RelayCommand OpenRepoCommand { get; }
     public RelayCommand OpenReleasesCommand { get; }
@@ -496,6 +507,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public RelayCommand SaveHabitsCommand { get; }
     public RelayCommand AddHabitSubjectCommand { get; }
     public RelayCommand ClearHabitRuleCommand { get; }
+    public RelayCommand ConfirmHabitModeCommand { get; }
+    public RelayCommand CancelHabitModeCommand { get; }
     public RelayCommand PreviewConflictCommand { get; }
     public RelayCommand NextOnboardingCommand { get; }
     public RelayCommand PrevOnboardingCommand { get; }
@@ -654,14 +667,23 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         get => _editHabitsEnabled;
         set
         {
-            if (value && !_editHabitsEnabled && !_habitConfirmSuppress && !ConfirmHabitMode())
+            if (value && !_editHabitsEnabled && !_habitConfirmSuppress)
             {
-                Raise();
+                HabitConfirmVisible = true;
+                Raise(nameof(EditHabitsEnabled));
                 return;
             }
 
+            HabitConfirmVisible = false;
             SetDirty(ref _editHabitsEnabled, value);
         }
+    }
+
+    /// <summary>高级页的「开启习惯模式」确认层。</summary>
+    public bool HabitConfirmVisible
+    {
+        get => _habitConfirmVisible;
+        private set => Set(ref _habitConfirmVisible, value);
     }
 
     public string EditSkipBreakNames { get => _editSkipBreakNames; set => SetDirty(ref _editSkipBreakNames, value); }
@@ -881,6 +903,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         EditConflictEnabled = c.Conflict.Enabled;
         EditIgnoreProcesses = string.Join("\n", c.Conflict.IgnoreProcesses ?? new List<string>());
         _habitConfirmSuppress = true;
+        HabitConfirmVisible = false;
         EditHabitsEnabled = c.Habits.Enabled;
         _habitConfirmSuppress = false;
         EditSkipBreakNames = string.Join("\n", c.Lesson.SkipBreakNames ?? new List<string>());
@@ -893,17 +916,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         SyncSubjects(Array.Empty<string>());
         RebuildHabitRows(force: true);
         _settingsDirty = false;
-    }
-
-    /// <summary>开启习惯模式前的确认：把「没设置的科目会被静默跳过」说清楚。</summary>
-    private static bool ConfirmHabitMode()
-    {
-        const string text = "强烈建议熟知老师习惯后再开启。\n\n"
-            + "开启后，没有设置习惯软件的科目在冲突时将不做任何处理：既不弹窗，也不自动关闭任何软件。\n\n"
-            + "确定要开启吗？";
-        return System.Windows.MessageBox.Show(text, "开启习惯模式",
-            System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Warning,
-            System.Windows.MessageBoxResult.No) == System.Windows.MessageBoxResult.Yes;
     }
 
     private static readonly HttpClient StarsHttp = new() { Timeout = TimeSpan.FromSeconds(8) };

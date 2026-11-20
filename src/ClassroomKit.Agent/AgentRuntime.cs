@@ -37,7 +37,7 @@ public sealed class AgentRuntime : IDisposable
         Guard = new HotspotGuard(Tethering, () => Config.Current, Log);
 
         var version = DisplayVersion();
-        Api = new ApiServer(Config, Log, Paths.WebRoot, version);
+        Api = new ApiServer(Config, Log, version);
         _http = new MiniHttpServer(Config.Current.Port, Api.HandleAsync, Log);
 
         Api.AttachGuard(Guard);
@@ -122,7 +122,6 @@ public sealed class AgentRuntime : IDisposable
     public Action? ExitRequested { get; set; }
 
     public string BaseUrl => $"http://127.0.0.1:{Config.Current.Port}/";
-    public string PanelUrl => $"{BaseUrl}?t={Config.Current.Token}";
 
     public bool IsPaused => _pauseUntil is not null && DateTimeOffset.Now < _pauseUntil;
 
@@ -146,7 +145,10 @@ public sealed class AgentRuntime : IDisposable
     public void Start()
     {
         Log.Info($"ClassroomKit Agent 启动 v{DisplayVersion()}");
-        Log.Info($"配置：{Paths.ConfigPath}｜面板：{BaseUrl}｜上行策略：{(Config.Current.Hotspot.AllowWifiUplink ? "允许 Wi-Fi" : "仅有线")}");
+        Log.Info(AdminElevation.IsElevated()
+            ? "权限：管理员（最高可用）"
+            : "权限：标准用户（热点/hosts 的部分操作可能失败，建议用管理员账户）");
+        Log.Info($"配置：{Paths.ConfigPath}｜本地 API：{BaseUrl}｜上行策略：{(Config.Current.Hotspot.AllowWifiUplink ? "允许 Wi-Fi" : "仅有线")}");
         // 上一次如果是被强杀/断电退出的，可能把 ALT 或鼠标左键留在按下状态；开机先清一遍。
         try { Board.Input.ReleaseAllInputs(); } catch { }
 
@@ -159,7 +161,7 @@ public sealed class AgentRuntime : IDisposable
         try
         {
             _http.Start();
-            Log.Info($"Web 面板已监听 127.0.0.1:{Config.Current.Port}");
+            Log.Info($"本地 API 已监听 127.0.0.1:{Config.Current.Port}");
         }
         catch (Exception ex)
         {
