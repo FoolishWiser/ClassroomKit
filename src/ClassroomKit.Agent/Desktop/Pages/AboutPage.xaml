@@ -1,95 +1,108 @@
 <UserControl x:Class="ClassroomKit.Agent.Desktop.Pages.AboutPage"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Foreground="{DynamicResource TextPrimary}"
-        Background="Transparent">
+        Foreground="{DynamicResource TextPrimary}" Background="Transparent">
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-        <StackPanel Margin="0,0,4,28" MaxWidth="900" HorizontalAlignment="Left">
-            <Border Style="{StaticResource Card}">
+        <StackPanel Margin="0,0,4,28">
+            <StackPanel Style="{StaticResource PageHeader}">
+                <TextBlock Text="{Binding PageTitle}" Style="{StaticResource H1}" />
+                <TextBlock Text="{Binding PageSubtitle}" Style="{StaticResource Caption}" Margin="0,4,0,0" />
+            </StackPanel>
+
+            <Border Style="{StaticResource Card}" Padding="24">
                 <StackPanel>
                     <StackPanel Orientation="Horizontal">
-                        <Border Width="52" Height="52" CornerRadius="12" Background="{DynamicResource AccentSoft}">
-                            <TextBlock Text="&#xE701;" FontFamily="Segoe MDL2 Assets" FontSize="24"
-                                       Foreground="{DynamicResource Accent}" HorizontalAlignment="Center"
-                                       VerticalAlignment="Center" />
+                        <Border Width="56" Height="56" CornerRadius="12" Background="{DynamicResource AccentSoft}">
+                            <TextBlock Text="&#xE701;" FontFamily="Segoe MDL2 Assets" FontSize="26"
+                                       Foreground="{DynamicResource Accent}" HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Border>
-                        <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
-                            <TextBlock Text="ClassroomKit" FontSize="22" FontWeight="SemiBold"
-                                       Foreground="{DynamicResource TextPrimary}" />
-                            <TextBlock Text="{Binding VersionText}" Style="{StaticResource Mono}" Margin="0,4,0,0" />
+                        <StackPanel Margin="16,0,0,0" VerticalAlignment="Center">
+                            <TextBlock Text="ClassroomKit" Style="{StaticResource H1}" />
+                            <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                <TextBlock Text="{Binding VersionText}" Style="{StaticResource Mono}" />
+                                <Border Style="{StaticResource Pill}" Margin="10,0,0,0" Background="{DynamicResource SuccessSoft}">
+                                    <TextBlock Text="开源 · MIT" Style="{StaticResource PillText}" Foreground="{DynamicResource TextSecondary}" />
+                                </Border>
+                            </StackPanel>
                         </StackPanel>
                     </StackPanel>
                     <TextBlock Text="教室一体机助手：热点守护、课表联动、板书保存、hosts 加速都在这一份程序里。桌面端与网页面板共享同一份配置。"
-                               Style="{StaticResource Secondary}" Margin="0,14,0,0" TextWrapping="Wrap" />
+                               Style="{StaticResource Secondary}" Margin="0,16,0,0" TextWrapping="Wrap" />
 
-                    <Grid Margin="0,18,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="开源仓库" Style="{StaticResource FieldLabel}" Margin="0,0,18,0" />
-                        <StackPanel Grid.Column="1" Orientation="Horizontal">
-                            <TextBlock Text="{Binding AboutRepoText}" Style="{StaticResource Mono}" VerticalAlignment="Center" />
-                            <Button Content="在浏览器打开" Style="{StaticResource GhostButton}" Margin="12,0,0,0"
-                                    Command="{Binding OpenRepoCommand}" />
-                        </StackPanel>
-                    </Grid>
-
-                    <Grid Margin="0,10,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="GitHub Star" Style="{StaticResource FieldLabel}" Margin="0,0,18,0" />
-                        <StackPanel Grid.Column="1" Orientation="Horizontal">
-                            <TextBlock Text="{Binding AboutStarsText}" Style="{StaticResource Body}" VerticalAlignment="Center" />
-                            <Button Content="去点亮" Style="{StaticResource GhostButton}" Margin="12,0,0,0"
-                                    Command="{Binding OpenStarsCommand}" />
-                            <Button Content="刷新" Style="{StaticResource GhostButton}" Margin="8,0,0,0"
-                                    Command="{Binding RefreshStarsCommand}" />
-                        </StackPanel>
-                    </Grid>
+                    <Border Style="{StaticResource CardSoft}" Margin="0,18,0,0" Padding="16">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="开源仓库" Style="{StaticResource Caption}" />
+                                <TextBlock Text="{Binding AboutRepoText}" Style="{StaticResource Body}" Margin="0,4,0,0" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
+                                <TextBlock Text="GitHub Star" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                <TextBlock Text="{Binding AboutStarsText}" Style="{StaticResource H3}" VerticalAlignment="Center" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
+                                <Button Content="打开仓库" Style="{StaticResource SecondaryButton}" Command="{Binding OpenRepoCommand}" />
+                                <Button Content="去点亮" Style="{StaticResource GhostButton}" Margin="8,0,0,0" Command="{Binding OpenStarsCommand}" />
+                                <Button Content="刷新" Style="{StaticResource GhostButton}" Margin="8,0,0,0" Command="{Binding RefreshStarsCommand}" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
                 </StackPanel>
             </Border>
 
             <Border Style="{StaticResource Card}" Margin="0,16,0,0">
                 <StackPanel>
                     <TextBlock Text="下载与更新" Style="{StaticResource H2}" />
-                    <TextBlock Text="安装包、便携包与 ClassIsland 插件都发布在 GitHub Releases；程序里的「升级」页也能直接检查更新。"
+                    <TextBlock Text="安装包、便携包与 ClassIsland 插件都发布在 GitHub Releases；「升级」页也能直接检查更新。"
                                Style="{StaticResource Caption}" Margin="0,6,0,0" TextWrapping="Wrap" />
                     <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
                         <Button Content="打开下载页" Style="{StaticResource PrimaryButton}" Command="{Binding OpenReleasesCommand}" />
-                        <Button Content="检查更新" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0"
-                                Command="{Binding CheckUpdateCommand}" />
-                        <Button Content="打开网页面板" Style="{StaticResource GhostButton}" Margin="8,0,0,0"
-                                Command="{Binding OpenPanelCommand}" />
-                        <Button Content="打开日志目录" Style="{StaticResource GhostButton}" Margin="8,0,0,0"
-                                Command="{Binding OpenLogsCommand}" />
+                        <Button Content="检查更新" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" Command="{Binding CheckUpdateCommand}" />
+                        <Button Content="打开网页面板" Style="{StaticResource GhostButton}" Margin="8,0,0,0" Command="{Binding OpenPanelCommand}" />
+                        <Button Content="打开日志目录" Style="{StaticResource GhostButton}" Margin="8,0,0,0" Command="{Binding OpenLogsCommand}" />
                     </StackPanel>
                 </StackPanel>
             </Border>
 
+            <Grid Margin="0,16,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="16" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Border Grid.Column="0" Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Text="配合 ClassIsland" Style="{StaticResource H2}" />
+                        <TextBlock Text="ClassIsland 负责课表展示，ClassroomKit 通过插件读取课表。装不装插件不做强制，只在这里给一个入口。"
+                                   Style="{StaticResource Caption}" Margin="0,6,0,0" TextWrapping="Wrap" />
+                        <Button Content="打开 ClassIsland 官网" Style="{StaticResource SecondaryButton}" Margin="0,16,0,0"
+                                HorizontalAlignment="Left" Command="{Binding OpenClassIslandSiteCommand}" />
+                    </StackPanel>
+                </Border>
+                <Border Grid.Column="2" Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Text="教程与自检" Style="{StaticResource H2}" />
+                        <TextBlock Text="第一次用可以从教程再过一遍；遇到问题先看「自检与日志」，红的那一项日志里会写原因。"
+                                   Style="{StaticResource Caption}" Margin="0,6,0,0" TextWrapping="Wrap" />
+                        <Button Content="重新显示教程引导" Style="{StaticResource SecondaryButton}" Margin="0,16,0,0"
+                                HorizontalAlignment="Left" Command="{Binding RestartOnboardingCommand}" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
             <Border Style="{StaticResource Card}" Margin="0,16,0,0">
                 <StackPanel>
-                    <TextBlock Text="配合 ClassIsland" Style="{StaticResource H2}" />
-                    <TextBlock Text="ClassIsland 负责课表展示，ClassroomKit 通过插件读取课表。装不装插件不做强制，只在这里给一个入口。"
+                    <TextBlock Text="许可与第三方声明" Style="{StaticResource H2}" />
+                    <TextBlock Text="ClassroomKit 以 MIT 许可开源；界面内嵌 HarmonyOS Sans 字体（HarmonyOS Sans Fonts License），未对字体做任何修改。"
                                Style="{StaticResource Caption}" Margin="0,6,0,0" TextWrapping="Wrap" />
                     <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
-                        <Button Content="打开 ClassIsland 官网" Style="{StaticResource SecondaryButton}"
-                                Command="{Binding OpenClassIslandSiteCommand}" />
+                        <Button Content="查看字体许可" Style="{StaticResource GhostButton}" Command="{Binding OpenFontLicenseCommand}" />
+                        <Button Content="查看第三方声明" Style="{StaticResource GhostButton}" Margin="8,0,0,0" Command="{Binding OpenNoticesCommand}" />
                     </StackPanel>
-                </StackPanel>
-            </Border>
-
-            <Border Style="{StaticResource Card}" Margin="0,16,0,0">
-                <StackPanel>
-                    <TextBlock Text="其他" Style="{StaticResource H2}" />
-                    <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
-                        <Button Content="重新显示教程引导" Style="{StaticResource GhostButton}"
-                                Command="{Binding RestartOnboardingCommand}" />
-                    </StackPanel>
-                    <TextBlock Text="遇到问题先看「自检与日志」：热点、护航任务、hosts 加速会逐项检查，红的那一项日志里会写原因。"
-                               Style="{StaticResource Caption}" Margin="0,12,0,0" TextWrapping="Wrap" />
                 </StackPanel>
             </Border>
         </StackPanel>

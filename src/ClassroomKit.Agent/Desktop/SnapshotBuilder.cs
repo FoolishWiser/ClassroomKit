@@ -51,10 +51,10 @@ internal static class SnapshotBuilder
             new UiLesson(
                 lesson is not null,
                 LessonStates.Describe(lesson?.State ?? LessonStates.None),
-                lesson?.CurrentSubject ?? "-",
-                lesson?.NextSubject ?? "-",
+                SubjectText(lesson?.CurrentSubject),
+                SubjectText(lesson?.NextSubject),
                 Countdown(lesson),
-                lesson?.PreviousSubject ?? rt.Lesson.NameHint(DateTimeOffset.Now) ?? "-",
+                SubjectText(lesson?.PreviousSubject ?? rt.Lesson.NameHint(DateTimeOffset.Now)),
                 LessonSubjects.Union(lesson?.Subjects, rt.Subjects.Current, config.Lesson.Subjects)),
             new UiUpdate(
                 update.Current,
@@ -81,7 +81,7 @@ internal static class SnapshotBuilder
             new UiAdvanced(
                 config.Habits.Enabled,
                 config.Conflict.Enabled,
-                lesson?.CurrentSubject ?? "-",
+                SubjectText(lesson?.CurrentSubject),
                 rt.ConflictWatcher.LastHabitAction,
                 config.Habits.Rules.Count),
             rt.Log.Snapshot(200).Select(e => new UiLogLine(e.Time, e.Level, e.Message)).ToArray(),
@@ -95,6 +95,15 @@ internal static class SnapshotBuilder
         OperationalState.Off => "已关闭",
         _ => "未知"
     };
+
+    /// <summary>ClassIsland 断开或课表未加载时会传来 "???"、"-" 这类占位值，统一折成短横。</summary>
+    private static string SubjectText(string? value)
+    {
+        var text = value?.Trim();
+        if (string.IsNullOrEmpty(text)) return "-";
+        if (text is "-" or "?" or "??" or "???" or "未知" or "无") return "-";
+        return text;
+    }
 
     private static string Countdown(LessonSnapshot? lesson)
     {

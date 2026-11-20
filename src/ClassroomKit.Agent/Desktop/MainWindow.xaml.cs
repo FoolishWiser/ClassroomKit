@@ -113,6 +113,22 @@ public partial class MainWindow : Window
 
     private void OnCloseClick(object sender, RoutedEventArgs e) => Close();
 
+    /// <summary>教程遮罩点空白处收起（不写已看完，左下角能接着看）。</summary>
+    private void OnOnboardingBackdrop(object sender, System.Windows.Input.MouseButtonEventArgs e) =>
+        _viewModel.PauseOnboardingCommand.Execute(null);
+
+    /// <summary>点在卡片上不算「点空白」，别把教程收掉。</summary>
+    private void OnOnboardingCard(object sender, System.Windows.Input.MouseButtonEventArgs e) => e.Handled = true;
+
+    private void OnWindowPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.Escape && _viewModel.ShowOnboarding)
+        {
+            _viewModel.PauseOnboardingCommand.Execute(null);
+            e.Handled = true;
+        }
+    }
+
     private void OnTitleBarRightButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         var point = PointToScreen(e.GetPosition(this));

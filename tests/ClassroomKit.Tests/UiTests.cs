@@ -131,7 +131,8 @@ internal static class UiTests
         {
             var root = RepoRoot();
             var advanced = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/Desktop/Pages/AdvancedPage.xaml"));
-            Contains(advanced, "熟知老师习惯再开启", "开启前要先提示");
+            Contains(advanced, "熟知老师习惯", "开启前要先提示");
+            Contains(advanced, "InfoBar", "提示用 0.8.1 的 InfoBar 样式");
             Contains(advanced, "HabitRows", "按科目列表来自视图模型");
             Contains(advanced, "HabitAppOptions", "习惯软件下拉");
             Contains(advanced, "HabitUnderstandOptions", "理解程度下拉");
@@ -150,21 +151,29 @@ internal static class UiTests
             Contains(update, "UpdateProgressVisible", "空闲时藏起进度条");
         });
 
-        await Run("空白配置的教程引导挂在主界面，设置里能重新打开", () =>
+        await Run("教程引导只盖内容区，点空白/Esc 能收起，关于页能重开", () =>
         {
             var root = RepoRoot();
             var window = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/Desktop/MainWindow.xaml"));
             Contains(window, "ShowOnboarding", "引导遮罩绑定视图模型");
             Contains(window, "OnboardingNextText", "下一步/完成按钮");
             Contains(window, "OnboardingAction", "「去看看」按钮");
-            Contains(window, "Grid.RowSpan=\"2\"", "遮罩要盖住标题栏与内容区");
+            Contains(window, "PauseOnboardingCommand", "能先收起教程");
+            Contains(window, "OnOnboardingBackdrop", "点空白处收起");
+            False(window.Contains("Grid.RowSpan=\"2\"", StringComparison.Ordinal), "遮罩不许盖住导航与标题栏");
+            Contains(window, "ContinueOnboardingCommand", "左下角能接着看");
 
             var settings = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/Desktop/Pages/SettingsPage.xaml"));
-            Contains(settings, "重新显示教程引导", "设置里能重开");
-            Contains(settings, "RestartOnboardingCommand", "重开命令");
+            False(settings.Contains("重新显示教程引导", StringComparison.Ordinal), "设置页不再重复关于页的内容");
+            False(settings.Contains("RestartOnboardingCommand", StringComparison.Ordinal), "设置页不再放教程入口");
+
+            var about = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/Desktop/Pages/AboutPage.xaml"));
+            Contains(about, "重新显示教程引导", "关于页能重开");
+            Contains(about, "RestartOnboardingCommand", "重开命令");
 
             var vm = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/Desktop/MainViewModel.cs"));
             Contains(vm, "OnboardingGuide.ShouldShow", "没看过教程才弹");
+            Contains(vm, "PauseOnboarding", "切页时自动收起");
             Contains(vm, "FinishOnboarding", "完成/跳过要落盘");
         });
 

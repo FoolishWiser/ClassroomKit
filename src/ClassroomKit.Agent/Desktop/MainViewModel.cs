@@ -115,6 +115,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private bool _settingsDirty;
     private bool _live = true;
     private bool _onboardingVisible;
+    private bool _onboardingPaused;
     private int _onboardingStep;
 
     private string _pageKey;
@@ -209,6 +210,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public MainViewModel(AgentRuntime runtime)
     {
         _rt = runtime;
+        DiagnoseRows.CollectionChanged += (_, __) => Raise(nameof(DiagnoseEmpty));
         var ui = runtime.Config.Current.Ui;
         Pages = new[]
         {
@@ -349,24 +351,44 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         });
         NextOnboardingCommand = new RelayCommand(() =>
         {
-            if (OnboardingAtEnd) FinishOnboarding("教程看完了。以后想看，到 设置 · 关于 点「重新显示教程引导」");
+            if (OnboardingAtEnd) FinishOnboarding("教程看完了。以后想看，到「关于」页点「重新显示教程引导」");
             else SetOnboardingStep(_onboardingStep + 1);
         });
         PrevOnboardingCommand = new RelayCommand(() => SetOnboardingStep(_onboardingStep - 1));
         SkipOnboardingCommand = new RelayCommand(() =>
-            FinishOnboarding("已跳过教程。以后想看，到 设置 · 关于 点「重新显示教程引导」"));
+            FinishOnboarding("已跳过教程。以后想看，到「关于」页点「重新显示教程引导」"));
+        PauseOnboardingCommand = new RelayCommand(() => PauseOnboarding("教程先收起，左下角「教程引导」能接着看"));
+        ResumeOnboardingCommand = new RelayCommand(ResumeOnboarding);
+        ContinueOnboardingCommand = new RelayCommand(() =>
+        {
+            if (OnboardingPaused) ResumeOnboarding();
+            else
+            {
+                ShowOnboarding = true;
+                Toast("教程已打开，可以接着看");
+            }
+        });
         RestartOnboardingCommand = new RelayCommand(() =>
         {
             try { _rt.Config.Mutate(c => c.Ui.OnboardingDone = false); } catch { /* 写不进去也不耽误这次显示 */ }
+            OnboardingPaused = false;
             SetOnboardingStep(0);
             ShowOnboarding = true;
             Toast("教程已重新打开");
         });
         GoOnboardingPageCommand = new RelayCommand(() =>
         {
+            // 先收起遮罩再切页：遮罩原来盖在内容上，看起来像「点了没反应」（0.8.1 修）
+            ShowOnboarding = false;
+            OnboardingPaused = true;
             PageKey = OnboardingCurrent.Page;
-            Toast("已切到「" + PageTitle + "」");
+            Toast("已切到「" + PageTitle + "」，左下角「教程引导」可以接着看");
         });
+        OpenUpdatePageCommand = new RelayCommand(() => PageKey = PageUpdate);
+        OpenFontLicenseCommand = new RelayCommand(() =>
+            ShellExec.Open(Path.Combine(AppContext.BaseDirectory, "licenses", "HarmonyOS-Sans-LICENSE.txt")));
+        OpenNoticesCommand = new RelayCommand(() =>
+            ShellExec.Open(Path.Combine(AppContext.BaseDirectory, "licenses", "THIRD-PARTY-NOTICES.md")));
 
         LoadEditFields();
         _toastTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher.CurrentDispatcher)
@@ -411,6 +433,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (!Set(ref _pageKey, value)) return;
             PageTitle = Pages.FirstOrDefault(x => x.Key == value)?.Title ?? "概览";
             Raise(nameof(PageSubtitle));
+            if (ShowOnboarding && value != OnboardingCurrent.Page)
+            {
+                // 从导航离开教程指向的页面时收起遮罩，避免教程一直挡在内容前面（0.8.1）
+                OnboardingPaused = true;
+                ShowOnboarding = false;
+            }
             if (value == PageAbout) _ = RefreshStarsAsync(false);
             var key = value;
             _ = Task.Run(() => _rt.Config.Update(c => c.Ui.LastPage = key));
@@ -423,7 +451,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         PageOverview => "守护状态、下一节课与加速一览",
         PageHotspot => "热点开关、密码与设备容量",
-        PageLesson => "课表提醒、生效科目与板书命名",
+        PageLesson => "课后保存、生效科目与板书命名",
         PageUpdate => "版本、安装包与 ClassIsland 插件",
         PageDiagnose => "一键体检与实时日志",
         PageAdvanced => "按科目记住老师习惯，冲突时自动让路",
@@ -474,8 +502,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public RelayCommand SkipOnboardingCommand { get; }
     public RelayCommand RestartOnboardingCommand { get; }
     public RelayCommand GoOnboardingPageCommand { get; }
+    public RelayCommand PauseOnboardingCommand { get; }
+    public RelayCommand ResumeOnboardingCommand { get; }
+    public RelayCommand ContinueOnboardingCommand { get; }
+    public RelayCommand OpenUpdatePageCommand { get; }
+    public RelayCommand OpenFontLicenseCommand { get; }
+    public RelayCommand OpenNoticesCommand { get; }
 
     public ObservableCollection<DiagRow> DiagnoseRows { get; } = new();
+    public bool DiagnoseEmpty => DiagnoseRows.Count == 0;
     public ObservableCollection<SubjectOption> SubjectOptions { get; } = new();
     public ObservableCollection<UiLogLine> LogEntries { get; } = new();
     public ObservableCollection<HabitRow> HabitRows { get; } = new();
@@ -519,6 +554,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string UpdatePhaseText { get => _updatePhaseText; private set => Set(ref _updatePhaseText, value); }
     public string UpdateLatestText { get => _updateLatestText; private set => Set(ref _updateLatestText, value); }
     public string UpdateNotes { get => _updateNotes; private set => Set(ref _updateNotes, value); }
+    public bool UpdateNotesEmpty => string.IsNullOrWhiteSpace(UpdateNotes);
+    public bool UpdatePluginEmpty => string.IsNullOrWhiteSpace(UpdatePluginText) && string.IsNullOrWhiteSpace(UpdatePluginDetail);
+    public bool UpdatePluginProgressVisible => UpdatePluginProgress is > 0 and < 1;
     public string UpdateError { get => _updateError; private set => Set(ref _updateError, value); }
     public double UpdateProgress { get => _updateProgress; private set => Set(ref _updateProgress, value); }
     /// <summary>只有正在下载或已下载好时才显示进度条，空闲时整条藏起来，免得 0% 被当成「卡住」。</summary>
@@ -527,6 +565,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     /// <summary>首次启动的教程引导遮罩是否显示（0.7.0 起）。</summary>
     public bool ShowOnboarding { get => _onboardingVisible; private set => Set(ref _onboardingVisible, value); }
+    /// <summary>教程被收起但仍没看完（左下角「教程引导」能回到原步骤）。</summary>
+    public bool OnboardingPaused { get => _onboardingPaused; private set => Set(ref _onboardingPaused, value); }
     public OnboardingStep OnboardingCurrent => OnboardingGuide.Steps[Math.Clamp(_onboardingStep, 0, OnboardingGuide.Steps.Count - 1)];
     public string OnboardingStepText => $"{_onboardingStep + 1} / {OnboardingGuide.Steps.Count}";
     public string OnboardingTitle => OnboardingCurrent.Title;
@@ -704,6 +744,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         UpdatePhaseText = s.Update.PhaseText;
         UpdateLatestText = string.IsNullOrEmpty(s.Update.Latest) || s.Update.Latest == "-" ? "暂无" : s.Update.Latest;
         UpdateNotes = s.Update.Notes;
+        Raise(nameof(UpdateNotesEmpty));
         UpdateError = s.Update.Error;
         UpdateProgress = s.Update.Progress;
         UpdateProgressVisible = s.Update.Phase is "Downloading" or "Ready";
@@ -712,6 +753,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         UpdatePluginText = s.Update.PluginText;
         UpdatePluginDetail = s.Update.PluginDetail;
         UpdatePluginProgress = s.Update.PluginProgress;
+        Raise(nameof(UpdatePluginEmpty));
+        Raise(nameof(UpdatePluginProgressVisible));
         UpdatePluginError = s.Update.PluginError;
         UpdatePluginCanUpdate = s.Update.PluginCanUpdate;
         HostsText = s.Hosts.Message;
@@ -1227,9 +1270,26 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Raise(nameof(OnboardingCanGoBack));
     }
 
+    /// <summary>收起教程但不写 onboardingDone：下次还能从「教程引导」回到原步骤（0.8.1）。</summary>
+    private void PauseOnboarding(string? message = null)
+    {
+        if (!ShowOnboarding) return;
+        OnboardingPaused = true;
+        ShowOnboarding = false;
+        if (!string.IsNullOrEmpty(message)) Toast(message);
+    }
+
+    private void ResumeOnboarding()
+    {
+        ShowOnboarding = true;
+        OnboardingPaused = false;
+        Toast("教程回来了，接着看");
+    }
+
     private void FinishOnboarding(string message)
     {
         ShowOnboarding = false;
+        OnboardingPaused = false;
         try
         {
             _rt.Config.Mutate(c => c.Ui.OnboardingDone = true);

@@ -25,6 +25,12 @@ internal static class UiHost
         _runtime = runtime;
         ApplyTheme(runtime.Config.Current.Ui.Theme);
 
+        // 0.8.1：内嵌鸿蒙字体；探测失败回退微软雅黑，并把结果写进日志方便排查
+        app.Resources["AppFont"] = FontCatalog.Resolve(out var embeddedFont);
+        runtime.Log.Info(embeddedFont
+            ? "界面字体：HarmonyOS Sans SC（内嵌，" + FontCatalog.Diagnostic + "）"
+            : "界面字体：Microsoft YaHei UI（内嵌字体不可用，已回退：" + FontCatalog.Diagnostic + "）");
+
         // 转换器挂在 Application 级：页面在挂进窗口之前就要解析 StaticResource。
         app.Resources["PageVisibility"] = new PageVisibilityConverter();
         app.Resources["BoolVisibility"] = new System.Windows.Controls.BooleanToVisibilityConverter();
@@ -93,6 +99,8 @@ internal static class UiHost
         if (_window is null)
         {
             _window = new MainWindow(_runtime);
+            var created = _window;
+            created.SourceInitialized += (_, _) => Backdrop.Apply(created, EffectiveThemeIsDark);
             ClosedHook(_window);
         }
 
@@ -141,6 +149,7 @@ internal static class UiHost
             Source = new Uri("pack://application:,,,/ClassroomKit.Agent;component/Desktop/Themes/Styles.xaml", UriKind.Absolute)
         });
 
+        if (_window is not null) Backdrop.Apply(_window, EffectiveThemeIsDark);
         ThemeChanged?.Invoke(name);
     }
 
