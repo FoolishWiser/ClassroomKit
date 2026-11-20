@@ -2,7 +2,7 @@
 
 装在教室一体机上的小工具，管四件老师每天都会碰到的事：**下课后提醒保存板书**、**把板书存成看得懂的文件名**、**学生手机连得上的热点**，外加 **板书软件冲突提示**。GitHub 访问慢和静默升级也顺手处理了。
 
-单文件 exe（约 70 MB，自包含，目标机不用装 .NET）；原生桌面主界面 + 托盘常驻 + 本地网页面板。
+单文件 exe（约 80 MB，自包含，目标机不用装 .NET）；原生桌面主界面 + 托盘常驻 + 本地网页面板。
 
 ![主界面](docs/img/ui-overview.png)
 
@@ -14,7 +14,7 @@
 
 预编译包在 [Releases](https://github.com/FoolishWiser/ClassroomKit/releases/latest)：
 
-- `ClassroomKit-0.8.1-x64.msi`（约 63 MB，推荐）
+- `ClassroomKit-0.8.1-x64.msi`（约 74 MB，推荐）
 - `ClassroomKit-0.8.1-win-x64.zip`（绿色版）
 - `ClassroomKit-0.8.1.cipx`（ClassIsland 2.1 插件，装进 ClassIsland，不是安装包）
 
