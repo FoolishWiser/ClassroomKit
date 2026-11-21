@@ -8,12 +8,15 @@ internal sealed class FakeTethering : ITethering
 {
     public OperationalState State { get; set; } = OperationalState.Off;
     public bool UplinkAvailable { get; set; } = true;
+    public bool UplinkHasInternet { get; set; } = true;
     public bool UplinkIsWifi { get; set; }
     public int MaxClients { get; set; } = 16;
     public int Clients { get; set; }
     public bool? NoConnectionsTimeout { get; set; } = false;
     public string? Ssid { get; set; }
     public bool StartSucceeds { get; set; } = true;
+    /// <summary>接下来多少次 StartAsync 故意失败（模拟连续启动失败）。</summary>
+    public int StartFailuresRemaining { get; set; }
     public bool ConfigureSucceeds { get; set; } = true;
     public bool ThrowOnSnapshot { get; set; }
     /// <summary>启动后停在 Starting（模拟 8821CU 复位网卡后 10–30 秒才真正 On）。</summary>
@@ -42,6 +45,7 @@ internal sealed class FakeTethering : ITethering
         MaxClientCount = MaxClients,
         NoConnectionsTimeoutEnabled = NoConnectionsTimeout,
         UplinkAvailable = UplinkAvailable,
+        UplinkHasInternet = UplinkHasInternet,
         UplinkIsWifi = UplinkIsWifi,
         UplinkName = "以太网",
         Capability = Capability.Enabled,
@@ -51,6 +55,12 @@ internal sealed class FakeTethering : ITethering
     public Task<bool> StartAsync(CancellationToken ct)
     {
         StartCalls++;
+        if (StartFailuresRemaining > 0)
+        {
+            StartFailuresRemaining--;
+            return Task.FromResult(false);
+        }
+
         if (StartSucceeds) State = StartLeavesTransition ? OperationalState.Starting : OperationalState.On;
         return Task.FromResult(StartSucceeds);
     }

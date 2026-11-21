@@ -34,11 +34,23 @@ public sealed class HotspotGuard
     private static readonly TimeSpan DriftWarnWindow = TimeSpan.FromMinutes(10);
     private const int DriftWarnCount = 3;
 
+    /// <summary>最近有设备连过的判定窗口：超过这段时间的「零收包」不再自动复位网卡。</summary>
+    private static readonly TimeSpan RecentClientWindow = TimeSpan.FromHours(2);
+    /// <summary>有设备连着但上行没有外网，持续这么久才尝试自动修复。</summary>
+    private static readonly TimeSpan NoInternetGrace = TimeSpan.FromMinutes(2);
+    /// <summary>同一次「上行无外网」最多自动修复几次，避免反复打断在线设备。</summary>
+    private const int NoInternetRepairLimit = 2;
+    /// <summary>自动修复每天最多几次（手动「检查并修复」不受限）。</summary>
+    private const int SelfHealMaxPerDay = 3;
+    /// <summary>复位网卡后给驱动重新枚举留的时间，太短会读到 Off 或 InTransition。</summary>
+    private static readonly TimeSpan ResetSettleDelay = TimeSpan.FromSeconds(10);
+
     private readonly ITethering _tethering;
     private readonly Func<AppConfig> _config;
     private readonly AppLog _log;
     private readonly Func<DateTimeOffset> _now;
     private readonly TimeSpan _startTimeout;
+    private readonly TimeSpan _resetDelay;
 
     private int _failStreak;
     private DateTimeOffset _nextAttempt = DateTimeOffset.MinValue;
@@ -55,14 +67,23 @@ public sealed class HotspotGuard
     private int _driftFixes;
     private DateTimeOffset _driftWindowStart = DateTimeOffset.MinValue;
 
+    private DateTimeOffset _lastSelfHealAt = DateTimeOffset.MinValue;
+    private DateOnly _repairDate;
+    private int _repairCountToday;
+    private DateTimeOffset? _lastClientSeenAt;
+    private DateTimeOffset? _noInternetSince;
+    private int _noInternetRepairs;
+    private bool _noInternetWarned;
+
     public HotspotGuard(ITethering tethering, Func<AppConfig> config, AppLog log,
-        Func<DateTimeOffset>? now = null, TimeSpan? startTimeout = null)
+        Func<DateTimeOffset>? now = null, TimeSpan? startTimeout = null, TimeSpan? resetDelay = null)
     {
         _tethering = tethering;
         _config = config;
         _log = log;
         _now = now ?? (() => DateTimeOffset.Now);
         _startTimeout = startTimeout ?? TimeSpan.FromSeconds(30);
+        _resetDelay = resetDelay ?? ResetSettleDelay;
     }
 
     /// <summary>「热点报已开、但零客户端且长期收不到包」的健康提示，面板/自检用。</summary>
@@ -76,6 +97,15 @@ public sealed class HotspotGuard
     public DateTimeOffset? LastChange { get; private set; }
     public int RestartCount { get; private set; }
     public IReadOnlyList<TetherClient> Clients { get; private set; } = Array.Empty<TetherClient>();
+
+    /// <summary>最近一次自我修复的时间（自动或手动都算）。</summary>
+    public DateTimeOffset? LastRepairAt { get; private set; }
+    /// <summary>最近一次自我修复的结果说明，界面与 API 直接显示。</summary>
+    public string? LastRepairMessage { get; private set; }
+    /// <summary>最近一次自我修复是否成功。</summary>
+    public bool LastRepairOk { get; private set; }
+    /// <summary>自我修复累计次数（含手动），自检页用于说明「修过几次」。</summary>
+    public int RepairCount { get; private set; }
 
     private void SetState(GuardState next, string? reason = null)
     {
@@ -170,8 +200,13 @@ public sealed class HotspotGuard
 
             _onSince ??= _now();
             await CheckIdleNoRxAsync(snap, cfg, ct);
+            await CheckConnectivityAsync(snap, cfg, ct);
 
-            SetState(GuardState.On);
+            // 自我修复可能已经把热点复位到 Off/Starting：按修复后的真实快照报状态，别再无条件标 On。
+            if (LastSnapshot?.OperationalState == OperationalState.On)
+                SetState(GuardState.On);
+            else
+                SetState(GuardState.Starting, "自我修复后等待系统就绪");
             return;
         }
 
@@ -216,6 +251,17 @@ public sealed class HotspotGuard
         }
 
         _failStreak++;
+        if (cfg.SelfHealEnabled && _failStreak >= 2)
+        {
+            var healed = await SelfHealAsync($"热点连续启动失败 {_failStreak} 次", resetAdapter: true, force: false, ct);
+            if (healed)
+            {
+                _failStreak = 0;
+                _nextAttempt = DateTimeOffset.MinValue;
+                return;
+            }
+        }
+
         var idx = Math.Min(_failStreak - 1, BackoffSeconds.Length - 1);
         var delay = BackoffSeconds[idx];
         _nextAttempt = now.AddSeconds(delay);
@@ -255,13 +301,16 @@ public sealed class HotspotGuard
     /// <summary>
     /// 8821CU 的 soft-AP「假启动」：状态机 On、适配器 Up、IP 正常，但空口不发信标，
     /// 手机能看到 SSID 却连不上，接收计数恒为 0。这里只负责观测与告警；
-    /// 是否自动复位网卡由 hotspot.restartAdapterOnIdleNoRx 决定（默认关，免得空教室整夜复位）。
+    /// 自动复位条件见 <see cref="HotspotConfig.SelfHealEnabled"/> 与 <see cref="HotspotConfig.RestartAdapterOnIdleNoRx"/>：
+    /// 默认只在最近 2 小时有设备连过时自动复位，空教室整夜零客户端不动网卡。
     /// 判断依据只能是「客户端数 + AP 收发计数」，本机 netsh 扫描看不到自己的 GO，不能拿来判。
     /// </summary>
     private async Task CheckIdleNoRxAsync(TetheringSnapshot snap, HotspotConfig cfg, CancellationToken ct)
     {
+        var now = _now();
         if (snap.ClientCount > 0)
         {
+            _lastClientSeenAt = now;
             _rxBaseline = null;
             _rxBaselineAt = default;
             _rxIdleWarned = false;
@@ -269,7 +318,6 @@ public sealed class HotspotGuard
             return;
         }
 
-        var now = _now();
         if (now - _rxSampleAt < RxSampleInterval) return;
         _rxSampleAt = now;
 
@@ -297,19 +345,211 @@ public sealed class HotspotGuard
             _log.Warn(HealthWarning + " 需要时执行 --restart-wifi 复位网卡。");
         }
 
-        if (!cfg.RestartAdapterOnIdleNoRx) return;
+        var recentClient = _lastClientSeenAt is { } seen && now - seen <= RecentClientWindow;
+        if (!cfg.RestartAdapterOnIdleNoRx && !(cfg.SelfHealEnabled && recentClient)) return;
         if (now - _lastAdapterReset < AdapterResetCooldown) return;
 
-        _lastAdapterReset = now;
-        _log.Warn("按配置自动复位无线网卡，恢复热点广播");
-        var ok = await SafeAsync(() => _tethering.RestartWirelessAdapterAsync(ct), "复位无线网卡");
-        if (!ok) return;
+        if (await SelfHealAsync("疑似假启动（零客户端、AP 收包不涨）", resetAdapter: true, force: false, ct))
+        {
+            _rxBaseline = null;
+            _rxBaselineAt = default;
+            _rxIdleWarned = false;
+        }
+    }
 
-        _rxBaseline = null;
-        _rxBaselineAt = default;
-        _rxIdleWarned = false;
-        await SafeAsync(() => _tethering.StartAsync(ct), "复位后重开热点");
+    /// <summary>
+    /// 有设备连着、上行也连着，但系统报告没有外网：Wi-Fi 上行时多半是无线链路假死，
+    /// 复位无线网卡并重开热点；有线上行时复位网卡无济于事，只告警不动作。
+    /// 必须等 <see cref="NoInternetGrace"/> 持续成立才动手，避免 DHCP/认证的瞬时抖动。
+    /// </summary>
+    private async Task CheckConnectivityAsync(TetheringSnapshot snap, HotspotConfig cfg, CancellationToken ct)
+    {
+        if (!snap.UplinkAvailable || snap.UplinkHasInternet)
+        {
+            _noInternetSince = null;
+            _noInternetRepairs = 0;
+            _noInternetWarned = false;
+            return;
+        }
+
+        if (snap.ClientCount == 0)
+        {
+            // 没有设备连着就先不计时：等下一台设备连上来，再从头算 2 分钟宽限。
+            _noInternetSince = null;
+            _noInternetWarned = false;
+            return;
+        }
+
+        var now = _now();
+        _noInternetSince ??= now;
+        if (now - _noInternetSince < NoInternetGrace) return;
+
+        var warning = "设备已连接热点，但上行网络没有外网。";
+        if (!cfg.SelfHealEnabled)
+        {
+            if (!_noInternetWarned)
+            {
+                _noInternetWarned = true;
+                _log.Warn(warning + "自动修复已关闭，可在自检页点「检查并修复」。");
+            }
+            return;
+        }
+
+        if (!snap.UplinkIsWifi)
+        {
+            if (!_noInternetWarned)
+            {
+                _noInternetWarned = true;
+                _log.Warn(warning + "上行是有线网络，复位无线网卡不会恢复外网，请检查网线或学校网络。");
+            }
+            return;
+        }
+
+        if (_noInternetRepairs >= NoInternetRepairLimit)
+        {
+            if (!_noInternetWarned)
+            {
+                _noInternetWarned = true;
+                _log.Warn(warning + $"已自动修复 {_noInternetRepairs} 次仍无外网，停止自动复位，请检查学校网络。");
+            }
+            return;
+        }
+
+        var before = RepairCount;
+        var ok = await SelfHealAsync("有设备连着但上行没有外网", resetAdapter: true, force: false, ct);
+        if (RepairCount > before) _noInternetRepairs++;
+        if (ok)
+        {
+            _noInternetSince = null;
+            _noInternetWarned = false;
+        }
+    }
+
+    /// <summary>
+    /// 统一的自我修复动作：复位无线网卡 → 等驱动重新枚举 → 覆盖热点配置 → 重开热点 → 等 On。
+    /// 自动修复受 15 分钟冷却与每天 3 次上限约束；手动 <see cref="RepairNowAsync"/> 用 force 绕过。
+    /// </summary>
+    private async Task<bool> SelfHealAsync(string reason, bool resetAdapter, bool force, CancellationToken ct)
+    {
+        var cfg = _config().Hotspot;
+        var now = _now();
+
+        if (!force)
+        {
+            if (now - _lastSelfHealAt < AdapterResetCooldown)
+            {
+                LastRepairMessage = "距离上次自动修复不到 15 分钟，先观察";
+                return false;
+            }
+
+            var today = DateOnly.FromDateTime(now.LocalDateTime);
+            if (_repairDate != today)
+            {
+                _repairDate = today;
+                _repairCountToday = 0;
+            }
+
+            if (_repairCountToday >= SelfHealMaxPerDay)
+            {
+                LastRepairMessage = "今天已经自动修复 3 次，暂停到明天";
+                return false;
+            }
+
+            _repairCountToday++;
+        }
+
+        _lastSelfHealAt = now;
+        LastRepairAt = now;
+        LastRepairOk = false;
+        RepairCount++;
+        _log.Warn($"自我修复：{reason}（复位网卡：{(resetAdapter ? "是" : "否")}）");
+
+        if (resetAdapter)
+        {
+            _lastAdapterReset = now;
+            if (!await SafeAsync(() => _tethering.RestartWirelessAdapterAsync(ct), "自我修复：复位无线网卡"))
+            {
+                LastRepairMessage = "复位无线网卡失败";
+                return false;
+            }
+
+            if (_resetDelay > TimeSpan.Zero)
+            {
+                try { await Task.Delay(_resetDelay, ct); }
+                catch (OperationCanceledException)
+                {
+                    LastRepairMessage = "自我修复被取消";
+                    return false;
+                }
+            }
+        }
+
+        if (!await SafeAsync(() => _tethering.ConfigureAccessPointAsync(cfg.Ssid, cfg.Passphrase, ct),
+                "自我修复：覆盖热点配置"))
+        {
+            LastRepairMessage = "覆盖热点配置失败";
+            await RefreshSnapshotAsync(ct);
+            return false;
+        }
+
+        if (!await SafeAsync(() => _tethering.StartAsync(ct), "自我修复：重开热点"))
+        {
+            LastRepairMessage = "重开热点失败";
+            await RefreshSnapshotAsync(ct);
+            return false;
+        }
+
+        var on = await WaitForOnAsync(ct);
         await RefreshSnapshotAsync(ct);
+        LastRepairOk = on;
+        LastRepairMessage = on
+            ? $"{reason}：已复位网卡并重开热点"
+            : $"{reason}：已发出重开，等待系统就绪";
+        _log.Info("自我修复结果：" + LastRepairMessage);
+
+        if (on)
+        {
+            _failStreak = 0;
+            _nextAttempt = DateTimeOffset.MinValue;
+            _rxBaseline = null;
+            _rxBaselineAt = default;
+            _rxIdleWarned = false;
+            HealthWarning = null;
+            SetState(GuardState.On, "自我修复完成");
+        }
+
+        return on;
+    }
+
+    /// <summary>
+    /// 自检页「检查并修复」：先判当前网络是否真的有问题，再决定复位。
+    /// 手动操作不受冷却/每日上限约束，但仍遵守「有线无外网不瞎复位」。
+    /// </summary>
+    public async Task<(bool Ok, string Message)> RepairNowAsync(CancellationToken ct)
+    {
+        var cfg = _config().Hotspot;
+        if (!cfg.Enabled)
+            return (false, "热点策略是关闭状态：先开启热点，再检查网络。");
+
+        TetheringSnapshot snap;
+        try { snap = await _tethering.GetSnapshotAsync(ct); }
+        catch (Exception ex) { return (false, "读不到热点状态：" + ex.Message); }
+
+        LastSnapshot = snap;
+        if (!snap.UplinkAvailable)
+            return (false, "上行网络未连接：先接好网线或连上 Wi-Fi。");
+        if (!snap.UplinkHasInternet && !snap.UplinkIsWifi)
+            return (false, "上行是有线网络且没有外网，复位无线网卡无济于事；请检查网线或学校网络。");
+        if (snap.OperationalState == OperationalState.On && snap.UplinkHasInternet && HealthWarning is null)
+            return (true, "网络看起来正常，不需要修复。");
+
+        var reason = snap.OperationalState != OperationalState.On
+            ? "手动修复：热点没有正常开启"
+            : HealthWarning is not null
+                ? "手动修复：疑似假启动"
+                : "手动修复：有设备但上行没有外网";
+        var ok = await SelfHealAsync(reason, resetAdapter: true, force: true, ct);
+        return (ok, LastRepairMessage ?? "修复未完成");
     }
 
     /// <summary>系统反复把热点配置改回去时提醒一次：多半是 Windows「移动热点」里还开着另一份设置。</summary>

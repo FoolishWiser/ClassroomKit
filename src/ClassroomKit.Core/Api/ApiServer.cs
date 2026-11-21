@@ -84,6 +84,8 @@ public sealed class ApiServer
     public Func<int, (bool Ok, string Message)>? SnoozeBoardReminder { get; set; }
     /// <summary>一键自检报告（GET /api/diagnose）。</summary>
     public Func<CancellationToken, Task<object>>? Diagnose { get; set; }
+    /// <summary>检查网络并按需复位网卡/重开热点（0.8.3）；返回是否成功与说明。</summary>
+    public Func<CancellationToken, Task<(bool Ok, string Message)>>? RepairNetwork { get; set; }
 
     public sealed record UserSettings(string Ssid, string Passphrase, int TargetClients, bool AllowWifiUplink, string UplinkMode, bool FallbackToLan);
 
@@ -682,6 +684,14 @@ public sealed class ApiServer
                 return HttpResponse.Json(JsonSerializer.Serialize(report, Json));
             }
 
+            case "repair-network":
+            {
+                if (RepairNetwork is null) return HttpResponse.Text("not supported", 409);
+                var (ok, message) = await RepairNetwork(ct);
+                _log.Info($"检查并修复网络：{message}");
+                return HttpResponse.Json(JsonSerializer.Serialize(new { ok, action, message }, Json), ok ? 200 : 500);
+            }
+
             case "exit":
                 RequestExit?.Invoke();
                 return HttpResponse.Json(JsonSerializer.Serialize(new { ok = true, action }, Json));
@@ -761,6 +771,15 @@ public sealed class ApiServer
             },
             capability = snap.Capability.ToString(),
             restartCount = _guard?.RestartCount ?? 0,
+            selfHeal = new
+            {
+                enabled = cfg.Hotspot.SelfHealEnabled,
+                aggressive = cfg.Hotspot.RestartAdapterOnIdleNoRx,
+                repairCount = _guard?.RepairCount ?? 0,
+                lastRepairAt = _guard?.LastRepairAt,
+                lastRepairMessage = _guard?.LastRepairMessage,
+                lastRepairOk = _guard?.LastRepairOk
+            },
             lastSuccess = _guard?.LastSuccess,
             lastError = _guard?.LastError,
             capacityWarning = _guard?.CapabilityWarning,

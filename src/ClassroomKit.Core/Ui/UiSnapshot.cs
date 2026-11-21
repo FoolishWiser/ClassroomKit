@@ -13,6 +13,7 @@ public sealed record UiSnapshot(
     UiUpdate Update,
     UiHosts Hosts,
     UiAdvanced Advanced,
+    UiSelfHeal SelfHeal,
     IReadOnlyList<UiLogLine> Logs,
     DateTimeOffset At);
 
@@ -67,3 +68,11 @@ public sealed record UiAdvanced(
     string CurrentSubject,
     string LastAction,
     int RuleCount);
+
+/// <summary>「自检与日志」页的自我修复卡片：开关、状态与最近一次自动/手动修复。</summary>
+public sealed record UiSelfHeal(
+    bool Enabled,
+    bool Aggressive,
+    string StatusText,
+    string Detail,
+    int RepairCount);

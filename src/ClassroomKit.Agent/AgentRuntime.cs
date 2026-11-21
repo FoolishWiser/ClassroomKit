@@ -41,6 +41,7 @@ public sealed class AgentRuntime : IDisposable
         _http = new MiniHttpServer(Config.Current.Port, Api.HandleAsync, Log);
 
         Api.AttachGuard(Guard);
+        Api.RepairNetwork = ct => Guard.RepairNowAsync(ct);
         Api.ApplyPolicy = SetPolicy;
         Api.ApplySettings = ApplySettings;
         // HTTP 入口不许弹 UAC：用户可能不在电脑前，安全桌面会把整台机器卡住

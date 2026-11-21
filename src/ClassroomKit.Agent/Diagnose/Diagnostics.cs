@@ -91,6 +91,15 @@ public static class Diagnostics
                 : "守护还没收到课表数据",
             lessonAvailable ? null : "确认 ClassIsland 已启动、装好 ClassroomKit 插件，并在插件设置里填对令牌");
 
+        // 网络自我修复（0.8.3）
+        var healOk = rt.Guard.LastRepairAt is null || rt.Guard.LastRepairOk;
+        var lastRepair = rt.Guard.LastRepairAt is { } repairedAt
+            ? $"{repairedAt:MM-dd HH:mm} {rt.Guard.LastRepairMessage ?? "已完成"}"
+            : "还没有触发过";
+        Add("selfheal", "网络自我修复", healOk ? "ok" : "warn",
+            $"自动修复：{(config.Hotspot.SelfHealEnabled ? "开" : "关")}｜累计修复 {rt.Guard.RepairCount} 次｜最近：{lastRepair}",
+            config.Hotspot.SelfHealEnabled ? null : "在自检页打开「网络异常时自动修复」");
+
         // 升级
         Add("update", "升级", "ok",
             $"开机检查：{(config.Update.CheckOnBoot ? "开" : "关")}｜自动安装：{(config.Update.AutoInstall ? "开" : "关")}"

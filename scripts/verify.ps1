@@ -175,6 +175,12 @@ if (-not $cfg) {
         $missing = $need | Where-Object { -not ($u.PSObject.Properties.Name -contains $_) }
         return @(($missing.Count -eq 0), "网卡=$($u.name)，有外网=$($u.hasInternet)，缺失=$($missing -join ',')")
     }
+    Test-Name "GET /api/state 自我修复信息完整" {
+        $h = (State).selfHeal
+        $need = @("enabled", "aggressive", "repairCount", "lastRepairAt", "lastRepairMessage", "lastRepairOk")
+        $missing = @($need | Where-Object { -not ($h.PSObject.Properties.Name -contains $_) })
+        return @(($missing.Count -eq 0), "自动修复=$($h.enabled)，累计=$($h.repairCount)，缺失=$($missing -join ',')")
+    }
     Test-Name "GET /api/uplinks 能列出候选网卡" {
         $r = Api "/api/uplinks"
         $n = @($r.candidates).Count

@@ -102,12 +102,12 @@ internal static class Program
 
     private sealed record Fixture(HotspotGuard Guard, FakeTethering Fake, AppConfig Config, Clock Clock);
 
-    private static Fixture NewGuard(TimeSpan? startTimeout = null)
+    private static Fixture NewGuard(TimeSpan? startTimeout = null, TimeSpan? resetDelay = null)
     {
         var fake = new FakeTethering();
         var cfg = ConfigStore.CreateDefault();
         var clock = new Clock();
-        var guard = new HotspotGuard(fake, () => cfg, new AppLog(null), () => clock.Now, startTimeout);
+        var guard = new HotspotGuard(fake, () => cfg, new AppLog(null), () => clock.Now, startTimeout, resetDelay);
         return new Fixture(guard, fake, cfg, clock);
     }
 
@@ -328,6 +328,7 @@ internal static class Program
         await Run("启动失败后按 60/300 秒退避", async () =>
         {
             var f = NewGuard();
+            f.Config.Hotspot.SelfHealEnabled = false;
             f.Fake.StartSucceeds = false;
             await f.Guard.TickOnceAsync(Ct);
             Eq(GuardState.Backoff, f.Guard.State, "首次失败状态");
@@ -446,6 +447,132 @@ internal static class Program
             Eq(1, f.Fake.RestartAdapterCalls, "应复位一次网卡");
             Eq(1, f.Fake.StartCalls, "复位后应重开热点");
         });
+
+        await Run("连续启动失败会自动复位网卡并重开", async () =>
+        {
+            var f = NewGuard(resetDelay: TimeSpan.Zero);
+            f.Fake.StartFailuresRemaining = 2;
+            await f.Guard.TickOnceAsync(Ct);
+            Eq(GuardState.Backoff, f.Guard.State, "第一次失败先退避");
+            Eq(1, f.Fake.StartCalls, "第一次启动");
+            Eq(0, f.Fake.RestartAdapterCalls, "一次失败不动网卡");
+
+            f.Clock.Advance(61);
+            await f.Guard.TickOnceAsync(Ct);
+            Eq(1, f.Fake.RestartAdapterCalls, "连续失败应复位网卡");
+            Eq(3, f.Fake.StartCalls, "复位后要再重开一次");
+            Eq(GuardState.On, f.Guard.State, "修好后应回到 On");
+            Eq(1, f.Guard.RepairCount, "修复计数");
+            True(f.Guard.LastRepairOk, "最近一次修复成功");
+            Contains(f.Guard.LastRepairMessage ?? "", "连续启动失败", "修复原因");
+        });
+
+        await Run("最近有设备连过时，假启动会自动复位", async () =>
+        {
+            var f = NewGuard(resetDelay: TimeSpan.Zero);
+            f.Fake.State = OperationalState.On;
+            f.Fake.Clients = 1;
+            f.Fake.ApReceivedBytes = 100;
+            await f.Guard.TickOnceAsync(Ct);
+            Eq(0, f.Fake.RestartAdapterCalls, "有客户端时不动网卡");
+
+            f.Fake.Clients = 0;
+            f.Clock.Advance(120);
+            await f.Guard.TickOnceAsync(Ct);
+            f.Clock.Advance(400);
+            await f.Guard.TickOnceAsync(Ct);
+            Eq(1, f.Fake.RestartAdapterCalls, "最近有设备连过，零收包应自动复位");
+            Eq(1, f.Fake.StartCalls, "复位后重开热点");
+            Eq<string?>(null, f.Guard.HealthWarning, "修好后清掉假启动告警");
+            Contains(f.Guard.LastRepairMessage ?? "", "假启动", "修复原因");
+        });
+
+        await Run("关闭自动修复后，假启动只告警不动网卡", async () =>
+        {
+            var f = NewGuard(resetDelay: TimeSpan.Zero);
+            f.Config.Hotspot.SelfHealEnabled = false;
+            f.Fake.State = OperationalState.On;
+            f.Fake.Clients = 1;
+            f.Fake.ApReceivedBytes = 100;
+            await f.Guard.TickOnceAsync(Ct);
+            f.Fake.Clients = 0;
+            f.Clock.Advance(120);
+            await f.Guard.TickOnceAsync(Ct);
+            f.Clock.Advance(400);
+            await f.Guard.TickOnceAsync(Ct);
+            Contains(f.Guard.HealthWarning ?? "", "假启动", "仍要提示");
+            Eq(0, f.Fake.RestartAdapterCalls, "关闭后不许自动复位");
+        });
+
+        await Run("手动检查并修复：网络正常时不动网卡", async () =>
+        {
+            var f = NewGuard(resetDelay: TimeSpan.Zero);
+            f.Fake.State = OperationalState.On;
+            var (ok, message) = await f.Guard.RepairNowAsync(Ct);
+            True(ok, "网络正常应返回成功");
+            Contains(message, "网络看起来正常", "说明不需要修复");
+            Eq(0, f.Fake.RestartAdapterCalls, "正常时不动网卡");
+        });
+
+        await Run("有设备但上行没有外网：等 2 分钟再自动复位", async () =>
+        {
+            var f = NewGuard(resetDelay: TimeSpan.Zero);
+            f.Fake.State = OperationalState.On;
+            f.Fake.Clients = 1;
+            f.Fake.UplinkHasInternet = false;
+            f.Fake.UplinkIsWifi = true;
+            f.Config.Hotspot.AllowWifiUplink = true;
+            await f.Guard.TickOnceAsync(Ct);
+            Eq(0, f.Fake.RestartAdapterCalls, "刚发现没外网先观察");
+
+            f.Clock.Advance(60);
+            await f.Guard.TickOnceAsync(Ct);
+            Eq(0, f.Fake.RestartAdapterCalls, "不足 2 分钟不动");
+
+            f.Clock.Advance(61);
+            await f.Guard.TickOnceAsync(Ct);
+            Eq(1, f.Fake.RestartAdapterCalls, "持续没外网应复位无线网卡");
+            Eq(1, f.Fake.StartCalls, "复位后重开热点");
+            Eq(1, f.Guard.RepairCount, "修复计数");
+            Contains(f.Guard.LastRepairMessage ?? "", "上行没有外网", "修复原因");
+        });
+
+        await Run("有线上行没有外网：只告警，不复位无线网卡", async () =>
+        {
+            var f = NewGuard(resetDelay: TimeSpan.Zero);
+            f.Fake.State = OperationalState.On;
+            f.Fake.Clients = 1;
+            f.Fake.UplinkHasInternet = false;
+            f.Fake.UplinkIsWifi = false;
+            await f.Guard.TickOnceAsync(Ct);
+            f.Clock.Advance(180);
+            await f.Guard.TickOnceAsync(Ct);
+            Eq(0, f.Fake.RestartAdapterCalls, "有线问题复位无线网卡没用");
+            Eq(0, f.Guard.RepairCount, "不应记为修复");
+        });
+
+        await Run("设备断开后重新连上，宽限从零开始算", async () =>
+        {
+            var f = NewGuard(resetDelay: TimeSpan.Zero);
+            f.Fake.State = OperationalState.On;
+            f.Fake.Clients = 1;
+            f.Fake.UplinkHasInternet = false;
+            f.Fake.UplinkIsWifi = true;
+            f.Config.Hotspot.AllowWifiUplink = true;
+            await f.Guard.TickOnceAsync(Ct);
+
+            f.Fake.Clients = 0;
+            f.Clock.Advance(300);
+            await f.Guard.TickOnceAsync(Ct);
+
+            f.Fake.Clients = 1;
+            await f.Guard.TickOnceAsync(Ct);
+            Eq(0, f.Fake.RestartAdapterCalls, "刚重连不能立刻复位");
+
+            f.Clock.Advance(121);
+            await f.Guard.TickOnceAsync(Ct);
+            Eq(1, f.Fake.RestartAdapterCalls, "重新计时满 2 分钟再复位");
+        });
     }
 
     // ---------------------------------------------------------------- HTTP
@@ -495,6 +622,9 @@ internal static class Program
             {
                 Eq(MachineDefaults.DefaultSsid(), doc.RootElement.GetProperty("hotspot").GetProperty("ssid").GetString(), "SSID 默认取计算机名");
                 Eq("Unknown", doc.RootElement.GetProperty("guardState").GetString(), "守护状态");
+                var selfHeal = doc.RootElement.GetProperty("selfHeal");
+                True(selfHeal.GetProperty("enabled").GetBoolean(), "默认开启自我修复");
+                Eq(0, selfHeal.GetProperty("repairCount").GetInt32(), "还没修过");
             }
 
             var logs = await http.GetAsync($"/api/logs?take=5&t={token}");
@@ -522,6 +652,21 @@ internal static class Program
             {
                 noService.Content = new StringContent("{\"action\":\"install-service\"}", Encoding.UTF8, "application/json");
                 Eq(409, (int)(await http.SendAsync(noService)).StatusCode, "没接线时安装护航返回 409");
+            }
+
+            using (var repair = new HttpRequestMessage(HttpMethod.Post, $"/api/action?t={token}"))
+            {
+                repair.Content = new StringContent("{\"action\":\"repair-network\"}", Encoding.UTF8, "application/json");
+                Eq(409, (int)(await http.SendAsync(repair)).StatusCode, "没接线时检查并修复返回 409");
+            }
+
+            api.RepairNetwork = _ => Task.FromResult((true, "已复位网卡并重开热点"));
+            using (var repair = new HttpRequestMessage(HttpMethod.Post, $"/api/action?t={token}"))
+            {
+                repair.Content = new StringContent("{\"action\":\"repair-network\"}", Encoding.UTF8, "application/json");
+                var reply = await http.SendAsync(repair);
+                Eq(200, (int)reply.StatusCode, "检查并修复状态码");
+                Contains(await reply.Content.ReadAsStringAsync(), "重开热点", "修复返回文案");
             }
 
             api.InstallService = () => (true, "护航任务已安装并运行");

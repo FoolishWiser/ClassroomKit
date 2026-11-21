@@ -207,6 +207,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private double _updatePluginProgress;
     private string _updatePluginError = "";
     private bool _updatePluginCanUpdate;
+    private string _selfHealText = "";
+    private string _selfHealDetail = "";
+    private bool _selfHealBusy;
 
     public MainViewModel(AgentRuntime runtime)
     {
@@ -289,6 +292,26 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             var s = await _rt.Update.UpdatePluginAsync();
             return string.IsNullOrWhiteSpace(s.PluginText) ? "ClassIsland 插件已处理" : s.PluginText;
         }));
+        RepairNetworkCommand = new RelayCommand(() =>
+        {
+            if (_selfHealBusy)
+            {
+                Toast("上一次修复还没结束，请稍等");
+                return;
+            }
+
+            _selfHealBusy = true;
+            RunAsync(async () =>
+            {
+                try
+                {
+                    var (ok, message) = await _rt.Guard.RepairNowAsync(CancellationToken.None);
+                    if (!ok) throw new InvalidOperationException(message);
+                    return message;
+                }
+                finally { _selfHealBusy = false; }
+            });
+        });
         DiagnoseCommand = new RelayCommand(() => { _ = RunDiagnoseAsync(); });
         InstallServiceCommand = new RelayCommand(() => RunBackground(() => _rt.InstallServiceTask().Message));
         RefreshHostsCommand = new RelayCommand(() => RunAsync(async () =>
@@ -488,6 +511,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public RelayCommand UpgradeCommand { get; }
     public RelayCommand UpdatePluginCommand { get; }
     public RelayCommand DiagnoseCommand { get; }
+    public RelayCommand RepairNetworkCommand { get; }
     public RelayCommand InstallServiceCommand { get; }
     public RelayCommand RefreshHostsCommand { get; }
     public RelayCommand RestoreHostsCommand { get; }
@@ -613,6 +637,37 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public double UpdatePluginProgress { get => _updatePluginProgress; private set => Set(ref _updatePluginProgress, value); }
     public string UpdatePluginError { get => _updatePluginError; private set => Set(ref _updatePluginError, value); }
     public bool UpdatePluginCanUpdate { get => _updatePluginCanUpdate; private set => Set(ref _updatePluginCanUpdate, value); }
+    public string SelfHealText { get => _selfHealText; private set => Set(ref _selfHealText, value); }
+    public string SelfHealDetail { get => _selfHealDetail; private set => Set(ref _selfHealDetail, value); }
+
+    /// <summary>自检页的自动修复总开关：即时写盘，不需要点保存。</summary>
+    public bool EditSelfHealEnabled
+    {
+        get => _rt.Config.Current.Hotspot.SelfHealEnabled;
+        set
+        {
+            if (value == _rt.Config.Current.Hotspot.SelfHealEnabled) return;
+            _rt.Config.Mutate(c => c.Hotspot.SelfHealEnabled = value);
+            Raise(nameof(EditSelfHealEnabled));
+            Toast(value ? "已开启：网络异常时会自动修复" : "已关闭：发现异常只告警，可手动修复");
+            _ = RefreshAsync(true);
+        }
+    }
+
+    /// <summary>零客户端也自动复位网卡的激进选项，默认关。</summary>
+    public bool EditRestartAdapterOnIdleNoRx
+    {
+        get => _rt.Config.Current.Hotspot.RestartAdapterOnIdleNoRx;
+        set
+        {
+            if (value == _rt.Config.Current.Hotspot.RestartAdapterOnIdleNoRx) return;
+            _rt.Config.Mutate(c => c.Hotspot.RestartAdapterOnIdleNoRx = value);
+            Raise(nameof(EditRestartAdapterOnIdleNoRx));
+            Toast(value ? "已开启：零客户端也自动复位（可能打断传屏）" : "已关闭：零客户端时不动网卡");
+            _ = RefreshAsync(true);
+        }
+    }
+
     public string ToastText { get => _toastText; private set => Set(ref _toastText, value); }
     public bool ToastVisible { get => _toastVisible; private set => Set(ref _toastVisible, value); }
     public bool ToastError { get => _toastError; private set => Set(ref _toastError, value); }
@@ -779,6 +834,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Raise(nameof(UpdatePluginProgressVisible));
         UpdatePluginError = s.Update.PluginError;
         UpdatePluginCanUpdate = s.Update.PluginCanUpdate;
+        SelfHealText = s.SelfHeal.StatusText;
+        SelfHealDetail = s.SelfHeal.Detail;
+        Raise(nameof(EditSelfHealEnabled));
+        Raise(nameof(EditRestartAdapterOnIdleNoRx));
         HostsText = s.Hosts.Message;
         HostsApplied = s.Hosts.Applied;
         HostsCountText = s.Hosts.Count > 0 ? $"{s.Hosts.Count} 条加速记录" : "还没有写入记录";

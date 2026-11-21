@@ -14,14 +14,14 @@
 
 预编译包在 [Releases](https://github.com/FoolishWiser/ClassroomKit/releases/latest)：
 
-- `ClassroomKit-0.8.2-x64.msi`（约 74 MB，推荐）
-- `ClassroomKit-0.8.2-win-x64.zip`（绿色版）
-- `ClassroomKit-0.8.2.cipx`（ClassIsland 2.1 插件，装进 ClassIsland，不是安装包）
+- `ClassroomKit-0.8.3-x64.msi`（约 74 MB，推荐）
+- `ClassroomKit-0.8.3-win-x64.zip`（绿色版）
+- `ClassroomKit-0.8.3.cipx`（ClassIsland 2.1 插件，装进 ClassIsland，不是安装包）
 
 ```text
-双击 ClassroomKit-0.8.2-x64.msi
+双击 ClassroomKit-0.8.3-x64.msi
 # 或静默安装：
-msiexec /i ClassroomKit-0.8.2-x64.msi /qn
+msiexec /i ClassroomKit-0.8.3-x64.msi /qn
 ```
 
 装完自动落地到 `C:\Program Files\ClassroomKit`、建配置目录、放宽设备上限到 16 台、注册登录自启与 SYSTEM 护航任务，并立刻拉起守护。开始菜单会多一项「ClassroomKit 助手」。0.8.2 起默认按「最高可用权限」启动：管理员账户直接提权，标准账户仍以普通权限运行。
@@ -36,13 +36,13 @@ msiexec /i ClassroomKit-0.8.2-x64.msi /qn
 
 **板书存成「科目_日期_时间」**。`文档\ClassIn X Files\数学_2026-11-14_10-05.png`。正在上课用当前科目，课间用上一节；模板 `boardSave.nameTemplate` 支持 `{科目}` `{日期}` `{时间}` `{节次}` `{周几}`。同名不覆盖、自动补 `_2`。保存后会校验文件真的写完（0 字节 / 半截 PDF 判失败），不会假装成功。
 
-**学生热点**。开机就有，被关 / SSID 被改 / 网卡抽风都会自动恢复；上限从 Windows 默认 8 台放到 16 台。默认热点名 = 计算机名、密码每机随机，推车换教室时手机不会粘在旧热点上。多块网卡时自己挑真有外网的那块，谁都没外网就退回局域网兜底。0.6.6 起还能识别网卡「假启动」并给出复位办法。
+**学生热点**。开机就有，被关 / SSID 被改 / 网卡抽风都会自动恢复；上限从 Windows 默认 8 台放到 16 台。默认热点名 = 计算机名、密码每机随机，推车换教室时手机不会粘在旧热点上。多块网卡时自己挑真有外网的那块，谁都没外网就退回局域网兜底。0.6.6 起还能识别网卡「假启动」并给出复位办法；0.8.3 起连续启动失败、有设备却上不了网、或最近有设备连过却疑似假启动时，会先自动复位网卡并重开热点，自检页也能手动「检查并修复」。
 
 **板书软件冲突**。每 2 秒看一眼窗口，希沃白板与 ClassInX 的悬浮窗叠在全屏内容上时弹一次置顶提示（都保留 / 保留其一 / 都不保留，40 分钟冷却）。0.6.7 起可以在「高级」页按科目记住老师习惯：理解 = 冲突时弹窗交给老师，不理解 = 老师打开习惯软件时静默关掉另一款；没设置习惯的科目在开启习惯模式后不弹窗也不关软件（0.8.2 起开启前会在窗口内先确认一次）。
 
 **GitHub 加速与静默升级**。全天维护一小段 GitHub hosts（直连可用时不动），写坏了自己还原；升级下载完交给 SYSTEM 护航任务 `msiexec /qn` 安装，不弹 UAC，代价是最多排队 5 分钟。支持时间窗、无设备连接时才自动装。
 
-**一键自检**。11 项检查（版本、热点、上行、设备上限、自启、护航任务、hosts、板书目录、ClassInX、课表接入、升级设置），红了会写下一步。
+**一键自检**。12 项检查（版本、热点、上行、设备上限、自启、护航任务、hosts、板书目录、ClassInX、课表接入、网络自我修复、升级设置），红了会写下一步。
 
 ## 界面与配置入口
 
@@ -67,10 +67,10 @@ msiexec /i ClassroomKit-0.8.2-x64.msi /qn
 代码结构：`Core` 纯逻辑（Linux 可单测）、`Agent` WPF 桌面与 WinRT 热点、`ClassIsland` 插件。测试零依赖：
 
 ```text
-dotnet run --project tests/ClassroomKit.Tests -c Release   # 192 项
+dotnet run --project tests/ClassroomKit.Tests -c Release   # 200 项
 ```
 
-整机验收（44 项）在目标机跑 `verify.ps1`。
+整机验收（45 项）在目标机跑 `verify.ps1`。
 
 ## 许可
 

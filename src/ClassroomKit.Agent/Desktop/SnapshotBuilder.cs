@@ -84,8 +84,27 @@ internal static class SnapshotBuilder
                 SubjectText(lesson?.CurrentSubject),
                 rt.ConflictWatcher.LastHabitAction,
                 config.Habits.Rules.Count),
+            SelfHeal(rt, config),
             rt.Log.Snapshot(200).Select(e => new UiLogLine(e.Time, e.Level, e.Message)).ToArray(),
             DateTimeOffset.Now);
+    }
+
+    private static UiSelfHeal SelfHeal(AgentRuntime rt, AppConfig config)
+    {
+        var guard = rt.Guard;
+        var enabled = config.Hotspot.SelfHealEnabled;
+        var status = enabled ? "网络异常时自动修复" : "自动修复已关闭";
+        var detail = guard.LastRepairMessage is { Length: > 0 } last
+            ? $"最近一次修复：{last}"
+            : enabled
+                ? "连续启动失败、有设备但上不了网、或最近有设备连过却疑似假启动时，自动复位网卡并重开热点。"
+                : "发现问题只记日志和告警，可在本页点「检查并修复」手动处理。";
+        return new UiSelfHeal(
+            enabled,
+            config.Hotspot.RestartAdapterOnIdleNoRx,
+            status,
+            detail,
+            guard.RepairCount);
     }
 
     private static string DescribeOperational(OperationalState state) => state switch

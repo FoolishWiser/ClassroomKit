@@ -241,6 +241,35 @@ internal static class UiTests
             False(about.Contains("网页面板", StringComparison.Ordinal), "关于页不再提网页面板");
         });
 
+        await Run("0.8.3：自检页能检查并修复网络，自动修复可在界面开关", () =>
+        {
+            var root = RepoRoot();
+            var diag = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/Desktop/Pages/DiagnosePage.xaml"));
+            Contains(diag, "SelfHealText", "显示自动修复状态");
+            Contains(diag, "SelfHealDetail", "显示最近一次修复结果");
+            Contains(diag, "EditSelfHealEnabled", "自动修复开关");
+            Contains(diag, "EditRestartAdapterOnIdleNoRx", "零客户端激进开关");
+            Contains(diag, "RepairNetworkCommand", "手动检查并修复");
+
+            var vm = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/Desktop/MainViewModel.cs"));
+            Contains(vm, "RepairNetworkCommand", "视图模型命令");
+            Contains(vm, "RepairNowAsync", "调用守护的手动修复");
+            Contains(vm, "SelfHealText", "状态文案");
+
+            var guard = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Core/Hotspot/HotspotGuard.cs"));
+            Contains(guard, "SelfHealAsync", "统一修复动作");
+            Contains(guard, "RecentClientWindow", "只在最近有设备时自动复位");
+            Contains(guard, "SelfHealMaxPerDay", "每天修复上限");
+            Contains(guard, "RepairNowAsync", "手动修复入口");
+
+            var diagSource = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/Diagnose/Diagnostics.cs"));
+            Contains(diagSource, "selfheal", "自检报告包含自我修复项");
+
+            var api = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Core/Api/ApiServer.cs"));
+            Contains(api, "repair-network", "HTTP 动作");
+            Contains(api, "selfHeal", "状态接口暴露修复信息");
+        });
+
     }
 
     /// <summary>测试输出目录向上找仓库根（src 与 Directory.Build.props 所在处）。</summary>

@@ -6,7 +6,8 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="16" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="12" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
@@ -33,7 +34,33 @@
             </Grid>
         </Border>
 
-        <Grid Grid.Row="3">
+        <Border Grid.Row="2" Style="{StaticResource Card}" Padding="20" Margin="0,12,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="{Binding SelfHealText}" Style="{StaticResource H2}" />
+                    <TextBlock Text="{Binding SelfHealDetail}" Style="{StaticResource Caption}"
+                               TextWrapping="Wrap" Margin="0,4,0,0" />
+                    <WrapPanel Margin="0,8,0,0">
+                        <CheckBox Content="网络异常时自动修复" IsChecked="{Binding EditSelfHealEnabled}"
+                                  Margin="0,0,24,0"
+                                  ToolTip="连续启动失败、有设备但上不了网、最近有设备连过却疑似假启动时，自动复位网卡并重开热点。" />
+                        <CheckBox Content="零客户端也自动复位" IsChecked="{Binding EditRestartAdapterOnIdleNoRx}"
+                                  ToolTip="空教室整夜没人连也复位网卡。可能打断希沃传屏，默认关闭。" />
+                    </WrapPanel>
+                </StackPanel>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="16,0,0,0">
+                    <Button Content="检查并修复" Style="{StaticResource PrimaryButton}"
+                            Command="{Binding RepairNetworkCommand}"
+                            ToolTip="先判断网络是否真有问题；复位会断开已连设备十几秒。" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="4">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="1.05*" />
                 <ColumnDefinition Width="16" />
