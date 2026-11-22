@@ -109,12 +109,16 @@ internal static class UiTests
             Contains(styles, "SelectionBoxItemTemplate", "选中区必须绑定 SelectionBoxItemTemplate");
             Contains(styles, "ContentStringFormat=\"{TemplateBinding SelectionBoxItemStringFormat}\"", "格式化参数也要传下去");
 
-            foreach (var page in new[] { "SettingsPage.xaml", "LessonPage.xaml", "DiagnosePage.xaml" })
+            foreach (var page in new[] { "SettingsPage.xaml", "DiagnosePage.xaml" })
             {
                 var xaml = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/Desktop/Pages", page));
                 False(xaml.Contains("DisplayMemberPath", StringComparison.Ordinal), page + " 不应再用 DisplayMemberPath");
                 Contains(xaml, "<ComboBox.ItemTemplate>", page + " 要有显式 ItemTemplate");
             }
+
+            // LessonPage 1.0 起只剩保存/科目胶囊，不再有下拉框。
+            var lesson = File.ReadAllText(Path.Combine(root, "src/ClassroomKit.Agent/Desktop/Pages/LessonPage.xaml"));
+            False(lesson.Contains("DisplayMemberPath", StringComparison.Ordinal), "LessonPage 不应再用 DisplayMemberPath");
         });
 
         await Run("课表页的科目勾选控件存在", () =>

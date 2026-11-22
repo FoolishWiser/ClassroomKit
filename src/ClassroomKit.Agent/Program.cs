@@ -102,6 +102,7 @@ internal static class Program
 
         // WPF 负责消息循环与主窗口，WinForms 托盘挂同一个线程
         var app = new System.Windows.Application { ShutdownMode = System.Windows.ShutdownMode.OnExplicitShutdown };
+        CrashLog.Install(app);
         // 先装好 Dispatcher 同步上下文：托盘控制器在构造时就捕获它，否则弹窗会投递不出去
         SynchronizationContext.SetSynchronizationContext(
             new System.Windows.Threading.DispatcherSynchronizationContext(app.Dispatcher));

@@ -131,6 +131,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private string _maxPeersText = "";
     private string _hotspotStateText = "未知";
     private bool _hotspotOn;
+    private IReadOnlyList<UiClient> _hotspotClients = Array.Empty<UiClient>();
+    private string _boardFolderText = "";
+    private string _boardLibraryText = "";
+    private IReadOnlyList<BoardFile> _boardRecent = Array.Empty<BoardFile>();
     private string _lessonStateText = "还没有收到课表";
     private string _lessonCurrentText = "-";
     private string _lessonNextText = "-";
@@ -180,10 +184,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private string _editSsid = "";
     private string _editPassphrase = "";
     private int _editTargetClients = 8;
-    private int _editRemindMinutes = 5;
-    private int _editDialogSeconds = 30;
-    private string _editTimeoutAction = "save";
-    private int _editSnoozeMinutes = 2;
     private bool _editLessonEnabled = true;
     private bool _editOnlyWhenClassInBoard = true;
     private bool _editNameWithLesson = true;
@@ -210,6 +210,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private string _selfHealText = "";
     private string _selfHealDetail = "";
     private bool _selfHealBusy;
+    private bool _connectionCardVisible;
+    private DispatcherTimer? _connectionCardTimer;
 
     public MainViewModel(AgentRuntime runtime)
     {
@@ -232,9 +234,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _pageKey = ui.LastPage is { Length: > 0 } p && Pages.Any(x => x.Key == p) ? p : PageOverview;
         _pageTitle = Pages.First(x => x.Key == _pageKey).Title;
 
-        // 0.7.0：没看过教程才自动弹；升级上来的老配置在 ConfigStore 里已被盖章成「已看过」，不会挡屏
-        ShowOnboarding = OnboardingGuide.ShouldShow(ui.OnboardingDone);
-        if (ShowOnboarding) SetOnboardingStep(0);
+        // 0.7.0：没看过教程才自动弹；0.8.4 起还会记住上次看到第几步、是否被收起
+        _onboardingStep = Math.Clamp(ui.OnboardingStep, 0, OnboardingGuide.Steps.Count - 1);
+        ShowOnboarding = OnboardingGuide.ShouldShow(ui.OnboardingDone, ui.OnboardingPaused);
+        if (ShowOnboarding) SetOnboardingStep(_onboardingStep, false);
 
         ToggleHotspotCommand = new RelayCommand(() => Run(() =>
         {
@@ -263,7 +266,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         SaveUpdateCommand = new RelayCommand(SaveUpdate);
         SaveBoardCommand = new RelayCommand(SaveBoardNow);
         SaveBoardNamedCommand = new RelayCommand(() => RunBackground(() => _rt.SaveBoardNamed(false, _rt.Config.Current.BoardSave.NameWithLesson).Message));
-        PreviewReminderCommand = new RelayCommand(() => { _rt.Api.PreviewBoardReminder?.Invoke(); Toast("已请求预览课后提醒窗"); });
+        RefreshBoardLibraryCommand = new RelayCommand(() => { _ = RefreshBoardLibraryAsync(); });
+        OpenBoardFolderCommand = new RelayCommand(OpenBoardFolder);
+        PreviewAutoSaveCommand = new RelayCommand(() =>
+        {
+            var (ok, message) = _rt.AutoSaveAction("preview");
+            Toast(ok ? message : "预览自动保存倒计时失败：" + message);
+        });
         ClearLessonCommand = new RelayCommand(() =>
         {
             _rt.Api.ClearLesson?.Invoke();
@@ -313,6 +322,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             });
         });
         DiagnoseCommand = new RelayCommand(() => { _ = RunDiagnoseAsync(); });
+        ExportBundleCommand = new RelayCommand(() => { _ = ExportBundleAsync(); });
         InstallServiceCommand = new RelayCommand(() => RunBackground(() => _rt.InstallServiceTask().Message));
         RefreshHostsCommand = new RelayCommand(() => RunAsync(async () =>
         {
@@ -342,6 +352,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 Toast("复制失败，剪贴板被别的程序占用", true);
             }
         });
+        ShowConnectionCardCommand = new RelayCommand(ShowConnectionCard);
+        CloseConnectionCardCommand = new RelayCommand(CloseConnectionCard);
         FixPeersCommand = new RelayCommand(() => RunAsync(async () =>
         {
             var (ok, msg) = await _rt.Api.FixPeersAsync!(CancellationToken.None);
@@ -405,10 +417,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         });
         RestartOnboardingCommand = new RelayCommand(() =>
         {
-            try { _rt.Config.Mutate(c => c.Ui.OnboardingDone = false); } catch { /* 写不进去也不耽误这次显示 */ }
+            PersistOnboarding(step: 0, paused: false, done: false);
             OnboardingPaused = false;
-            SetOnboardingStep(0);
+            SetOnboardingStep(0, false);
             ShowOnboarding = true;
+            RaiseOnboardingEntry();
             Toast("教程已重新打开");
         });
         GoOnboardingPageCommand = new RelayCommand(() =>
@@ -416,6 +429,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             // 先收起遮罩再切页：遮罩原来盖在内容上，看起来像「点了没反应」（0.8.1 修）
             ShowOnboarding = false;
             OnboardingPaused = true;
+            PersistOnboarding(step: _onboardingStep, paused: true);
+            RaiseOnboardingEntry();
             PageKey = OnboardingCurrent.Page;
             Toast("已切到「" + PageTitle + "」，左下角「教程引导」可以接着看");
         });
@@ -473,8 +488,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 // 从导航离开教程指向的页面时收起遮罩，避免教程一直挡在内容前面（0.8.1）
                 OnboardingPaused = true;
                 ShowOnboarding = false;
+                PersistOnboarding(step: _onboardingStep, paused: true);
+                RaiseOnboardingEntry();
             }
             if (value == PageAbout) _ = RefreshStarsAsync(false);
+            if (value == PageLesson) _ = RefreshBoardLibraryAsync();
             var key = value;
             _ = Task.Run(() => _rt.Config.Update(c => c.Ui.LastPage = key));
         }
@@ -505,12 +523,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public RelayCommand SaveUpdateCommand { get; }
     public RelayCommand SaveBoardCommand { get; }
     public RelayCommand SaveBoardNamedCommand { get; }
-    public RelayCommand PreviewReminderCommand { get; }
+    public RelayCommand RefreshBoardLibraryCommand { get; }
+    public RelayCommand OpenBoardFolderCommand { get; }
+    public RelayCommand PreviewAutoSaveCommand { get; }
     public RelayCommand ClearLessonCommand { get; }
     public RelayCommand CheckUpdateCommand { get; }
     public RelayCommand UpgradeCommand { get; }
     public RelayCommand UpdatePluginCommand { get; }
     public RelayCommand DiagnoseCommand { get; }
+    public RelayCommand ExportBundleCommand { get; }
     public RelayCommand RepairNetworkCommand { get; }
     public RelayCommand InstallServiceCommand { get; }
     public RelayCommand RefreshHostsCommand { get; }
@@ -522,6 +543,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public RelayCommand OpenClassIslandSiteCommand { get; }
     public RelayCommand RefreshStarsCommand { get; }
     public RelayCommand CopyPasswordCommand { get; }
+    public RelayCommand ShowConnectionCardCommand { get; }
+    public RelayCommand CloseConnectionCardCommand { get; }
     public RelayCommand FixPeersCommand { get; }
     public RelayCommand RenameToMachineCommand { get; }
     public RelayCommand DismissToastCommand { get; }
@@ -579,6 +602,30 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string ClientsText { get => _clientsText; private set => Set(ref _clientsText, value); }
     public string UplinkText { get => _uplinkText; private set => Set(ref _uplinkText, value); }
     public string MaxPeersText { get => _maxPeersText; private set => Set(ref _maxPeersText, value); }
+    public IReadOnlyList<UiClient> HotspotClients
+    {
+        get => _hotspotClients;
+        private set
+        {
+            _hotspotClients = value;
+            Raise(nameof(HotspotClients));
+            Raise(nameof(HotspotClientsEmpty));
+        }
+    }
+    public bool HotspotClientsEmpty => _hotspotClients.Count == 0;
+    public string BoardFolderText { get => _boardFolderText; private set => Set(ref _boardFolderText, value); }
+    public string BoardLibraryText { get => _boardLibraryText; private set => Set(ref _boardLibraryText, value); }
+    public IReadOnlyList<BoardFile> BoardRecent
+    {
+        get => _boardRecent;
+        private set
+        {
+            _boardRecent = value;
+            Raise(nameof(BoardRecent));
+            Raise(nameof(BoardRecentEmpty));
+        }
+    }
+    public bool BoardRecentEmpty => _boardRecent.Count == 0;
     public string HotspotStateText { get => _hotspotStateText; private set => Set(ref _hotspotStateText, value); }
     public bool HotspotOn { get => _hotspotOn; private set => Set(ref _hotspotOn, value); }
     public string LessonStateText { get => _lessonStateText; private set => Set(ref _lessonStateText, value); }
@@ -604,6 +651,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public bool ShowOnboarding { get => _onboardingVisible; private set => Set(ref _onboardingVisible, value); }
     /// <summary>教程被收起但仍没看完（左下角「教程引导」能回到原步骤）。</summary>
     public bool OnboardingPaused { get => _onboardingPaused; private set => Set(ref _onboardingPaused, value); }
+    /// <summary>热点连接卡是否显示：大字给全班看 SSID 和密码，120 秒自动收起。</summary>
+    public bool ConnectionCardVisible { get => _connectionCardVisible; private set => Set(ref _connectionCardVisible, value); }
+
+    /// <summary>侧栏教程入口：没看完且遮罩没显示时才出现。</summary>
+    public bool OnboardingEntryVisible => !_rt.Config.Current.Ui.OnboardingDone && !ShowOnboarding;
+    /// <summary>侧栏教程入口文案：收起过就叫「继续教程」。</summary>
+    public string OnboardingEntryText => OnboardingPaused ? "继续教程" : "教程引导";
     public OnboardingStep OnboardingCurrent => OnboardingGuide.Steps[Math.Clamp(_onboardingStep, 0, OnboardingGuide.Steps.Count - 1)];
     public string OnboardingStepText => $"{_onboardingStep + 1} / {OnboardingGuide.Steps.Count}";
     public string OnboardingTitle => OnboardingCurrent.Title;
@@ -695,10 +749,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string EditSsid { get => _editSsid; set => SetDirty(ref _editSsid, value); }
     public string EditPassphrase { get => _editPassphrase; set => SetDirty(ref _editPassphrase, value); }
     public int EditTargetClients { get => _editTargetClients; set => SetDirty(ref _editTargetClients, value); }
-    public int EditRemindMinutes { get => _editRemindMinutes; set => SetDirty(ref _editRemindMinutes, value); }
-    public int EditDialogSeconds { get => _editDialogSeconds; set => SetDirty(ref _editDialogSeconds, value); }
-    public string EditTimeoutAction { get => _editTimeoutAction; set => SetDirty(ref _editTimeoutAction, value); }
-    public int EditSnoozeMinutes { get => _editSnoozeMinutes; set => SetDirty(ref _editSnoozeMinutes, value); }
     public bool EditLessonEnabled { get => _editLessonEnabled; set => SetDirty(ref _editLessonEnabled, value); }
     public bool EditOnlyWhenClassInBoard { get => _editOnlyWhenClassInBoard; set => SetDirty(ref _editOnlyWhenClassInBoard, value); }
     public bool EditNameWithLesson { get => _editNameWithLesson; set => SetDirty(ref _editNameWithLesson, value); }
@@ -751,7 +801,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string HabitStatusText { get => _habitStatusText; private set => Set(ref _habitStatusText, value); }
     public string HabitLastActionText { get => _habitLastActionText; private set => Set(ref _habitLastActionText, value); }
 
-    public IReadOnlyList<UiOption> TimeoutOptions { get; } = UiOptions.TimeoutActions;
 
     public IReadOnlyList<UiOption> ThemeOptions { get; } = UiOptions.Themes;
 
@@ -808,6 +857,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         HotspotOn = s.Hotspot.On;
         HotspotStateText = s.Hotspot.StateText;
         ClientsText = $"{s.Hotspot.Clients} / {s.Hotspot.TargetClients} 台";
+        HotspotClients = s.ClientList;
         UplinkText = s.Hotspot.UplinkName;
         MaxPeersText = $"{s.Hotspot.MaxPeers} 台";
         LessonAvailable = s.Lesson.Available;
@@ -941,10 +991,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         EditSsid = c.Hotspot.Ssid;
         EditPassphrase = c.Hotspot.Passphrase;
         EditTargetClients = c.Hotspot.TargetClients;
-        EditRemindMinutes = c.Lesson.RemindMinutesBefore;
-        EditDialogSeconds = c.Lesson.DialogSeconds;
-        EditTimeoutAction = c.Lesson.TimeoutAction;
-        EditSnoozeMinutes = c.Lesson.SnoozeMinutes;
         EditLessonEnabled = c.Lesson.Enabled;
         EditOnlyWhenClassInBoard = c.Lesson.OnlyWhenClassInBoard;
         EditNameWithLesson = c.BoardSave.NameWithLesson;
@@ -1020,10 +1066,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         _rt.Config.Mutate(c =>
         {
-            c.Lesson.RemindMinutesBefore = Math.Clamp(EditRemindMinutes, 1, 30);
-            c.Lesson.DialogSeconds = Math.Clamp(EditDialogSeconds, 5, 600);
-            c.Lesson.TimeoutAction = EditTimeoutAction;
-            c.Lesson.SnoozeMinutes = Math.Clamp(EditSnoozeMinutes, 1, 60);
             c.Lesson.Enabled = EditLessonEnabled;
             c.Lesson.OnlyWhenClassInBoard = EditOnlyWhenClassInBoard;
             c.BoardSave.NameWithLesson = EditNameWithLesson;
@@ -1300,6 +1342,41 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         });
     }
 
+    private async Task ExportBundleAsync()
+    {
+        if (Diagnosing)
+        {
+            Toast("自检或打包还在进行，请稍等");
+            return;
+        }
+
+        Diagnosing = true;
+        DiagnoseSummary = "正在生成诊断包…";
+        DiagnoseMeta = "会收集自检结果、环境、配置摘要和最近 5 个日志，并自动脱敏。";
+        try
+        {
+            var path = await Task.Run(() =>
+            {
+                var report = Diagnostics.BuildReport(_rt);
+                return SupportBundleBuilder.Build(_rt, report);
+            }).ConfigureAwait(true);
+            DiagnoseSummary = "诊断包已生成";
+            DiagnoseMeta = path;
+            Toast("诊断包已放到桌面：「ClassroomKit-诊断」文件夹");
+            ShellExec.Open(Path.GetDirectoryName(path) ?? Paths.DataDir);
+        }
+        catch (Exception ex)
+        {
+            DiagnoseSummary = "生成诊断包失败";
+            DiagnoseMeta = ex.Message;
+            Toast("生成诊断包失败：" + ex.Message, true);
+        }
+        finally
+        {
+            Diagnosing = false;
+        }
+    }
+
     private async Task RunDiagnoseAsync()
     {
         if (Diagnosing) return;
@@ -1327,9 +1404,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    private void SetOnboardingStep(int step)
+    private void SetOnboardingStep(int step, bool persist = true)
     {
         _onboardingStep = Math.Clamp(step, 0, OnboardingGuide.Steps.Count - 1);
+        if (persist) PersistOnboarding(step: _onboardingStep);
         Raise(nameof(OnboardingCurrent));
         Raise(nameof(OnboardingStepText));
         Raise(nameof(OnboardingTitle));
@@ -1339,14 +1417,99 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Raise(nameof(OnboardingAtStart));
         Raise(nameof(OnboardingAtEnd));
         Raise(nameof(OnboardingCanGoBack));
+        RaiseOnboardingEntry();
     }
 
-    /// <summary>收起教程但不写 onboardingDone：下次还能从「教程引导」回到原步骤（0.8.1）。</summary>
+    /// <summary>落盘教程进度；写不进去也不影响本次显示。</summary>
+    private void PersistOnboarding(int? step = null, bool? paused = null, bool? done = null)
+    {
+        try
+        {
+            _rt.Config.Mutate(c =>
+            {
+                if (step is { } s) c.Ui.OnboardingStep = s;
+                if (paused is { } p) c.Ui.OnboardingPaused = p;
+                if (done is { } d) c.Ui.OnboardingDone = d;
+            });
+        }
+        catch { /* 配置只读或磁盘满时忽略，教程仍可继续 */ }
+    }
+
+    private void RaiseOnboardingEntry()
+    {
+        Raise(nameof(OnboardingEntryVisible));
+        Raise(nameof(OnboardingEntryText));
+    }
+
+    /// <summary>收起教程：记住进度与「已收起」，下次启动不再自动弹出（0.8.4）。</summary>
+    private async Task RefreshBoardLibraryAsync()
+    {
+        try
+        {
+            var summary = await Task.Run(() => BoardLibrary.Scan(ClassroomKit.Agent.Board.ClassInBoardSaver.SaveFolder));
+            BoardFolderText = summary.Folder;
+            BoardLibraryText = summary.Count == 0
+                ? "这个目录里还没有板书文件"
+                : $"共 {summary.Count} 个 · 占用 {FormatBytes(summary.TotalBytes)} · 磁盘剩余 {(summary.FreeBytes > 0 ? FormatBytes(summary.FreeBytes) : "—")}";
+            BoardRecent = summary.Recent;
+        }
+        catch (Exception ex)
+        {
+            BoardLibraryText = "扫描板书目录失败：" + ex.Message;
+        }
+    }
+
+    private void OpenBoardFolder()
+    {
+        try
+        {
+            var folder = ClassroomKit.Agent.Board.ClassInBoardSaver.SaveFolder;
+            Directory.CreateDirectory(folder);
+            ShellExec.Open(folder);
+            Toast("已打开板书目录");
+        }
+        catch (Exception ex)
+        {
+            Toast("打开板书目录失败：" + ex.Message, true);
+        }
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return (bytes / 1024.0).ToString("0.#") + " KB";
+        if (bytes < 1024L * 1024 * 1024) return (bytes / 1024.0 / 1024).ToString("0.#") + " MB";
+        return (bytes / 1024.0 / 1024 / 1024).ToString("0.##") + " GB";
+    }
+
+    private void ShowConnectionCard()
+    {
+        ConnectionCardVisible = true;
+        _connectionCardTimer ??= new DispatcherTimer(DispatcherPriority.Background, Dispatcher.CurrentDispatcher)
+        {
+            Interval = TimeSpan.FromSeconds(120)
+        };
+        _connectionCardTimer.Stop();
+        _connectionCardTimer.Tick -= ConnectionCardTimerTick;
+        _connectionCardTimer.Tick += ConnectionCardTimerTick;
+        _connectionCardTimer.Start();
+    }
+
+    private void ConnectionCardTimerTick(object? sender, EventArgs e) => CloseConnectionCard();
+
+    private void CloseConnectionCard()
+    {
+        _connectionCardTimer?.Stop();
+        ConnectionCardVisible = false;
+    }
+
     private void PauseOnboarding(string? message = null)
     {
         if (!ShowOnboarding) return;
         OnboardingPaused = true;
         ShowOnboarding = false;
+        PersistOnboarding(step: _onboardingStep, paused: true);
+        RaiseOnboardingEntry();
         if (!string.IsNullOrEmpty(message)) Toast(message);
     }
 
@@ -1354,6 +1517,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         ShowOnboarding = true;
         OnboardingPaused = false;
+        PersistOnboarding(step: _onboardingStep, paused: false);
+        RaiseOnboardingEntry();
         Toast("教程回来了，接着看");
     }
 
@@ -1361,15 +1526,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         ShowOnboarding = false;
         OnboardingPaused = false;
-        try
-        {
-            _rt.Config.Mutate(c => c.Ui.OnboardingDone = true);
-            Toast(message);
-        }
-        catch (Exception ex)
-        {
-            Toast("教程状态保存失败：" + ex.Message, true);
-        }
+        PersistOnboarding(step: 0, paused: false, done: true);
+        RaiseOnboardingEntry();
+        Toast(message);
     }
 
     public void Toast(string text, bool error = false)

@@ -42,6 +42,7 @@ public static class OnboardingGuide
             "diagnose",
             "第 4 步 · 跑一次自检",
             "最后到「自检与日志」点开始自检，确认热点、护航任务、hosts 加速都正常；"
+            + "网络出问题时守护会自动复位网卡并重开热点，也能在这里手动「检查并修复」。"
             + "哪一项红了，日志里会写清原因。以后想再看这份教程，到「关于」页点「重新显示教程引导」。",
             "去自检")
     };
@@ -50,7 +51,7 @@ public static class OnboardingGuide
     /// 没看过教程就弹：老配置在加载时已经被盖章成「已看过」（见 ConfigStore），
     /// 所以这里只看 done——空白配置中途关掉面板，下次还会接着引导；设置里点「重新显示」也会在下次启动继续出现。
     /// </summary>
-    public static bool ShouldShow(bool done) => !done;
+    public static bool ShouldShow(bool done, bool paused = false) => !done && !paused;
 
     /// <summary>页面 key 是否是桌面端存在的页面（防止引导里写错 key 切到空白页）。</summary>
     public static bool IsKnownPage(string page) => page is "overview" or "hotspot" or "lesson"

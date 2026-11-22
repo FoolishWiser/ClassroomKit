@@ -27,6 +27,7 @@ public class ClassroomKitPlugin : PluginBase
         services.AddSingleton(lessonBridge);
         lessonBridge.Start();
 
+        services.AddNotificationProvider<BoardAutoSaveNotifier>();
         services.AddSettingsPage<HotspotSettingsPage>();
         services.AddComponent<HotspotComponent>();
         services.AddAction<StartHotspotAction>();

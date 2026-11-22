@@ -143,6 +143,13 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (e.Key == System.Windows.Input.Key.Escape && _viewModel.ConnectionCardVisible)
+        {
+            _viewModel.CloseConnectionCardCommand.Execute(null);
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key == System.Windows.Input.Key.Escape && _viewModel.ShowOnboarding)
         {
             _viewModel.PauseOnboardingCommand.Execute(null);

@@ -127,11 +127,12 @@
                     <StackPanel Grid.Row="1" Margin="12,6,12,14">
                         <Button Style="{StaticResource GhostButton}" HorizontalContentAlignment="Left"
                                 HorizontalAlignment="Stretch" Height="34" Padding="10,0"
+                                Visibility="{Binding OnboardingEntryVisible, Converter={StaticResource BoolVisibility}}"
                                 Command="{Binding ContinueOnboardingCommand}">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="&#xE8F1;" FontFamily="Segoe MDL2 Assets" FontSize="13"
                                            Foreground="{DynamicResource TextSecondary}" VerticalAlignment="Center" />
-                                <TextBlock Text="教程引导" FontSize="12.5" Margin="10,0,0,0"
+                                <TextBlock Text="{Binding OnboardingEntryText}" FontSize="12.5" Margin="10,0,0,0"
                                            VerticalAlignment="Center" />
                                 <TextBlock Text="{Binding OnboardingStepText}" FontSize="12" Margin="6,0,0,0"
                                            Foreground="{DynamicResource TextMuted}" VerticalAlignment="Center" />
@@ -288,6 +289,36 @@
                         <Button Content="开启" Style="{StaticResource PrimaryButton}" MinWidth="88"
                                 HorizontalAlignment="Right" Command="{Binding ConfirmHabitModeCommand}" />
                     </Grid>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- 热点连接卡：给全班看的大字 SSID/密码，120 秒后自动收起 -->
+        <Grid x:Name="ConnectionCardOverlay" Grid.RowSpan="2" Panel.ZIndex="60"
+              Background="{DynamicResource OverlayBackground}"
+              Visibility="{Binding ConnectionCardVisible, Converter={StaticResource BoolVisibility}}">
+            <Border Style="{StaticResource Card}" Width="560" Padding="32"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    FocusManager.IsFocusScope="True" KeyboardNavigation.TabNavigation="Cycle">
+                <StackPanel>
+                    <TextBlock Text="连接教室热点" Style="{StaticResource H1}" HorizontalAlignment="Center" />
+                    <TextBlock Text="手机 Wi-Fi 里选下面这个名字，再输入密码" Style="{StaticResource Caption}"
+                               HorizontalAlignment="Center" Margin="0,6,0,22" />
+                    <TextBlock Text="{Binding Ssid}" Style="{StaticResource Display}"
+                               HorizontalAlignment="Center" TextWrapping="Wrap" />
+                    <TextBlock Text="密码" Style="{StaticResource Caption}" HorizontalAlignment="Center" Margin="0,20,0,4" />
+                    <TextBlock Text="{Binding Passphrase}" FontFamily="Consolas" FontSize="34" FontWeight="SemiBold"
+                               HorizontalAlignment="Center" TextWrapping="Wrap" />
+                    <Border Style="{StaticResource InfoBar}" Margin="0,24,0,0">
+                        <TextBlock Text="这张卡 2 分钟后自动收起；密码只在本机显示，不会上传。"
+                                   Style="{StaticResource Body}" TextWrapping="Wrap" />
+                    </Border>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,24,0,0">
+                        <Button Content="复制密码" Style="{StaticResource SecondaryButton}"
+                                Command="{Binding CopyPasswordCommand}" />
+                        <Button Content="关闭" Style="{StaticResource PrimaryButton}" MinWidth="96" Margin="10,0,0,0"
+                                IsCancel="True" Command="{Binding CloseConnectionCardCommand}" />
+                    </StackPanel>
                 </StackPanel>
             </Border>
         </Grid>

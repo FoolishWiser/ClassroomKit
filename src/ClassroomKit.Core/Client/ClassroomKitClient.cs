@@ -79,6 +79,13 @@ public sealed class ClassroomKitClient : IDisposable
         return await ReadAsync<ActionReply>(res, ct).ConfigureAwait(false);
     }
 
+    /// <summary>读课后自动保存状态（idle / waiting / countdown / cooldown / saving / saved / failed / abandoned）。</summary>
+    public async Task<BoardAutoSaveState> GetBoardAutoSaveAsync(CancellationToken ct = default)
+    {
+        using var res = await SendAsync(HttpMethod.Get, "/api/board-autosave", null, ct).ConfigureAwait(false);
+        return await ReadAsync<BoardAutoSaveState>(res, ct).ConfigureAwait(false);
+    }
+
     /// <summary>插件退出或课表被关掉时告诉守护「课表没了」，别再按旧数据提醒。</summary>
     public async Task<ActionReply> ClearLessonAsync(CancellationToken ct = default)
     {

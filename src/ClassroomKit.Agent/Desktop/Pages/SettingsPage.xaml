@@ -61,7 +61,7 @@
                         <CheckBox Content="保存（不按课表改名）" IsChecked="{Binding EditTraySaveWithoutRename}" />
                     </Border>
                     <Border Style="{StaticResource SettingsRow}" Padding="20,8,20,12">
-                        <CheckBox Content="预览课后提醒窗" IsChecked="{Binding EditTrayShowPreviewReminder}" />
+                        <CheckBox Content="预览自动保存倒计时" IsChecked="{Binding EditTrayShowPreviewReminder}" />
                     </Border>
                     <Border Style="{StaticResource SettingsRow}" BorderThickness="0" Padding="20,8,20,20">
                         <Button Content="保存托盘菜单" Style="{StaticResource PrimaryButton}"

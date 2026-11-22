@@ -31,7 +31,7 @@ internal static class Commands
         Console.WriteLine($"""
 ClassroomKit.Agent {Version}
 
-  (无参数)          常驻守护 + 托盘图标 + Web 面板
+  (无参数)          常驻守护 + 托盘图标 + 桌面窗口
   --ensure          确保守护在跑且热点开着（在跑则秒退，供 ClassIsland 调用）
   --on / --off      打开 / 关闭热点策略
   --status          输出当前状态（JSON）
@@ -241,18 +241,13 @@ ClassroomKit.Agent {Version}
             config = new
             {
                 enabled = cfg.Enabled,
-                minutesBefore = cfg.RemindMinutesBefore,
-                dialogSeconds = cfg.DialogSeconds,
-                timeoutAction = cfg.TimeoutAction,
-                onlyWhenClassInBoard = cfg.OnlyWhenClassInBoard
+                onlyWhenClassInBoard = cfg.OnlyWhenClassInBoard,
+                staleMinutes = cfg.StaleMinutes
             }
         }, new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
 
-        if (!args.Any(a => a.Equals("--show", StringComparison.OrdinalIgnoreCase))) return 0;
-
-        var choice = BoardReminderDialog.Ask(decision.Subject ?? lesson.NameHint(DateTimeOffset.Now) ?? "语文",
-            Math.Max(decision.SecondsToStart, cfg.RemindMinutesBefore * 60), cfg.RemindMinutesBefore, cfg.DialogSeconds, cfg.TimeoutAction);
-        Console.WriteLine($"选择：{BoardReminderModel.Label(choice)}（演示不执行保存）");
+        if (args.Any(a => a.Equals("--show", StringComparison.OrdinalIgnoreCase)))
+            Console.WriteLine("1.0 起不再弹课后提醒窗；请用 POST /api/board-autosave action=preview 预览自动保存倒计时。");
         return 0;
     }
 
@@ -283,8 +278,8 @@ ClassroomKit.Agent {Version}
         {
             ok = true,
             token,
-            panel = $"http://127.0.0.1:{store.Current.Port}/?t={token}",
-            message = "已写入 config.json；守护每 2 秒读一次配置，面板会立刻改用新令牌，旧链接随即失效"
+            api = $"http://127.0.0.1:{store.Current.Port}/api/",
+            message = "已写入 config.json；旧令牌立即失效，ClassIsland 插件需在设置页重新读取令牌"
         }, new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
         return 0;
     }
@@ -566,7 +561,6 @@ ClassroomKit.Agent {Version}
         return (ok, message);
     }
 
-    /// <summary>用默认浏览器打开带令牌的面板地址（托盘菜单「打开面板」和开始菜单快捷方式都走这里）。</summary>
     /// <summary>CLI：SYSTEM 护航任务的一次执行（--service-tick），处理 hosts 写入与静默安装请求。</summary>
     public static int ServiceTickCli() => Service.ServiceTick.Run();
 

@@ -63,7 +63,7 @@ public sealed class TrayController : IDisposable
         saveMenu.DropDownItems.Add(new Forms.ToolStripMenuItem("保存并关闭 ClassInX", null, (_, _) => SaveClassInBoard(true, closeAfter: true)));
         _saveKeepOpen = new Forms.ToolStripMenuItem("保存，保留 ClassInX", null, (_, _) => SaveClassInBoard(true, closeAfter: false));
         _saveWithoutRename = new Forms.ToolStripMenuItem("保存（不按课表改名）", null, (_, _) => SaveClassInBoard(false, closeAfter: false));
-        _savePreview = new Forms.ToolStripMenuItem("预览课后提醒窗", null, (_, _) => PreviewBoardReminder());
+        _savePreview = new Forms.ToolStripMenuItem("预览自动保存倒计时", null, (_, _) => PreviewAutoSave());
         saveMenu.DropDownItems.Add(_saveKeepOpen);
         saveMenu.DropDownItems.Add(_saveWithoutRename);
         saveMenu.DropDownItems.Add(new Forms.ToolStripSeparator());
@@ -95,8 +95,6 @@ public sealed class TrayController : IDisposable
                 try { _menu.Show(Forms.Cursor.Position); } catch { /* 忽略 */ }
             }
         };
-
-        _runtime.ReminderRequested = ShowBoardReminder;
 
         _timer = new Forms.Timer { Interval = 2000 };
         _timer.Tick += (_, _) => Update();
@@ -252,52 +250,12 @@ public sealed class TrayController : IDisposable
         });
     }
 
-    /// <summary>到点该提醒时由守护回调：切到 UI 线程弹课后提醒窗，并按选择执行。</summary>
-    public void ShowBoardReminder(ReminderDecision decision)
+    /// <summary>托盘菜单：只预览自动保存倒计时，不执行任何保存动作。</summary>
+    public void PreviewAutoSave()
     {
-        void Run()
-        {
-            try
-            {
-                var cfg = _runtime.Config.Current.Lesson;
-                var choice = BoardReminderDialog.Ask(decision.Subject, decision.SecondsToStart, cfg.RemindMinutesBefore, cfg.DialogSeconds, cfg.TimeoutAction);
-                _runtime.Log.Info($"课后提醒窗结果：{BoardReminderModel.Label(choice)}");
-
-                switch (choice)
-                {
-                    case BoardReminderChoice.Save:
-                    case BoardReminderChoice.SaveAndClose:
-                        var closeAfter = choice == BoardReminderChoice.SaveAndClose;
-                        _ = Task.Run(() =>
-                        {
-                            var (ok, message) = _runtime.SaveBoardNamed(closeAfter, _runtime.Config.Current.BoardSave.NameWithLesson);
-                            ShowBalloon(ok ? "板书已保存" : "保存板书失败", message, ok);
-                        });
-                        break;
-                    case BoardReminderChoice.Snooze:
-                        _runtime.SnoozeBoardReminder(cfg.SnoozeMinutes);
-                        ShowBalloon("稍后提醒", $"再过 {cfg.SnoozeMinutes} 分钟提醒保存板书", true);
-                        break;
-                    default:
-                        _runtime.Log.Info("课后提醒：本次忽略");
-                        break;
-                }
-            }
-            catch (Exception ex)
-            {
-                _runtime.Log.Warn($"课后提醒窗失败：{ex.ToString()}");
-            }
-        }
-
-        if (_ui is not null) _ui.Post(_ => Run(), null);
-        else Run();
-    }
-
-    /// <summary>托盘菜单：只预览课后提醒窗，不执行任何保存动作。</summary>
-    public void PreviewBoardReminder()
-    {
-        var cfg = _runtime.Config.Current.Lesson;
-        ShowBoardReminder(new ReminderDecision(true, "preview", "preview", DateTimeOffset.Now, "数学", cfg.RemindMinutesBefore * 60));
+        var (ok, message) = _runtime.AutoSaveAction("preview");
+        _runtime.Log.Info("预览自动保存倒计时：" + message);
+        ShowBalloon("预览自动保存倒计时", message, ok);
     }
 
     /// <summary>托盘菜单：手动检查一次板书冲突（忽略冷却）。</summary>

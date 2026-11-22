@@ -26,9 +26,6 @@ public sealed class LessonRuntime
         _ledger = LessonLedger.FromState(LoadState());
     }
 
-    /// <summary>到了该提醒的时刻（由巡检循环触发，托盘层负责切 UI 线程弹窗）。</summary>
-    public Action<ReminderDecision>? ReminderDue { get; set; }
-
     public LessonLedgerState State() => _ledger.Export();
 
     /// <summary>插件推来一份课表快照。</summary>
@@ -56,22 +53,6 @@ public sealed class LessonRuntime
     public void MarkReminded(string key)
     {
         _ledger.MarkReminded(key);
-        SaveState();
-    }
-
-    public void Snooze(DateTimeOffset now, int minutes)
-    {
-        if (minutes <= 0)
-        {
-            _ledger.ClearSnooze();
-            _log.Info("课后保存：已取消稍后提醒");
-        }
-        else
-        {
-            _ledger.Snooze(now, minutes);
-            _log.Info($"课后保存：{minutes} 分钟后再提醒");
-        }
-
         SaveState();
     }
 
@@ -107,15 +88,10 @@ public sealed class LessonRuntime
             reminder = new
             {
                 enabled = cfg.Enabled,
-                minutesBefore = cfg.RemindMinutesBefore,
-                dialogSeconds = cfg.DialogSeconds,
-                timeoutAction = cfg.TimeoutAction,
-                snoozeMinutes = cfg.SnoozeMinutes,
                 staleMinutes = cfg.StaleMinutes,
                 subjects = LessonSubjects.Normalize(cfg.Subjects),
                 skipBreakNames = LessonSubjects.Normalize(cfg.SkipBreakNames),
                 lastRemindedKey = _ledger.LastRemindedKey,
-                snoozedUntil = _ledger.SnoozedUntil,
                 reason = decision.Reason,
                 remindAt = decision.RemindAt,
                 secondsToStart = decision.SecondsToStart

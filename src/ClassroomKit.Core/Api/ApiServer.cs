@@ -78,10 +78,10 @@ public sealed class ApiServer
     public Action? ClearLesson { get; set; }
     /// <summary>保存板书并可选按上一节课改名（参数：保存后关闭、按课表改名）。</summary>
     public Func<bool, bool, (bool Ok, string Message)>? SaveBoardNamed { get; set; }
-    /// <summary>预览课后提醒弹窗（不真的保存）。</summary>
-    public Func<(bool Ok, string Message)>? PreviewBoardReminder { get; set; }
-    /// <summary>稍后提醒 / 取消稍后（0 = 取消，其余 = 分钟）。</summary>
-    public Func<int, (bool Ok, string Message)>? SnoozeBoardReminder { get; set; }
+    /// <summary>课后自动保存的当前状态（1.0.0 起）。</summary>
+    public Func<BoardAutoSaveState>? GetBoardAutoSave { get; set; }
+    /// <summary>课后自动保存动作：preview / cancel。</summary>
+    public Func<string, (bool Ok, string Message)>? BoardAutoSaveAction { get; set; }
     /// <summary>一键自检报告（GET /api/diagnose）。</summary>
     public Func<CancellationToken, Task<object>>? Diagnose { get; set; }
     /// <summary>检查网络并按需复位网卡/重开热点（0.8.3）；返回是否成功与说明。</summary>
@@ -194,6 +194,9 @@ public sealed class ApiServer
             case "/api/lesson":
                 return await HandleLessonAsync(request);
 
+            case "/api/board-autosave":
+                return await HandleBoardAutoSaveAsync(request);
+
             case "/api/update":
                 return await HandleUpdateAsync(request, ct);
 
@@ -203,6 +206,25 @@ public sealed class ApiServer
             default:
                 return HttpResponse.NotFound();
         }
+    }
+
+    /// <summary>GET 取当前状态；POST action=preview / cancel。</summary>
+    private Task<HttpResponse> HandleBoardAutoSaveAsync(HttpRequest request)
+    {
+        if (request.Method == "GET")
+        {
+            var state = GetBoardAutoSave?.Invoke() ?? BoardAutoSaveState.Idle(DateTimeOffset.Now);
+            return Task.FromResult(HttpResponse.Json(JsonSerializer.Serialize(state, Json)));
+        }
+
+        if (request.Method != "POST") return Task.FromResult(HttpResponse.Text("method not allowed", 405));
+        if (BoardAutoSaveAction is null) return Task.FromResult(HttpResponse.Text("not supported", 409));
+
+        var fields = ReadFields(request);
+        var action = fields.TryGetValue("action", out var value) ? value.Trim().ToLowerInvariant() : "preview";
+        var (ok, message) = BoardAutoSaveAction(action);
+        var current = GetBoardAutoSave?.Invoke() ?? BoardAutoSaveState.Idle(DateTimeOffset.Now);
+        return Task.FromResult(HttpResponse.Json(JsonSerializer.Serialize(new { ok, action, message, state = current }, Json), ok ? 200 : 400));
     }
 
     /// <summary>GET 取状态；POST action=check 检查更新，action=upgrade 后台下载并安装。</summary>
@@ -599,22 +621,28 @@ public sealed class ApiServer
                 }, Json));
             }
 
+            case "board-autosave":
+            {
+                if (BoardAutoSaveAction is null) return HttpResponse.Text("not supported", 409);
+                var sub = ReadFields(request).TryGetValue("action", out var requested) ? requested : "preview";
+                var (ok, message) = BoardAutoSaveAction(sub);
+                return HttpResponse.Json(JsonSerializer.Serialize(new { ok, action = "board-autosave", sub, message, state = GetBoardAutoSave?.Invoke() }, Json), ok ? 200 : 500);
+            }
+
             case "board-reminder-preview":
             {
-                if (PreviewBoardReminder is null) return HttpResponse.Text("not supported", 409);
-                var (ok, message) = PreviewBoardReminder();
-                return HttpResponse.Json(JsonSerializer.Serialize(new { ok, action, message }, Json), ok ? 200 : 500);
+                if (BoardAutoSaveAction is null) return HttpResponse.Text("not supported", 409);
+                var (ok, message) = BoardAutoSaveAction("preview");
+                return HttpResponse.Json(JsonSerializer.Serialize(new { ok, action, message, state = GetBoardAutoSave?.Invoke() }, Json), ok ? 200 : 500);
             }
 
             case "board-reminder-snooze":
-            {
-                if (SnoozeBoardReminder is null) return HttpResponse.Text("not supported", 409);
-                var minutes = 0;
-                if (ReadFields(request).TryGetValue("minutes", out var value) && int.TryParse(value, out var parsed))
-                    minutes = Math.Clamp(parsed, 0, 60);
-                var (ok, message) = SnoozeBoardReminder(minutes);
-                return HttpResponse.Json(JsonSerializer.Serialize(new { ok, action, minutes, message }, Json), ok ? 200 : 500);
-            }
+                return HttpResponse.Json(JsonSerializer.Serialize(new
+                {
+                    ok = false,
+                    action,
+                    message = "1.0 起改为自动保存板书，不再支持稍后提醒"
+                }, Json), 410);
 
             case "lesson-config":
             {
@@ -622,36 +650,26 @@ public sealed class ApiServer
                 _config.Update(c =>
                 {
                     if (fields.TryGetValue("enabled", out var enabled)) c.Lesson.Enabled = IsOn(enabled);
-                    if (fields.TryGetValue("minutesBefore", out var minutes) && int.TryParse(minutes, out var m))
-                        c.Lesson.RemindMinutesBefore = m;
-                    if (fields.TryGetValue("dialogSeconds", out var dialog) && int.TryParse(dialog, out var d))
-                        c.Lesson.DialogSeconds = d;
-                    if (fields.TryGetValue("timeoutAction", out var action0) && !string.IsNullOrWhiteSpace(action0))
-                        c.Lesson.TimeoutAction = action0.Trim();
-                    if (fields.TryGetValue("snoozeMinutes", out var snooze) && int.TryParse(snooze, out var s))
-                        c.Lesson.SnoozeMinutes = s;
                     if (fields.TryGetValue("onlyWhenClassInBoard", out var only))
                         c.Lesson.OnlyWhenClassInBoard = IsOn(only);
                     if (fields.TryGetValue("staleMinutes", out var stale) && int.TryParse(stale, out var st2))
                         c.Lesson.StaleMinutes = st2;
                     if (fields.TryGetValue("subjects", out var subjects))
                         c.Lesson.Subjects = SplitSubjects(subjects);
+                    if (fields.TryGetValue("skipBreakNames", out var skip))
+                        c.Lesson.SkipBreakNames = SplitSubjects(skip);
                     c.Lesson.Normalize();
                     return 0;
                 });
 
                 var lesson = _config.Current.Lesson;
                 var scope = lesson.Subjects.Count == 0 ? "所有科目" : string.Join("、", lesson.Subjects);
-                _log.Info($"课后保存设置已保存：{(lesson.Enabled ? "开" : "关")}｜弹窗 {lesson.DialogSeconds} 秒后{DescTimeout(lesson.TimeoutAction)}｜生效科目：{scope}｜跳过课间：{(lesson.SkipBreakNames.Count == 0 ? "无" : string.Join("、", lesson.SkipBreakNames))}");
+                _log.Info($"课后保存设置已保存：{(lesson.Enabled ? "开" : "关")}｜生效科目：{scope}｜跳过课间：{(lesson.SkipBreakNames.Count == 0 ? "无" : string.Join("、", lesson.SkipBreakNames))}");
                 return HttpResponse.Json(JsonSerializer.Serialize(new
                 {
                     ok = true,
                     action,
                     enabled = lesson.Enabled,
-                    minutesBefore = lesson.RemindMinutesBefore,
-                    dialogSeconds = lesson.DialogSeconds,
-                    timeoutAction = lesson.TimeoutAction,
-                    snoozeMinutes = lesson.SnoozeMinutes,
                     onlyWhenClassInBoard = lesson.OnlyWhenClassInBoard,
                     staleMinutes = lesson.StaleMinutes,
                     subjects = lesson.Subjects,
@@ -667,13 +685,13 @@ public sealed class ApiServer
             {
                 var token = ConfigStore.NewToken();
                 _config.Update(c => { c.Token = token; return 0; });
-                _log.Warn("面板请求重置访问令牌：旧链接与插件里保存的令牌都需要更新");
+                _log.Warn("API 请求重置访问令牌：旧令牌立即失效，ClassIsland 插件需要在设置页重新读取");
                 return HttpResponse.Json(JsonSerializer.Serialize(new
                 {
                     ok = true,
                     action,
                     token,
-                    message = "令牌已重置；当前页面需要改用带新令牌的链接重新打开"
+                    message = "令牌已重置；旧令牌立即失效，ClassIsland 插件需要在设置页重新读取"
                 }, Json));
             }
 
@@ -704,15 +722,6 @@ public sealed class ApiServer
     /// <summary>面板/插件把「生效科目」按逗号分隔的文本传上来；中英文逗号、分号、顿号都认。</summary>
     private static List<string> SplitSubjects(string text) =>
         LessonSubjects.Normalize((text ?? "").Split(new[] { ',', '，', ';', '；', '、' }, StringSplitOptions.RemoveEmptyEntries));
-
-    /// <summary>弹窗超时动作的人话说明（写日志用）。</summary>
-    private static string DescTimeout(string action) => action switch
-    {
-        "save" => "自动保存板书（不关闭 ClassInX）",
-        "save-close" or "saveclose" => "自动保存并关闭 ClassInX",
-        "dismiss" or "ignore" => "自动忽略",
-        _ => "一直等到手动选择"
-    };
 
     private Task<HttpResponse> PostAsync(HttpRequest request, Func<JsonElement, object> work)
     {
@@ -792,6 +801,7 @@ public sealed class ApiServer
                 nameTemplate = cfg.BoardSave.NameTemplate
             },
             lesson = GetLesson?.Invoke(),
+            boardAutoSave = GetBoardAutoSave?.Invoke(),
             conflict = new
             {
                 enabled = cfg.Conflict.Enabled,

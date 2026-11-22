@@ -74,6 +74,8 @@ public sealed class HotspotGuard
     private DateTimeOffset? _noInternetSince;
     private int _noInternetRepairs;
     private bool _noInternetWarned;
+    private readonly Dictionary<string, (DateTimeOffset First, DateTimeOffset Last)> _clientSeen =
+        new(StringComparer.OrdinalIgnoreCase);
 
     public HotspotGuard(ITethering tethering, Func<AppConfig> config, AppLog log,
         Func<DateTimeOffset>? now = null, TimeSpan? startTimeout = null, TimeSpan? resetDelay = null)
@@ -106,6 +108,29 @@ public sealed class HotspotGuard
     public bool LastRepairOk { get; private set; }
     /// <summary>自我修复累计次数（含手动），自检页用于说明「修过几次」。</summary>
     public int RepairCount { get; private set; }
+
+    /// <summary>
+    /// 给每个客户端记住第一次出现的时间：系统 API 只给当前连接，arp 每轮都会把 ConnectedAt 刷成现在，
+    /// 界面上的「已连接」就会永远显示「刚刚」。这里按 MAC 维护首见时间，设备离开 2 小时后再忘掉。
+    /// </summary>
+    private IReadOnlyList<TetherClient> StabilizeClients(IReadOnlyList<TetherClient> raw, DateTimeOffset now)
+    {
+        foreach (var client in raw)
+        {
+            var key = string.IsNullOrWhiteSpace(client.Mac) ? "-" : client.Mac.Trim();
+            _clientSeen[key] = _clientSeen.TryGetValue(key, out var seen) ? (seen.First, now) : (now, now);
+        }
+
+        foreach (var stale in _clientSeen.Where(kv => now - kv.Value.Last > TimeSpan.FromHours(2)).ToArray())
+            _clientSeen.Remove(stale.Key);
+
+        return raw.Select(client =>
+        {
+            var key = string.IsNullOrWhiteSpace(client.Mac) ? "-" : client.Mac.Trim();
+            var first = _clientSeen.TryGetValue(key, out var seen) ? seen.First : now;
+            return client with { ConnectedAt = first };
+        }).ToArray();
+    }
 
     private void SetState(GuardState next, string? reason = null)
     {
@@ -195,7 +220,7 @@ public sealed class HotspotGuard
                 }
             }
 
-            try { Clients = await _tethering.GetClientsAsync(ct); }
+            try { Clients = StabilizeClients(await _tethering.GetClientsAsync(ct), _now()); }
             catch { Clients = Array.Empty<TetherClient>(); }
 
             _onSince ??= _now();

@@ -43,20 +43,11 @@ public sealed record LessonReminderView
 {
     public bool Enabled { get; init; }
 
-    public int MinutesBefore { get; init; }
-
-    public int DialogSeconds { get; init; }
-
     /// <summary>生效科目白名单；空 = 所有科目都提醒。</summary>
     public List<string> Subjects { get; init; } = new();
 
-    /// <summary>save / save-close / dismiss-ignore / wait。</summary>
-    public string TimeoutAction { get; init; } = "save";
-
     /// <summary>已经提醒过的那节课的键（yyyy-MM-dd HH:mm），同一节课不会提醒两次。</summary>
     public string? LastRemindedKey { get; init; }
-
-    public DateTimeOffset? SnoozedUntil { get; init; }
 
     /// <summary>现在该不该弹：ok / too-early / already / snoozed / in-class …</summary>
     public string? Reason { get; init; }

@@ -14,8 +14,12 @@ public sealed record UiSnapshot(
     UiHosts Hosts,
     UiAdvanced Advanced,
     UiSelfHeal SelfHeal,
+    IReadOnlyList<UiClient> ClientList,
     IReadOnlyList<UiLogLine> Logs,
     DateTimeOffset At);
+
+/// <summary>热点在线设备的一行；Duration 由守护按首次连接时间算好。</summary>
+public sealed record UiClient(string Name, string Address, string Mac, string Duration);
 
 public sealed record UiHotspot(
     string StateText,

@@ -36,11 +36,9 @@ public partial class HotspotSettingsPage : SettingsPageBase
         TokenSourceText.Text = AgentAccess.DescribeTokenSource(settings);
 
         // 课表联动：先填本地存的值，刷新时再用守护的实际生效值覆盖显示
-        LessonSecondsBox.Text = settings.LessonDialogSeconds.ToString(CultureInfo.InvariantCulture);
         LessonTemplateBox.Text = settings.BoardNameTemplate;
         LessonSubjectsBox.Text = settings.LessonSubjects;
         LessonCloseAfterSaveBox.IsChecked = settings.BoardCloseAfterSave;
-        SelectTimeoutAction(settings.LessonTimeoutAction);
     }
 
     protected override void OnAttachedToVisualTree(Avalonia.VisualTreeAttachmentEventArgs e)
@@ -249,14 +247,12 @@ public partial class HotspotSettingsPage : SettingsPageBase
             return;
         }
 
-        var headline = reminder.Enabled ? "会提醒" : "不提醒";
+        var headline = reminder.Enabled ? "自动保存已开" : "自动保存已关";
         var when = reminder.RemindAt is { } at ? "，计划 " + at.ToString("HH:mm:ss") : "";
         LessonReminderText.Text = headline + when + "：" + (string.IsNullOrWhiteSpace(reminder.Reason) ? "（守护没给原因）" : reminder.Reason);
-        LessonLastKeyText.Text = string.IsNullOrWhiteSpace(reminder.LastRemindedKey) ? "还没提醒过" : reminder.LastRemindedKey;
-        LessonEffectiveText.Text = "守护实际生效：提前 " + reminder.MinutesBefore + " 分钟 · 弹窗 " + reminder.DialogSeconds
-            + " 秒 · 超时" + DescribeTimeout(reminder.TimeoutAction)
-            + " · 生效科目：" + (reminder.Subjects is { Count: > 0 } subjects ? string.Join("、", subjects) : "全部")
-            + (reminder.SnoozedUntil is { } snooze ? " · 已推迟到 " + snooze.ToString("HH:mm") : "");
+        LessonLastKeyText.Text = string.IsNullOrWhiteSpace(reminder.LastRemindedKey) ? "还没保存过" : reminder.LastRemindedKey;
+        LessonEffectiveText.Text = "守护实际生效：" + (reminder.Enabled ? "自动保存已开" : "自动保存已关")
+            + " · 生效科目：" + (reminder.Subjects is { Count: > 0 } subjects ? string.Join("、", subjects) : "全部");
     }
 
     private static string DescribeNext(LessonView lesson)
@@ -270,60 +266,21 @@ public partial class HotspotSettingsPage : SettingsPageBase
         return lesson.NextSubject + when + clock;
     }
 
-    private static string DescribeTimeout(string? action) => (action ?? "").Trim().ToLowerInvariant() switch
-    {
-        "save" => "自动保存",
-        "save-close" => "保存并关闭 ClassInX",
-        "dismiss" => "忽略本次",
-        "wait" => "不自动关闭（一直等）",
-        _ => action ?? "未知",
-    };
 
-    private static int ParseInt(string? text, int fallback, int min, int max)
-    {
-        var value = int.TryParse((text ?? "").Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
-            ? parsed
-            : fallback;
-        return Math.Clamp(value, min, max);
-    }
-
-    private void SelectTimeoutAction(string? action)
-    {
-        var wanted = (action ?? "").Trim().ToLowerInvariant();
-        foreach (var item in LessonTimeoutBox.Items)
-        {
-            if (item is ComboBoxItem { Tag: string tag } && string.Equals(tag, wanted, StringComparison.OrdinalIgnoreCase))
-            {
-                LessonTimeoutBox.SelectedItem = item;
-                return;
-            }
-        }
-
-        LessonTimeoutBox.SelectedIndex = 0;
-    }
-
-    private string CurrentTimeoutAction()
-        => LessonTimeoutBox.SelectedItem is ComboBoxItem { Tag: string tag } ? tag : "save";
-
-    /// <summary>保存课表联动设置：课本地的那份，同时写给守护（板书配置 + 课后保存配置）。</summary>
+    /// <summary>保存课表联动设置：本地那份，同时写给守护（板书配置 + 自动保存配置）。</summary>
     private async void OnLessonSaveClick(object? sender, RoutedEventArgs e)
     {
         LessonMessage.Text = "";
 
         var settings = _store.Current.Clone();
-        settings.LessonDialogSeconds = ParseInt(LessonSecondsBox.Text, settings.LessonDialogSeconds, 5, 600);
-        settings.LessonTimeoutAction = CurrentTimeoutAction();
         settings.BoardNameTemplate = LessonTemplateBox.Text?.Trim() ?? "";
         settings.LessonSubjects = LessonSubjectsBox.Text?.Trim() ?? "";
         settings.BoardCloseAfterSave = LessonCloseAfterSaveBox.IsChecked == true;
         settings.Normalize();
         _store.Save(settings);
 
-        // 回填被收进区间的值，让界面显示的就是实际生效的
-        LessonSecondsBox.Text = settings.LessonDialogSeconds.ToString(CultureInfo.InvariantCulture);
         LessonTemplateBox.Text = settings.BoardNameTemplate;
         LessonSubjectsBox.Text = settings.LessonSubjects;
-        SelectTimeoutAction(settings.LessonTimeoutAction);
 
         var lines = new List<string> { "插件设置已保存" };
 
@@ -337,12 +294,9 @@ public partial class HotspotSettingsPage : SettingsPageBase
 
         var lesson = await TryPostAsync("lesson-config", new Dictionary<string, string?>
         {
-            ["minutesBefore"] = settings.LessonRemindMinutes.ToString(CultureInfo.InvariantCulture),
-            ["dialogSeconds"] = settings.LessonDialogSeconds.ToString(CultureInfo.InvariantCulture),
-            ["timeoutAction"] = settings.LessonTimeoutAction,
             ["subjects"] = settings.LessonSubjects,
         });
-        lines.Add("课后提醒：" + lesson);
+        lines.Add("自动保存：" + lesson);
 
         LessonMessage.Text = string.Join("；", lines);
         await RefreshAsync();
@@ -378,16 +332,5 @@ public partial class HotspotSettingsPage : SettingsPageBase
     }
 
     private async void OnLessonPreviewClick(object? sender, RoutedEventArgs e)
-        => await RunLessonActionAsync("board-reminder-preview", null, "已弹出预览");
-
-    private async void OnLessonSnoozeClick(object? sender, RoutedEventArgs e)
-    {
-        var minutes = Math.Clamp(_store.Current.LessonSnoozeMinutes, 1, 60);
-        await RunLessonActionAsync("board-reminder-snooze",
-            new Dictionary<string, string?> { ["minutes"] = minutes.ToString(CultureInfo.InvariantCulture) },
-            "已推迟 " + minutes + " 分钟提醒");
-    }
-
-    private async void OnLessonUnsnoozeClick(object? sender, RoutedEventArgs e)
-        => await RunLessonActionAsync("board-reminder-snooze", new Dictionary<string, string?> { ["minutes"] = "0" }, "已取消稍后提醒");
+        => await RunLessonActionAsync("board-autosave", new Dictionary<string, string> { ["action"] = "preview" }, "已开始预览自动保存倒计时");
 }

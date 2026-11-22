@@ -2,6 +2,7 @@ using System.Reflection;
 using ClassroomKit.Agent.Board;
 using ClassroomKit.Agent.Diagnose;
 using ClassroomKit.Agent.Hosts;
+using ClassroomKit.Agent.Input;
 using ClassroomKit.Agent.Lesson;
 using ClassroomKit.Agent.Bcu;
 using ClassroomKit.Agent.Shell;
@@ -73,7 +74,7 @@ public sealed class AgentRuntime : IDisposable
         Subjects = new ClassIslandSubjectCatalog(Log);
         Lesson = new LessonRuntime(Log, () => Config.Current.Lesson, Paths.LessonStatePath);
         Lesson.AvailableSubjects = () => Subjects.Current;
-        Lesson.ReminderDue = decision => ReminderRequested?.Invoke(decision);
+        AutoSave = new BoardAutoSaveTracker(() => Config.Current, log: Log);
 
         ConflictWatcher = new ConflictWatcher(Log, () => Config.Current.Conflict,
             () => Config.Current.Habits,
@@ -86,8 +87,8 @@ public sealed class AgentRuntime : IDisposable
         Api.GetLesson = Lesson.Status;
         Api.AcceptLesson = Lesson.Accept;
         Api.ClearLesson = Lesson.Clear;
-        Api.PreviewBoardReminder = PreviewBoardReminder;
-        Api.SnoozeBoardReminder = SnoozeBoardReminder;
+        Api.GetBoardAutoSave = () => AutoSave.State;
+        Api.BoardAutoSaveAction = AutoSaveAction;
         Api.Diagnose = _ => Task.FromResult(Diagnostics.Build(this));
         Api.ConflictCheck = ConflictWatcher.CheckNow;
         Api.GetBoard = BoardDto;
@@ -113,8 +114,8 @@ public sealed class AgentRuntime : IDisposable
     public ClassIslandSubjectCatalog Subjects { get; }
     public LessonRuntime Lesson { get; }
 
-    /// <summary>到点该弹课后提醒窗时触发（由托盘层切到 UI 线程）。</summary>
-    public Action<ReminderDecision>? ReminderRequested { get; set; }
+    /// <summary>课后自动保存状态机（1.0.0 起）。</summary>
+    public BoardAutoSaveTracker AutoSave { get; }
 
     /// <summary>面板/接口请求预览冲突窗时触发（由托盘层弹到 UI 线程）。</summary>
     public Action? PreviewConflictRequested { get; set; }
@@ -156,7 +157,7 @@ public sealed class AgentRuntime : IDisposable
         using (var self = System.Diagnostics.Process.GetCurrentProcess())
         {
             if (self.SessionId == 0)
-                Log.Warn("当前运行在 Session 0（没有交互桌面）：热点照常工作，但托盘图标不会出现；从开始菜单「ClassroomKit 控制面板」重新启动，或重新登录即可看到托盘");
+                Log.Warn("当前运行在 Session 0（没有交互桌面）：热点照常工作，但托盘图标不会出现；从开始菜单里的 ClassroomKit 重新启动，或重新登录即可看到托盘");
         }
 
         try
@@ -166,7 +167,7 @@ public sealed class AgentRuntime : IDisposable
         }
         catch (Exception ex)
         {
-            Log.Error($"Web 面板启动失败（端口 {Config.Current.Port}）：{ex.Message}");
+            Log.Error($"本地 API 启动失败（端口 {Config.Current.Port}）：{ex.Message}");
         }
 
         ConflictWatcher.Start();
@@ -560,8 +561,8 @@ public sealed class AgentRuntime : IDisposable
     }
 
     /// <summary>
-    /// 课后保存巡检：每 5 秒看一次课表账本，下课（或放学）后交给托盘弹窗。
-    /// 先 MarkReminded 再弹窗：弹窗本身是模态的，不先记账会在弹窗期间重复触发。
+    /// 课后自动保存巡检：每 1 秒看一次课表与空闲状态。
+    /// 下课（或放学）后只 Arming 一次；15 秒无键鼠输入才真正保存，点击会打断并 10 秒后重试。
     /// </summary>
     private async Task LessonLoopAsync()
     {
@@ -572,33 +573,71 @@ public sealed class AgentRuntime : IDisposable
         {
             try
             {
+                var now = DateTimeOffset.Now;
                 var cfg = Config.Current.Lesson;
-                if (cfg.Enabled)
+                var snapshot = Lesson.State().Snapshot;
+
+                if (cfg.Enabled && snapshot is not null)
                 {
-                    var decision = Lesson.Evaluate(DateTimeOffset.Now);
+                    var decision = Lesson.Evaluate(now);
                     if (decision.Show)
                     {
                         if (cfg.OnlyWhenClassInBoard && !ClassInBoardSaver.IsClassInRunning())
                         {
-                            Log.Info("课后保存：ClassInX 没有运行，这次不弹窗");
+                            Log.Info("课后自动保存：ClassInX 没有运行，这次跳过");
                         }
                         else
                         {
                             Lesson.MarkReminded(decision.Key);
-                            var when = Lesson.State().Snapshot?.State == LessonStates.AfterSchool ? "已经放学" : "已经下课";
-                            Log.Info($"课后保存：{decision.Subject ?? "上一节"}{when}，弹出保存板书提示");
-                            ReminderRequested?.Invoke(decision);
+                            var when = snapshot.State == LessonStates.AfterSchool ? "已经放学" : "已经下课";
+                            Log.Info($"课后自动保存：{decision.Subject ?? "上一节"}{when}，开始等待空闲");
+                            AutoSave.Arm(snapshot, now, ClassInBoardSaver.IsClassInRunning());
                         }
                     }
+                }
+
+                var tick = AutoSave.Tick(now, LastInputMonitor.LastInputAt(), snapshot);
+                if (tick.StartSave)
+                {
+                    AutoSave.MarkSaving();
+                    _ = Task.Run(() =>
+                    {
+                        try
+                        {
+                            var (ok, message) = SaveBoardNamed(false, true);
+                            AutoSave.Complete(ok, message);
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Error($"课后自动保存异常：{ex.Message}");
+                            AutoSave.Complete(false, "保存板书异常：" + ex.Message);
+                        }
+                    });
                 }
             }
             catch (Exception ex)
             {
-                Log.Warn($"课后保存判定异常：{ex.Message}");
+                Log.Warn($"课后自动保存巡检异常：{ex.Message}");
             }
 
-            try { await Task.Delay(TimeSpan.FromSeconds(5), _cts.Token); }
+            try { await Task.Delay(TimeSpan.FromSeconds(1), _cts.Token); }
             catch (OperationCanceledException) { break; }
+        }
+    }
+
+    internal (bool Ok, string Message) AutoSaveAction(string action)
+    {
+        var now = DateTimeOffset.Now;
+        switch ((action ?? "").Trim().ToLowerInvariant())
+        {
+            case "preview":
+                AutoSave.Preview(now);
+                return (true, "已开始预览自动保存倒计时（15 秒后不会真的保存）");
+            case "cancel":
+                AutoSave.Cancel(now);
+                return (true, "已取消本次自动保存");
+            default:
+                return (false, "未知动作，可用 preview / cancel");
         }
     }
 
@@ -670,25 +709,6 @@ public sealed class AgentRuntime : IDisposable
 
         var message = result.Message + "｜" + rename.Message;
         return (rename.Failed == 0, message);
-    }
-
-    private (bool Ok, string Message) PreviewBoardReminder()
-    {
-        var cfg = Config.Current.Lesson;
-        ReminderRequested?.Invoke(new ReminderDecision(
-            Show: true,
-            Reason: "preview",
-            Key: "preview",
-            RemindAt: DateTimeOffset.Now,
-            Subject: Lesson.NameHint(DateTimeOffset.Now) ?? "数学",
-            SecondsToStart: Math.Clamp(cfg.RemindMinutesBefore, 1, 30) * 60));
-        return (true, "已请求弹出课后提醒预览（不会保存或关闭任何软件）");
-    }
-
-    internal (bool Ok, string Message) SnoozeBoardReminder(int minutes)
-    {
-        Lesson.Snooze(DateTimeOffset.Now, minutes);
-        return (true, minutes <= 0 ? "已取消稍后提醒" : $"{minutes} 分钟内不再提醒");
     }
 
     /// <summary>面板“上行网卡”下拉框的数据：所有候选 + 当前选中 + 选择理由。</summary>

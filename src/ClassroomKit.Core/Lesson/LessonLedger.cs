@@ -14,22 +14,20 @@ public readonly record struct ReminderDecision(
     public static ReminderDecision No(string reason, string key = "") => new(false, reason, key);
 }
 
-/// <summary>可落盘的信箱状态：Agent 重启后仍记得「这节已经提醒过」。</summary>
+/// <summary>可落盘的信箱状态：Agent 重启后仍记得「这节已经处理过」。</summary>
 public sealed record LessonLedgerState(
     LessonSnapshot? Snapshot,
-    string LastRemindedKey,
-    DateTimeOffset? SnoozedUntil);
+    string LastRemindedKey);
 
 /// <summary>
-/// 课表快照 + 提醒去重状态。纯逻辑，不碰 IO/UI，方便单测。
-/// 规则：同一节课（按开始时刻作 key）只提醒一次；点「稍后提醒」用时间窗挡住，过窗后再问。
+/// 课表快照 + 自动保存去重状态。纯逻辑，不碰 IO/UI，方便单测。
+/// 规则：同一节课（按开始时刻作 key）只触发一次自动保存。
 /// </summary>
 public sealed class LessonLedger
 {
     private readonly object _gate = new();
     private LessonSnapshot? _snapshot;
     private string _lastRemindedKey = "";
-    private DateTimeOffset? _snoozedUntil;
 
     public static LessonLedger FromState(LessonLedgerState? state)
     {
@@ -37,7 +35,6 @@ public sealed class LessonLedger
         if (state is null) return ledger;
         ledger._snapshot = state.Snapshot;
         ledger._lastRemindedKey = state.LastRemindedKey ?? "";
-        ledger._snoozedUntil = state.SnoozedUntil;
         return ledger;
     }
 
@@ -45,7 +42,7 @@ public sealed class LessonLedger
     {
         lock (_gate)
         {
-            return new LessonLedgerState(_snapshot, _lastRemindedKey, _snoozedUntil);
+            return new LessonLedgerState(_snapshot, _lastRemindedKey);
         }
     }
 
@@ -60,7 +57,6 @@ public sealed class LessonLedger
         {
             _snapshot = null;
             _lastRemindedKey = "";
-            _snoozedUntil = null;
         }
     }
 
@@ -72,11 +68,6 @@ public sealed class LessonLedger
     public string LastRemindedKey
     {
         get { lock (_gate) { return _lastRemindedKey; } }
-    }
-
-    public DateTimeOffset? SnoozedUntil
-    {
-        get { lock (_gate) { return _snoozedUntil; } }
     }
 
     /// <summary>快照已存在多少秒；没有快照返回 null。</summary>
@@ -155,9 +146,6 @@ public sealed class LessonLedger
         var remindAt = state == LessonStates.Breaking ? snapshot.NextStartAt : now;
         var seconds = snapshot.NextStartAt is { } start ? (int)Math.Round((start - now).TotalSeconds) : 0;
 
-        if (_snoozedUntil is { } snoozed && snoozed > now)
-            return new ReminderDecision(false, "snoozed", key, remindAt, subject, seconds);
-
         if (_lastRemindedKey.Length > 0 && _lastRemindedKey == key)
             return new ReminderDecision(false, "already", key, remindAt, subject, seconds);
 
@@ -188,22 +176,7 @@ public sealed class LessonLedger
         lock (_gate)
         {
             _lastRemindedKey = key ?? "";
-            _snoozedUntil = null;
         }
-    }
-
-    /// <summary>稍后提醒：在 now + minutes 之前不再弹，窗口过后若还没上课会再问一次。</summary>
-    public void Snooze(DateTimeOffset now, int minutes)
-    {
-        lock (_gate)
-        {
-            _snoozedUntil = now.AddMinutes(Math.Clamp(minutes, 1, 60));
-        }
-    }
-
-    public void ClearSnooze()
-    {
-        lock (_gate) { _snoozedUntil = null; }
     }
 
     /// <summary>

@@ -85,8 +85,27 @@ internal static class SnapshotBuilder
                 rt.ConflictWatcher.LastHabitAction,
                 config.Habits.Rules.Count),
             SelfHeal(rt, config),
+            rt.Guard.Clients
+                .GroupBy(c => c.Mac, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
+                .Select(c => new UiClient(
+                    string.IsNullOrWhiteSpace(c.HostName) ? "未命名设备" : c.HostName!,
+                    string.IsNullOrWhiteSpace(c.Ip) ? "-" : c.Ip!,
+                    string.IsNullOrWhiteSpace(c.Mac) ? "-" : c.Mac,
+                    DescribeDuration(c.ConnectedAt)))
+                .ToArray(),
             rt.Log.Snapshot(200).Select(e => new UiLogLine(e.Time, e.Level, e.Message)).ToArray(),
             DateTimeOffset.Now);
+    }
+
+    private static string DescribeDuration(DateTimeOffset? since)
+    {
+        if (since is null) return "-";
+        var span = DateTimeOffset.Now - since.Value;
+        if (span.TotalMinutes < 1) return "刚刚连上";
+        if (span.TotalHours < 1) return $"{(int)span.TotalMinutes} 分钟";
+        if (span.TotalDays < 1) return $"{(int)span.TotalHours} 小时 {span.Minutes} 分";
+        return $"{(int)span.TotalDays} 天 {span.Hours} 小时";
     }
 
     private static UiSelfHeal SelfHeal(AgentRuntime rt, AppConfig config)

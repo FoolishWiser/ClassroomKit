@@ -13,18 +13,6 @@ public sealed class PluginSettings
     // 真正生效的值存在守护的 config.json 的 lesson 段里（设置页保存时经 lesson-config 动作写过去）。
     // 这里留一份副本，守护没运行时设置页还能显示上次填过的内容。
 
-    /// <summary>旧版「上课前多少分钟提醒」（0.8.0 起不再生效，仅保留字段兼容旧配置）。</summary>
-    public int LessonRemindMinutes { get; set; } = 5;
-
-    /// <summary>提醒弹窗停留多少秒（5–600）。</summary>
-    public int LessonDialogSeconds { get; set; } = 30;
-
-    /// <summary>弹窗超时动作：save（自动保存）/ save-close（保存并关闭）/ dismiss（忽略本次）/ wait（不自动关闭）。</summary>
-    public string LessonTimeoutAction { get; set; } = "save";
-
-    /// <summary>点「稍后提醒」后隔多少分钟再弹（1–60）。</summary>
-    public int LessonSnoozeMinutes { get; set; } = 2;
-
     /// <summary>只在哪些科目上提醒（逗号分隔，如「物理,化学」；留空 = 所有科目）。匹配规则与守护一致。</summary>
     public string LessonSubjects { get; set; } = "";
 
@@ -37,30 +25,15 @@ public sealed class PluginSettings
     /// <summary>把范围收进守护认可的区间，坏值回落到默认。</summary>
     public void Normalize()
     {
-        LessonRemindMinutes = Math.Clamp(LessonRemindMinutes <= 0 ? 5 : LessonRemindMinutes, 1, 30);
-        LessonDialogSeconds = Math.Clamp(LessonDialogSeconds <= 0 ? 30 : LessonDialogSeconds, 5, 600);
-        LessonSnoozeMinutes = Math.Clamp(LessonSnoozeMinutes <= 0 ? 2 : LessonSnoozeMinutes, 1, 60);
         LessonSubjects = (LessonSubjects ?? "").Trim();
         if (string.IsNullOrWhiteSpace(BoardNameTemplate)) BoardNameTemplate = "{科目}_{日期}_{时间}";
         BoardNameTemplate = BoardNameTemplate.Trim();
-        LessonTimeoutAction = (LessonTimeoutAction ?? "").Trim().ToLowerInvariant() switch
-        {
-            "save" => "save",
-            "save-close" or "saveclose" => "save-close",
-            "dismiss" or "ignore" => "dismiss",
-            "wait" => "wait",
-            _ => "save",
-        };
     }
 
     public PluginSettings Clone() => new()
     {
         BaseUrl = BaseUrl,
         Token = Token,
-        LessonRemindMinutes = LessonRemindMinutes,
-        LessonDialogSeconds = LessonDialogSeconds,
-        LessonTimeoutAction = LessonTimeoutAction,
-        LessonSnoozeMinutes = LessonSnoozeMinutes,
         LessonSubjects = LessonSubjects,
         BoardNameTemplate = BoardNameTemplate,
         BoardCloseAfterSave = BoardCloseAfterSave,

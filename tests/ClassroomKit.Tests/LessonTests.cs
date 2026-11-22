@@ -160,20 +160,6 @@ internal static class LessonTests
             Eq("already", ledger.Evaluate(Now, cfg).Reason);
         });
 
-        Run("稍后提醒在窗口内不弹，过窗后重新弹", () =>
-        {
-            var cfg = new LessonConfig();
-            var ledger = LessonLedger.FromState(null);
-            ledger.Accept(Snapshot());
-            ledger.Snooze(Now, 2);
-            Eq("snoozed", ledger.Evaluate(Now, cfg).Reason);
-
-            var later = Now.AddMinutes(2);
-            var snapshot = ledger.Peek()!;
-            var refreshed = LessonLedger.FromState(new LessonLedgerState(snapshot with { At = later }, "", ledger.SnoozedUntil));
-            True(refreshed.Evaluate(later, cfg).Show, "过窗后应再次弹窗");
-        });
-
         Run("数据过期就不提醒（课表程序可能已退出）", () =>
         {
             var cfg = new LessonConfig { StaleMinutes = 10 };
@@ -200,47 +186,124 @@ internal static class LessonTests
 
     private static void ReminderWindow()
     {
-        Run("超时动作 save：倒计时结束选中保存", () =>
+        Run("下课后 5 分钟进入 15 秒倒计时", () =>
         {
-            var model = new BoardReminderModel(timeoutSec: 10, timeoutAction: "save");
-            False(model.Tick(5000), "半途不该到点");
-            True(model.Tick(6000), "累计 11 秒应到点");
-            Eq(BoardReminderChoice.Save, model.Chosen, "超时动作");
-            True(model.Expired, "应标记过期");
+            var tracker = new BoardAutoSaveTracker(() => new AppConfig());
+            var armed = tracker.Arm(Snapshot(nextStart: Now.AddMinutes(10)), Now, true);
+            Eq(BoardAutoSavePhases.Waiting, armed.Phase);
+            Eq("语文", armed.Subject);
+            Eq(Now.AddMinutes(5), armed.DueAt);
+            Eq(Now.AddMinutes(7.5), armed.DeadlineAt);
+
+            var still = tracker.Tick(Now.AddMinutes(4), null, Snapshot(nextStart: Now.AddMinutes(10)));
+            Eq(BoardAutoSavePhases.Waiting, still.State.Phase);
+
+            var counting = tracker.Tick(Now.AddMinutes(5), null, Snapshot(nextStart: Now.AddMinutes(10)));
+            Eq(BoardAutoSavePhases.Countdown, counting.State.Phase);
+            Eq(15, counting.State.RemainingSeconds);
+            False(counting.StartSave, "刚进倒计时不该保存");
         });
 
-        Run("超时动作 wait：永远不自动关", () =>
+        Run("15 秒无人操作就自动保存", () =>
         {
-            var model = new BoardReminderModel(timeoutSec: 10, timeoutAction: "wait");
-            Eq(null, model.TimeoutChoice, "wait 表示不自动处理");
-            False(model.Tick(60000), "不该到点");
-            Eq(null, model.Chosen, "不该自动选择");
-            Contains(model.Body, "等您决定");
+            var tracker = new BoardAutoSaveTracker(() => new AppConfig());
+            tracker.Arm(Snapshot(nextStart: Now.AddMinutes(10)), Now, true);
+            tracker.Tick(Now.AddMinutes(5), null, Snapshot(nextStart: Now.AddMinutes(10)));
+            var before = tracker.Tick(Now.AddMinutes(5).AddSeconds(14), null, Snapshot(nextStart: Now.AddMinutes(10)));
+            False(before.StartSave, "14 秒还没到");
+            var due = tracker.Tick(Now.AddMinutes(5).AddSeconds(15), null, Snapshot(nextStart: Now.AddMinutes(10)));
+            True(due.StartSave, "15 秒应触发保存");
+            Eq(BoardAutoSavePhases.Saving, due.State.Phase);
         });
 
-        Run("倒计时连续累计、不被鼠标位置打断", () =>
+        Run("倒计时内点击屏幕会打断，10 秒后重试", () =>
         {
-            var model = new BoardReminderModel(timeoutSec: 10, timeoutAction: "save");
-            False(model.Tick(5000), "5 秒还没到");
-            False(model.Tick(4000), "9 秒还没到");
-            True(model.Tick(2000), "累计超过 10 秒到点");
+            var tracker = new BoardAutoSaveTracker(() => new AppConfig());
+            tracker.Arm(Snapshot(nextStart: Now.AddMinutes(10)), Now, true);
+            var start = Now.AddMinutes(5);
+            tracker.Tick(start, null, Snapshot(nextStart: Now.AddMinutes(10)));
+            var clicked = tracker.Tick(start.AddSeconds(2), start.AddSeconds(1), Snapshot(nextStart: Now.AddMinutes(10)));
+            Eq(BoardAutoSavePhases.Cooldown, clicked.State.Phase);
+            False(clicked.StartSave, "被打断后不能保存");
+            Eq(10, clicked.State.RemainingSeconds);
+
+            var wait = tracker.Tick(start.AddSeconds(12), start.AddSeconds(1), Snapshot(nextStart: Now.AddMinutes(10)));
+            False(wait.StartSave, "10 秒冷却结束后重新倒计时，不能立刻保存");
+            Eq(BoardAutoSavePhases.Countdown, wait.State.Phase);
+
+            var retry = tracker.Tick(start.AddSeconds(27), start.AddSeconds(1), Snapshot(nextStart: Now.AddMinutes(10)));
+            True(retry.StartSave, "重试倒计时 15 秒后保存");
         });
 
-        Run("键盘与文案", () =>
+        Run("冷却期间继续操作会重新计 10 秒", () =>
         {
-            Eq(BoardReminderChoice.Save, BoardReminderModel.MapKey('1'));
-            Eq(BoardReminderChoice.SaveAndClose, BoardReminderModel.MapKey('2'));
-            Eq(BoardReminderChoice.Snooze, BoardReminderModel.MapKey('3'));
-            Eq(null, BoardReminderModel.MapKey('9'));
-            Eq("保存并关闭", BoardReminderModel.Label(BoardReminderChoice.SaveAndClose));
+            var tracker = new BoardAutoSaveTracker(() => new AppConfig());
+            tracker.Arm(Snapshot(nextStart: Now.AddMinutes(10)), Now, true);
+            var start = Now.AddMinutes(5);
+            tracker.Tick(start, null, Snapshot(nextStart: Now.AddMinutes(10)));
+            tracker.Tick(start.AddSeconds(2), start.AddSeconds(1), Snapshot(nextStart: Now.AddMinutes(10)));
+            var again = tracker.Tick(start.AddSeconds(6), start.AddSeconds(5), Snapshot(nextStart: Now.AddMinutes(10)));
+            Eq(10, again.State.RemainingSeconds, "继续操作要把冷却重置成 10 秒");
+            var still = tracker.Tick(start.AddSeconds(14), start.AddSeconds(5), Snapshot(nextStart: Now.AddMinutes(10)));
+            Eq(BoardAutoSavePhases.Cooldown, still.State.Phase);
         });
 
-        Run("标题写清刚下课的科目", () =>
+        Run("快到上课前 2 分 30 秒就放弃", () =>
         {
-            var model = new BoardReminderModel(subject: "数学", secondsToStart: 300);
-            Eq("数学 已经下课", model.Title);
-            var noSubject = new BoardReminderModel(subject: null, secondsToStart: 300);
-            Eq("下课了，存一下板书", noSubject.Title);
+            var tracker = new BoardAutoSaveTracker(() => new AppConfig());
+            var snapshot = Snapshot(nextStart: Now.AddMinutes(10));
+            tracker.Arm(snapshot, Now, true);
+            tracker.Tick(Now.AddMinutes(5), null, snapshot);
+            // 7:20 点击 → 冷却到 7:30，已越过 7:30 截止线
+            tracker.Tick(Now.AddMinutes(7).AddSeconds(20), Now.AddMinutes(7).AddSeconds(19), snapshot);
+            var late = tracker.Tick(Now.AddMinutes(7).AddSeconds(31), Now.AddMinutes(7).AddSeconds(19), snapshot);
+            Eq(BoardAutoSavePhases.Abandoned, late.State.Phase);
+            False(late.StartSave, "放弃后不能再保存");
+        });
+
+        Run("课间太短直接放弃", () =>
+        {
+            var tracker = new BoardAutoSaveTracker(() => new AppConfig());
+            var state = tracker.Arm(Snapshot(nextStart: Now.AddMinutes(5)), Now, true);
+            Eq(BoardAutoSavePhases.Abandoned, state.Phase);
+        });
+
+        Run("ClassInX 没运行就不自动保存", () =>
+        {
+            var tracker = new BoardAutoSaveTracker(() => new AppConfig());
+            var state = tracker.Arm(Snapshot(nextStart: Now.AddMinutes(10)), Now, false);
+            Eq(BoardAutoSavePhases.Abandoned, state.Phase);
+            Contains(state.Message, "ClassInX");
+        });
+
+        Run("放学后 30 分钟内仍会尝试保存", () =>
+        {
+            var tracker = new BoardAutoSaveTracker(() => new AppConfig());
+            var snapshot = Snapshot(state: LessonStates.AfterSchool, next: null, nextStart: null, previous: "语文");
+            var armed = tracker.Arm(snapshot, Now, true);
+            Eq(BoardAutoSavePhases.Waiting, armed.Phase);
+            Eq(Now.AddMinutes(30), armed.DeadlineAt);
+        });
+
+        Run("预览只走倒计时，不真保存，结束后回到空闲", () =>
+        {
+            var tracker = new BoardAutoSaveTracker(() => new AppConfig());
+            var state = tracker.Preview(Now);
+            Eq(BoardAutoSavePhases.Countdown, state.Phase);
+            var done = tracker.Tick(Now.AddSeconds(15), null, null);
+            False(done.StartSave, "预览绝不能保存");
+            Eq(BoardAutoSavePhases.Idle, done.State.Phase);
+        });
+
+        Run("保存完成后 15 秒回到空闲", () =>
+        {
+            var tracker = new BoardAutoSaveTracker(() => new AppConfig());
+            tracker.Arm(Snapshot(nextStart: Now.AddMinutes(10)), Now, true);
+            tracker.MarkSaving();
+            var saved = tracker.Complete(true, "已保存", Now.AddMinutes(6));
+            Eq(BoardAutoSavePhases.Saved, saved.Phase);
+            var after = tracker.Tick(Now.AddMinutes(6).AddSeconds(16), null, null);
+            Eq(BoardAutoSavePhases.Idle, after.State.Phase);
         });
     }
 

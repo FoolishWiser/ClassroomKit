@@ -80,7 +80,7 @@ public sealed class TrayConfig
     /// <summary>托盘菜单里显示「保存（不按课表改名）」。</summary>
     public bool SaveWithoutRename { get; set; }
 
-    /// <summary>托盘菜单里显示「预览课后提醒窗」。</summary>
+    /// <summary>托盘菜单里显示「预览自动保存倒计时」。</summary>
     public bool ShowPreviewReminder { get; set; } = true;
 
     public void Normalize()
@@ -114,19 +114,7 @@ public sealed class LessonConfig
 {
     public bool Enabled { get; set; } = true;
 
-    /// <summary>旧版「上课前多少分钟弹提醒」（0.8.0 起改为下课后提醒，不再参与判定，仅保留字段兼容旧配置）。</summary>
-    public int RemindMinutesBefore { get; set; } = 5;
-
-    /// <summary>弹窗停留多少秒。</summary>
-    public int DialogSeconds { get; set; } = 30;
-
-    /// <summary>超时动作：save（只保存）/ save-close（保存并关闭）/ dismiss（跳过）/ wait（不自动处理）。</summary>
-    public string TimeoutAction { get; set; } = "save";
-
-    /// <summary>点「稍后提醒」后隔多少分钟再弹。</summary>
-    public int SnoozeMinutes { get; set; } = 2;
-
-    /// <summary>ClassInX 没在运行时也弹（默认不弹：没板书可存）。</summary>
+    /// <summary>ClassInX 没在运行时也尝试自动保存（默认不尝试：没板书可存）。</summary>
     public bool OnlyWhenClassInBoard { get; set; } = true;
 
     /// <summary>课表快照多久没更新就算过期（分钟）。过期不弹窗，面板提示「数据已过期」。</summary>
@@ -147,27 +135,14 @@ public sealed class LessonConfig
 
     public void Normalize()
     {
-        RemindMinutesBefore = Math.Clamp(RemindMinutesBefore, 1, 30);
         SkipBreakNames = (SkipBreakNames ?? new List<string>())
             .Select(x => (x ?? "").Trim())
             .Where(x => x.Length > 0)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Take(50)
             .ToList();
-        DialogSeconds = Math.Clamp(DialogSeconds, 5, 600);
-        SnoozeMinutes = Math.Clamp(SnoozeMinutes, 1, 60);
         StaleMinutes = Math.Clamp(StaleMinutes, 1, 1440);
         Subjects = LessonSubjects.Normalize(Subjects);
-
-        var action = (TimeoutAction ?? "").Trim().ToLowerInvariant();
-        TimeoutAction = action switch
-        {
-            "save" => "save",
-            "save-close" or "saveclose" => "save-close",
-            "dismiss" or "ignore" => "dismiss",
-            "wait" => "wait",
-            _ => "save"
-        };
     }
 }
 
@@ -255,6 +230,12 @@ public sealed class UiConfig
     /// </summary>
     public bool OnboardingDone { get; set; }
 
+    /// <summary>教程当前进行到第几步（0 起，0.8.4 起持久化；完成后回到 0）。</summary>
+    public int OnboardingStep { get; set; }
+
+    /// <summary>教程是否被用户主动收起（收起后下次启动不再自动弹出，侧栏显示「继续教程」）。</summary>
+    public bool OnboardingPaused { get; set; }
+
     public void Normalize()
     {
         WindowWidth = Math.Clamp(WindowWidth, 960, 3840);
@@ -262,6 +243,7 @@ public sealed class UiConfig
         if (WindowLeft is < -10000 or > 10000) WindowLeft = -1;
         if (WindowTop is < -10000 or > 10000) WindowTop = -1;
         if (string.IsNullOrWhiteSpace(LastPage)) LastPage = "overview";
+        OnboardingStep = Math.Clamp(OnboardingStep, 0, 20);
         Theme = (Theme ?? "").Trim().ToLowerInvariant() switch
         {
             "light" => "light",

@@ -35,7 +35,9 @@
                         </StackPanel>
                     </StackPanel>
                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="24,0,0,0">
-                        <Button Content="复制热点密码" Style="{StaticResource SecondaryButton}" MinWidth="150"
+                        <Button Content="投屏连接卡" Style="{StaticResource PrimaryButton}" MinWidth="150"
+                                Command="{Binding ShowConnectionCardCommand}" />
+                        <Button Content="复制热点密码" Style="{StaticResource SecondaryButton}" MinWidth="150" Margin="0,8,0,0"
                                 Command="{Binding CopyPasswordCommand}" />
                         <Button Content="改用电脑名" Style="{StaticResource GhostButton}" Margin="0,8,0,0"
                                 Command="{Binding RenameToMachineCommand}" />
@@ -43,6 +45,52 @@
                                 Command="{Binding FixPeersCommand}" />
                     </StackPanel>
                 </Grid>
+            </Border>
+
+            <Border Style="{StaticResource SettingsGroup}" Margin="0,16,0,0">
+                <StackPanel>
+                    <Border Style="{StaticResource SettingsRow}" Padding="20,16" MinHeight="0" BorderThickness="0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="在线设备" Style="{StaticResource H2}" />
+                                <TextBlock Text="连上热点的手机、平板会出现在这里；刚连上时可能晚几秒。"
+                                           Style="{StaticResource Caption}" Margin="0,4,0,0" />
+                            </StackPanel>
+                            <Button Grid.Column="1" Content="刷新" Style="{StaticResource GhostButton}"
+                                    VerticalAlignment="Center" Command="{Binding RefreshCommand}" />
+                        </Grid>
+                    </Border>
+                    <ItemsControl ItemsSource="{Binding HotspotClients}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Style="{StaticResource SettingsRow}" BorderThickness="0" Padding="20,10">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="180" />
+                                            <ColumnDefinition Width="150" />
+                                            <ColumnDefinition Width="110" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{Binding Name}" FontSize="13" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="1" Text="{Binding Address}" Style="{StaticResource Mono}"
+                                                   VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="2" Text="{Binding Mac}" Style="{StaticResource Caption}"
+                                                   VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="3" Text="{Binding Duration}" Style="{StaticResource Caption}"
+                                                   HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Text="还没有设备连上热点。先在教室大屏上打开热点，再让学生连 Wi-Fi。"
+                               Style="{StaticResource Caption}" Margin="20,4,20,18" TextWrapping="Wrap"
+                               Visibility="{Binding HotspotClientsEmpty, Converter={StaticResource BoolVisibility}}" />
+                </StackPanel>
             </Border>
 
             <Border Style="{StaticResource SettingsGroup}" Margin="0,16,0,0">

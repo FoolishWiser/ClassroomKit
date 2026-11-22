@@ -76,6 +76,10 @@ internal static class Program
         await LessonTests.RunAsync();
 
         Console.WriteLine();
+        Console.WriteLine("[板书中心与诊断包]");
+        await SupportTests.RunAsync();
+
+        Console.WriteLine();
         Console.WriteLine("[界面几何与日志增量]");
         await UiTests.RunAsync();
 
