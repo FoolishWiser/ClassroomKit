@@ -13,7 +13,7 @@ namespace ClassroomKit.ClassIsland.Lesson;
 /// <summary>
 /// 课表桥：把 ClassIsland 的课表状态算成 LessonSnapshot，推给 ClassroomKit 守护进程。
 /// 插件只负责「让守护知道现在上什么课、下一节是什么、上一节是什么」；
-/// 课后提醒和板书改名都由守护决定，这里不弹任何窗、也不碰 UI。
+/// 课后自动保存和板书改名都由守护决定，这里不弹任何窗、也不碰 UI。
 /// </summary>
 /// <remarks>
 /// ILessonsService 由宿主程序注册，插件的容器不一定能直接注入，所以这里从 IAppHost.Host

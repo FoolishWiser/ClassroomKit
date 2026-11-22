@@ -28,7 +28,7 @@ public static class OnboardingGuide
             "lesson",
             "第 2 步 · 关联课表与科目",
             "装好 ClassIsland 和 ClassroomKit 插件后，在「课表与板书」勾选要生效的科目；"
-            + "下课后会按课表提醒保存板书，没勾选就代表所有科目都提醒。",
+            + "下课后 5 分钟会静默倒数 15 秒，没人碰屏幕就自动保存板书，没勾选就代表所有科目都生效。",
             "去看看课表"),
         new OnboardingStep(
             "board",

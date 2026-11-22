@@ -80,14 +80,16 @@ internal static class OnboardingTests
                 "老配置应补写 onboardingDone 字段，避免下次再判定");
         });
 
-        await Run("教程引导：配置坏掉按空白配置处理，会重新引导", () =>
+        await Run("教程引导：配置坏掉时按空白配置继续引导，但不覆盖原文件", () =>
         {
             var path = Path.Combine(TempDir(), "config.json");
-            File.WriteAllText(path, "{ 这不是 JSON");
+            const string broken = "{ 这不是 JSON";
+            File.WriteAllText(path, broken);
             var store = new ConfigStore(path);
-            True(store.CreatedNew, "坏配置应重建为空白配置");
-            False(store.Current.Ui.OnboardingDone, "重建后应重新引导");
-            Eq(ConfigStore.CurrentSchemaVersion, store.Current.SchemaVersion, "重建后的 schema");
+            False(store.CreatedNew, "坏配置不是首次运行");
+            False(store.Current.Ui.OnboardingDone, "空白配置应重新引导");
+            Eq(ConfigStore.CurrentSchemaVersion, store.Current.SchemaVersion, "空白配置的 schema");
+            Eq(broken, File.ReadAllText(path), "原文件不能被覆盖");
         });
     }
 }

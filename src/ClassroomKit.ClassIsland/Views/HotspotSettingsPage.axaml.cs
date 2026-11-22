@@ -286,7 +286,6 @@ public partial class HotspotSettingsPage : SettingsPageBase
 
         var board = await TryPostAsync("board-config", new Dictionary<string, string?>
         {
-            ["nameWithLesson"] = "1",
             ["nameTemplate"] = settings.BoardNameTemplate,
             ["closeAfterSave"] = settings.BoardCloseAfterSave ? "1" : "0",
         });
@@ -332,5 +331,5 @@ public partial class HotspotSettingsPage : SettingsPageBase
     }
 
     private async void OnLessonPreviewClick(object? sender, RoutedEventArgs e)
-        => await RunLessonActionAsync("board-autosave", new Dictionary<string, string> { ["action"] = "preview" }, "已开始预览自动保存倒计时");
+        => await RunLessonActionAsync("board-autosave", new Dictionary<string, string?> { ["action"] = "preview" }, "已开始预览自动保存倒计时");
 }

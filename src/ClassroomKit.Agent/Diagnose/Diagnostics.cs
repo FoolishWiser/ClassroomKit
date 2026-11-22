@@ -87,7 +87,7 @@ public static class Diagnostics
         var decision = rt.Lesson.Evaluate(DateTimeOffset.Now);
         Add("lesson", "ClassIsland 课表联动", lessonAvailable ? "ok" : "warn",
             lessonAvailable
-                ? $"{LessonStates.Describe(rt.Lesson.State().Snapshot?.State)}｜下一节 {rt.Lesson.State().Snapshot?.NextSubject ?? "-"}｜提醒判定：{decision.Reason}"
+                ? $"{LessonStates.Describe(rt.Lesson.State().Snapshot?.State)}｜下一节 {rt.Lesson.State().Snapshot?.NextSubject ?? "-"}｜保存判定：{decision.Reason}"
                 : "守护还没收到课表数据",
             lessonAvailable ? null : "确认 ClassIsland 已启动、装好 ClassroomKit 插件，并在插件设置里填对令牌");
 

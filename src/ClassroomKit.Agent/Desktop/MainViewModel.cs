@@ -265,7 +265,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         SaveUiCommand = new RelayCommand(SaveUi);
         SaveUpdateCommand = new RelayCommand(SaveUpdate);
         SaveBoardCommand = new RelayCommand(SaveBoardNow);
-        SaveBoardNamedCommand = new RelayCommand(() => RunBackground(() => _rt.SaveBoardNamed(false, _rt.Config.Current.BoardSave.NameWithLesson).Message));
+        SaveBoardNamedCommand = new RelayCommand(() => RunBackground(() => _rt.SaveBoardNamed(
+            _rt.Config.Current.BoardSave.CloseAfterSave,
+            _rt.Config.Current.BoardSave.NameWithLesson).Message));
         RefreshBoardLibraryCommand = new RelayCommand(() => { _ = RefreshBoardLibraryAsync(); });
         OpenBoardFolderCommand = new RelayCommand(OpenBoardFolder);
         PreviewAutoSaveCommand = new RelayCommand(() =>
@@ -1295,7 +1297,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void SaveBoardNow()
     {
-        RunBackground(() => _rt.SaveBoardNamed(false, _rt.Config.Current.BoardSave.NameWithLesson).Message);
+        RunBackground(() => _rt.SaveBoardNamed(
+            _rt.Config.Current.BoardSave.CloseAfterSave,
+            _rt.Config.Current.BoardSave.NameWithLesson).Message);
     }
 
     private void Run(Func<string> action)
@@ -1337,7 +1341,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             }
             catch (Exception ex)
             {
-                _ = _dispatcher.BeginInvoke(new Action(() => Toast(ex.Message, true)));
+                _ = _dispatcher.BeginInvoke(new Action(() => { Toast(ex.Message, true); _ = RefreshAsync(true); }));
             }
         });
     }
@@ -1568,5 +1572,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         _timer.Stop();
         _toastTimer.Stop();
+        _connectionCardTimer?.Stop();
     }
 }

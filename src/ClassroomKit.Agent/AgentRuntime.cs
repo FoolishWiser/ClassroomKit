@@ -28,6 +28,7 @@ public sealed class AgentRuntime : IDisposable
 
     private DateTimeOffset? _pauseUntil;
     private bool _enabledBeforePause;
+    private string? _autoSaveSkipKey;
 
     public AgentRuntime()
     {
@@ -151,6 +152,7 @@ public sealed class AgentRuntime : IDisposable
             ? "权限：管理员（最高可用）"
             : "权限：标准用户（热点/hosts 的部分操作可能失败，建议用管理员账户）");
         Log.Info($"配置：{Paths.ConfigPath}｜本地 API：{BaseUrl}｜上行策略：{(Config.Current.Hotspot.AllowWifiUplink ? "允许 Wi-Fi" : "仅有线")}");
+        if (!string.IsNullOrWhiteSpace(Config.LoadError)) Log.Error(Config.LoadError);
         // 上一次如果是被强杀/断电退出的，可能把 ALT 或鼠标左键留在按下状态；开机先清一遍。
         try { Board.Input.ReleaseAllInputs(); } catch { }
 
@@ -582,16 +584,28 @@ public sealed class AgentRuntime : IDisposable
                     var decision = Lesson.Evaluate(now);
                     if (decision.Show)
                     {
-                        if (cfg.OnlyWhenClassInBoard && !ClassInBoardSaver.IsClassInRunning())
+                        // 一次巡检只枚举一次进程，避免「判定时在运行、Arm 时已退出」的错位。
+                        var running = ClassInBoardSaver.IsClassInRunning();
+                        if (cfg.OnlyWhenClassInBoard && !running)
                         {
-                            Log.Info("课后自动保存：ClassInX 没有运行，这次跳过");
+                            if (!string.Equals(_autoSaveSkipKey, decision.Key, StringComparison.Ordinal))
+                            {
+                                _autoSaveSkipKey = decision.Key;
+                                Log.Info("课后自动保存：ClassInX 没有运行，这次跳过；启动后会自动重试");
+                            }
                         }
                         else
                         {
-                            Lesson.MarkReminded(decision.Key);
-                            var when = snapshot.State == LessonStates.AfterSchool ? "已经放学" : "已经下课";
-                            Log.Info($"课后自动保存：{decision.Subject ?? "上一节"}{when}，开始等待空闲");
-                            AutoSave.Arm(snapshot, now, ClassInBoardSaver.IsClassInRunning());
+                            _autoSaveSkipKey = null;
+                            var armed = AutoSave.Arm(snapshot, now, running);
+                            // 只有真的进入等待才算「已提醒」，否则本次课间还有机会重试。
+                            if (armed.Phase is BoardAutoSavePhases.Waiting or BoardAutoSavePhases.Countdown or
+                                BoardAutoSavePhases.Cooldown)
+                            {
+                                Lesson.MarkReminded(decision.Key);
+                                var when = snapshot.State == LessonStates.AfterSchool ? "已经放学" : "已经下课";
+                                Log.Info($"课后自动保存：{decision.Subject ?? "上一节"}{when}，开始等待空闲");
+                            }
                         }
                     }
                 }
@@ -599,18 +613,21 @@ public sealed class AgentRuntime : IDisposable
                 var tick = AutoSave.Tick(now, LastInputMonitor.LastInputAt(), snapshot);
                 if (tick.StartSave)
                 {
-                    AutoSave.MarkSaving();
+                    var generation = tick.Generation;
+                    AutoSave.MarkSaving(generation);
                     _ = Task.Run(() =>
                     {
                         try
                         {
-                            var (ok, message) = SaveBoardNamed(false, true);
-                            AutoSave.Complete(ok, message);
+                            var (ok, message) = SaveBoardNamed(
+                                Config.Current.BoardSave.CloseAfterSave,
+                                Config.Current.BoardSave.NameWithLesson);
+                            AutoSave.Complete(generation, ok, message);
                         }
                         catch (Exception ex)
                         {
                             Log.Error($"课后自动保存异常：{ex.Message}");
-                            AutoSave.Complete(false, "保存板书异常：" + ex.Message);
+                            AutoSave.Complete(generation, false, "保存板书异常：" + ex.Message);
                         }
                     });
                 }
@@ -631,11 +648,19 @@ public sealed class AgentRuntime : IDisposable
         switch ((action ?? "").Trim().ToLowerInvariant())
         {
             case "preview":
-                AutoSave.Preview(now);
+            {
+                var state = AutoSave.Preview(now);
+                if (!string.Equals(state.Key, "preview", StringComparison.Ordinal))
+                    return (false, "当前有自动保存正在进行，稍后再预览");
                 return (true, "已开始预览自动保存倒计时（15 秒后不会真的保存）");
+            }
             case "cancel":
-                AutoSave.Cancel(now);
+            {
+                var state = AutoSave.Cancel(now);
+                if (state.Phase == BoardAutoSavePhases.Saving)
+                    return (false, "板书正在保存，无法取消");
                 return (true, "已取消本次自动保存");
+            }
             default:
                 return (false, "未知动作，可用 preview / cancel");
         }

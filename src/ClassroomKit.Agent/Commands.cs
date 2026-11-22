@@ -52,7 +52,7 @@ ClassroomKit.Agent {Version}
   --save-board      保存 ClassInX 板书（三种格式）并按上一节课改名；默认不关闭 ClassInX
                     --close 保存后关闭 ClassInX；--no-name 不改名；--no-launch 不自动启动 ClassInX
   --save-classin-board  同 --save-board，但默认保存后关闭 ClassInX（旧行为）
-  --lesson-status   课表联动状态（JSON：当前/下一节/提醒判定）
+  --lesson-status   课表联动状态（JSON：当前/下一节/自动保存判定）
   --lesson-reminder-test 打印「现在会不会提醒、还差多久」（JSON；加 --show 直接弹窗）
   --diagnose        一键自检（JSON：热点/上行/自启/护航/hosts/课表/升级）
   --rotate-token    换一个本地 API 令牌（ClassIsland 插件要重新填）
@@ -154,7 +154,7 @@ ClassroomKit.Agent {Version}
                 running = false,
                 port,
                 configPath = Paths.ConfigPath,
-                panel = $"http://127.0.0.1:{port}/?t={token}"
+                api = $"http://127.0.0.1:{port}/api/"
             }, new JsonSerializerOptions { WriteIndented = true }));
             return 3;
         }

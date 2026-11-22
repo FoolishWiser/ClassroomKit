@@ -36,7 +36,7 @@ public sealed record BoardAutoSaveState(
 }
 
 /// <summary>一次 tick 的结果：StartSave=true 表示调用方应立刻在后台保存板书。</summary>
-public readonly record struct BoardAutoSaveTick(BoardAutoSaveState State, bool StartSave);
+public readonly record struct BoardAutoSaveTick(BoardAutoSaveState State, bool StartSave, long Generation = 0);
 
 /// <summary>
 /// 课后自动保存状态机：下课后 5 分钟进入 15 秒倒计时，任何键鼠输入都会打断并在 10 秒后重试，
@@ -68,6 +68,9 @@ public sealed class BoardAutoSaveTracker
     private DateTimeOffset _finishedAt;
     private bool _dryRun;
     private string _message = "";
+    private long _generation;
+    private DateTimeOffset _savingStartedAt;
+    private string _armLogKey = "";
 
     public BoardAutoSaveTracker(Func<AppConfig> config, Func<DateTimeOffset>? now = null, AppLog? log = null)
     {
@@ -114,26 +117,43 @@ public sealed class BoardAutoSaveTracker
                     ? next.AddSeconds(-DeadlineBeforeNextSeconds)
                     : breakAt.AddMinutes(AfterSchoolDeadlineMinutes);
 
-            _key = LessonLedger.KeyOf(snapshot);
+            var key = LessonLedger.KeyOf(snapshot);
+            // 同一个课间每秒都会判定为 Show：已经在等待/倒计时/保存中就不要重置进度。
+            if (!_dryRun && string.Equals(_key, key, StringComparison.Ordinal) &&
+                _phase is BoardAutoSavePhases.Waiting or BoardAutoSavePhases.Countdown or
+                         BoardAutoSavePhases.Cooldown or BoardAutoSavePhases.Saving)
+                return BuildLocked(now);
+
+            // 上次因为 ClassInX 没运行而放弃：等它启动后允许重试；课间太短则保持放弃。
+            if (!_dryRun && string.Equals(_key, key, StringComparison.Ordinal) &&
+                _phase == BoardAutoSavePhases.Abandoned)
+            {
+                if (_deadlineAt is { } oldDeadline && now > oldDeadline) return BuildLocked(now);
+                if (!classInRunning) return BuildLocked(now);
+            }
+
+            _key = key;
             _subject = subject.Trim();
             _dueAt = dueAt;
             _deadlineAt = deadlineAt;
             _dryRun = false;
             _finishedAt = default;
+            _savingStartedAt = default;
+            _generation++;
 
             if (dueAt.AddSeconds(CountdownSeconds) > deadlineAt)
             {
-                _log?.Info($"课后自动保存：{_subject} 课间太短，来不及自动保存");
+                LogArmLocked(BoardAutoSavePhases.Abandoned, $"课后自动保存：{_subject} 课间太短，来不及自动保存");
                 return SetLocked(BoardAutoSavePhases.Abandoned, now, "课间太短，来不及自动保存");
             }
 
             if (cfg.Lesson.OnlyWhenClassInBoard && !classInRunning)
             {
-                _log?.Info($"课后自动保存：{_subject} 下课时 ClassInX 没有运行，跳过本次");
+                LogArmLocked(BoardAutoSavePhases.Abandoned, $"课后自动保存：{_subject} 下课时 ClassInX 没有运行，跳过本次");
                 return SetLocked(BoardAutoSavePhases.Abandoned, now, "ClassInX 没有运行，跳过本次自动保存");
             }
 
-            _log?.Info($"课后自动保存：{_subject} 下课，{dueAt:HH:mm:ss} 开始倒计时，最晚 {deadlineAt:HH:mm:ss}");
+            LogArmLocked(BoardAutoSavePhases.Waiting, $"课后自动保存：{_subject} 下课，{dueAt:HH:mm:ss} 开始倒计时，最晚 {deadlineAt:HH:mm:ss}");
             return SetLocked(BoardAutoSavePhases.Waiting, now,
                 $"下课后 {WaitMinutes} 分钟开始倒计时（{dueAt:HH:mm}）");
         }
@@ -146,7 +166,8 @@ public sealed class BoardAutoSaveTracker
         {
             if (_phase is BoardAutoSavePhases.Saved or BoardAutoSavePhases.Failed)
             {
-                if (now - _finishedAt >= TimeSpan.FromSeconds(CountdownSeconds))
+                // 正常 15 秒后回 idle；时钟回拨时也不要把结果永久钉在界面上。
+                if (now >= _finishedAt.AddSeconds(CountdownSeconds) || now < _finishedAt.AddMinutes(-1))
                     return new BoardAutoSaveTick(ResetLocked(now, ""), false);
                 return new BoardAutoSaveTick(BuildLocked(now), false);
             }
@@ -157,6 +178,15 @@ public sealed class BoardAutoSaveTracker
             var cfg = _config();
             if (!cfg.Lesson.Enabled)
                 return new BoardAutoSaveTick(ResetLocked(now, ""), false);
+
+            // 保存任务可能跑几十秒到几分钟：必须有自己的超时，不能一直停在「正在保存」。
+            if (_phase == BoardAutoSavePhases.Saving && !_dryRun)
+            {
+                var limit = TimeSpan.FromSeconds(Math.Clamp(cfg.BoardSave.LaunchTimeoutSec, 5, 600) + 90);
+                if (_savingStartedAt != default && now - _savingStartedAt > limit)
+                    return new BoardAutoSaveTick(FailSavingLocked(now, "保存超时，请手动保存板书"), false);
+                return new BoardAutoSaveTick(BuildLocked(now), false);
+            }
 
             // 预览是独立演示，不依赖课表快照；真实保存才校验快照是否还对得上。
             if (!_dryRun)
@@ -202,9 +232,11 @@ public sealed class BoardAutoSaveTracker
                     }
 
                     _phase = BoardAutoSavePhases.Saving;
+                    _savingStartedAt = now;
+                    _generation++;
                     _message = "正在保存板书…";
                     _log?.Info($"课后自动保存：{_subject} 15 秒无操作，开始保存");
-                    return new BoardAutoSaveTick(BuildLocked(now), true);
+                    return new BoardAutoSaveTick(BuildLocked(now), true, _generation);
                 }
             }
 
@@ -235,50 +267,68 @@ public sealed class BoardAutoSaveTracker
         }
     }
 
-    /// <summary>只演示倒计时，不真的保存。</summary>
+    /// <summary>
+    /// 只演示倒计时，不真的保存。真实保存正在进行时拒绝预览，避免一个预览把当次保存吞掉。
+    /// 返回后的 Key 仍为 "preview" 才表示预览已开始。
+    /// </summary>
     public BoardAutoSaveState Preview(DateTimeOffset now)
     {
         lock (_gate)
         {
+            if (!_dryRun && _phase is BoardAutoSavePhases.Waiting or BoardAutoSavePhases.Countdown or
+                                 BoardAutoSavePhases.Cooldown or BoardAutoSavePhases.Saving)
+                return BuildLocked(now);
+
             _phase = BoardAutoSavePhases.Countdown;
             _key = "preview";
-            _subject = "数学";
+            _subject = "示例课程";
             _dueAt = now;
             _deadlineAt = now.AddMinutes(10);
             _countdownStartedAt = now;
+            _savingStartedAt = default;
+            _finishedAt = default;
             _dryRun = true;
+            _generation++;
             _message = $"预览：{CountdownSeconds} 秒后自动保存（不会真的保存）";
             return BuildLocked(now);
         }
     }
 
-    /// <summary>取消当前这一次（预览 / 真保存都适用）。</summary>
+    /// <summary>取消当前这一次（预览 / 已结束状态）；保存中拒绝取消。返回后 Phase 仍为 saving 表示被拒绝。</summary>
     public BoardAutoSaveState Cancel(DateTimeOffset now)
     {
         lock (_gate)
         {
+            if (_phase == BoardAutoSavePhases.Saving) return BuildLocked(now);
             _log?.Info("课后自动保存：已取消本次自动保存");
             return ResetLocked(now, "已取消本次自动保存");
         }
     }
 
-    /// <summary>Agent 已经拿到保存任务，进入保存中。</summary>
-    public void MarkSaving()
+    /// <summary>Agent 已经拿到保存任务，进入保存中；代次不匹配说明这次保存已经过期。</summary>
+    public void MarkSaving(long generation = 0)
     {
         lock (_gate)
         {
             if (_phase != BoardAutoSavePhases.Countdown && _phase != BoardAutoSavePhases.Saving) return;
+            if (generation != 0 && generation != _generation) return;
             _phase = BoardAutoSavePhases.Saving;
             _message = "正在保存板书…";
         }
     }
 
-    /// <summary>Agent 保存完成（成功或失败）。</summary>
-    public BoardAutoSaveState Complete(bool ok, string message, DateTimeOffset? now = null)
+    /// <summary>兼容旧调用：不校验代次。</summary>
+    public BoardAutoSaveState Complete(bool ok, string message, DateTimeOffset? now = null) =>
+        Complete(0, ok, message, now);
+
+    /// <summary>Agent 保存完成；代次不匹配（已取消/已开新课间/已超时）时丢弃这次结果。</summary>
+    public BoardAutoSaveState Complete(long generation, bool ok, string message, DateTimeOffset? now = null)
     {
         lock (_gate)
         {
             var at = now ?? _now();
+            if (generation != 0 && generation != _generation) return BuildLocked(at);
+            _savingStartedAt = default;
             _finishedAt = at;
             _phase = ok ? BoardAutoSavePhases.Saved : BoardAutoSavePhases.Failed;
             _message = string.IsNullOrWhiteSpace(message) ? (ok ? "板书已保存" : "保存板书失败") : message;
@@ -320,11 +370,34 @@ public sealed class BoardAutoSaveTracker
         _phase = BoardAutoSavePhases.Abandoned;
         _message = message;
         _finishedAt = now;
+        _savingStartedAt = default;
+        _generation++;
         return BuildLocked(now);
+    }
+
+    private BoardAutoSaveState FailSavingLocked(DateTimeOffset now, string message)
+    {
+        _log?.Info("课后自动保存：" + message);
+        _phase = BoardAutoSavePhases.Failed;
+        _message = message;
+        _finishedAt = now;
+        _savingStartedAt = default;
+        _generation++;
+        return BuildLocked(now);
+    }
+
+    private void LogArmLocked(string phase, string message)
+    {
+        var key = (_key ?? "") + "|" + phase;
+        if (string.Equals(key, _armLogKey, StringComparison.Ordinal)) return;
+        _armLogKey = key;
+        _log?.Info(message);
     }
 
     private BoardAutoSaveState ResetLocked(DateTimeOffset now, string message)
     {
+        _generation++;
+        _savingStartedAt = default;
         _phase = BoardAutoSavePhases.Idle;
         _key = null;
         _subject = null;

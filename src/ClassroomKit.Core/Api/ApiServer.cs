@@ -221,7 +221,9 @@ public sealed class ApiServer
         if (BoardAutoSaveAction is null) return Task.FromResult(HttpResponse.Text("not supported", 409));
 
         var fields = ReadFields(request);
-        var action = fields.TryGetValue("action", out var value) ? value.Trim().ToLowerInvariant() : "preview";
+        if (!fields.TryGetValue("action", out var value) || string.IsNullOrWhiteSpace(value))
+            return Task.FromResult(HttpResponse.Text("action required: preview / cancel", 400));
+        var action = value.Trim().ToLowerInvariant();
         var (ok, message) = BoardAutoSaveAction(action);
         var current = GetBoardAutoSave?.Invoke() ?? BoardAutoSaveState.Idle(DateTimeOffset.Now);
         return Task.FromResult(HttpResponse.Json(JsonSerializer.Serialize(new { ok, action, message, state = current }, Json), ok ? 200 : 400));

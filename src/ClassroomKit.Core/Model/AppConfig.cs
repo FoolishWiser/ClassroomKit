@@ -109,7 +109,7 @@ public sealed class BoardSaveConfig
     public string NameTemplate { get; set; } = BoardFileName.DefaultTemplate;
 }
 
-/// <summary>ClassIsland 课表联动：下课后提醒保存板书。</summary>
+/// <summary>ClassIsland 课表联动：下课后静默倒计时自动保存板书。</summary>
 public sealed class LessonConfig
 {
     public bool Enabled { get; set; } = true;

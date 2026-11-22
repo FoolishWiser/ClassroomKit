@@ -20,7 +20,7 @@ internal static class Program
         {
             return command switch
             {
-                "" or "run" or "--run" => RunTray(args),
+                "" or "run" or "--run" or "--tray" or "--autostart" => RunTray(args),
                 "--ensure" => Commands.Ensure(),
                 "--on" or "--start" => Commands.SetPolicy(true),
                 "--off" or "--stop" => Commands.SetPolicy(false),

@@ -305,6 +305,36 @@ internal static class LessonTests
             var after = tracker.Tick(Now.AddMinutes(6).AddSeconds(16), null, null);
             Eq(BoardAutoSavePhases.Idle, after.State.Phase);
         });
+
+        Run("真实倒计时进行中，预览不能覆盖", () =>
+        {
+            var tracker = new BoardAutoSaveTracker(() => new AppConfig());
+            var snapshot = Snapshot(nextStart: Now.AddMinutes(10));
+            tracker.Arm(snapshot, Now, true);
+            var due = Now.AddMinutes(5);
+            tracker.Tick(due, null, snapshot);
+            var preview = tracker.Preview(due.AddSeconds(1));
+            Eq(BoardAutoSavePhases.Countdown, preview.Phase);
+            False(string.Equals(preview.Key, "preview", StringComparison.Ordinal), "预览不能顶掉真实倒计时");
+            var save = tracker.Tick(due.AddSeconds(15), null, snapshot);
+            True(save.StartSave, "真实倒计时到点仍应保存");
+        });
+
+        Run("迟到的保存结果按代次丢弃", () =>
+        {
+            var tracker = new BoardAutoSaveTracker(() => new AppConfig());
+            var snapshot = Snapshot(nextStart: Now.AddMinutes(10));
+            tracker.Arm(snapshot, Now, true);
+            var due = Now.AddMinutes(5);
+            tracker.Tick(due, null, snapshot);
+            var tick = tracker.Tick(due.AddSeconds(15), null, snapshot);
+            True(tick.StartSave, "应开始保存");
+            tracker.MarkSaving(tick.Generation);
+            var stale = tracker.Complete(tick.Generation + 1, true, "上一轮", due.AddSeconds(2));
+            Eq(BoardAutoSavePhases.Saving, stale.Phase, "旧代次结果不能改状态");
+            var fresh = tracker.Complete(tick.Generation, true, "本轮", due.AddSeconds(3));
+            Eq(BoardAutoSavePhases.Saved, fresh.Phase, "当前代次才生效");
+        });
     }
 
     /// <summary>「只在物理课上提醒」这类科目定向：白名单匹配、空列表 = 全部、不匹配时 Evaluate 拒绝。</summary>

@@ -2,7 +2,7 @@ using ClassroomKit.Core.Model;
 
 namespace ClassroomKit.Core.Lesson;
 
-/// <summary>一次「要不要弹课后提醒」的判定结果。Reason 便于日志与单测定位。</summary>
+/// <summary>一次「这次课间要不要自动保存」的判定结果。Reason 便于日志与单测定位。</summary>
 public readonly record struct ReminderDecision(
     bool Show,
     string Reason,

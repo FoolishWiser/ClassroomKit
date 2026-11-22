@@ -34,6 +34,8 @@ public sealed class BoardAutoSaveNotifier : NotificationProviderBase, IDisposabl
     private NotificationRequest? _request;
     private SimpleTextTemplateData? _data;
     private string? _shownKey;
+    private string? _lastAttemptKey;
+    private DateTimeOffset _lastAttemptAt;
     private string? _lastError;
     private DateTimeOffset _lastErrorAt = DateTimeOffset.MinValue;
 
@@ -66,7 +68,9 @@ public sealed class BoardAutoSaveNotifier : NotificationProviderBase, IDisposabl
 
     private void Apply(BoardAutoSaveState state)
     {
-        if (!string.Equals(state.Phase, BoardAutoSavePhases.Countdown, StringComparison.OrdinalIgnoreCase))
+        var counting = string.Equals(state.Phase, BoardAutoSavePhases.Countdown, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(state.Phase, BoardAutoSavePhases.Cooldown, StringComparison.OrdinalIgnoreCase);
+        if (!counting)
         {
             Hide();
             return;
@@ -79,6 +83,10 @@ public sealed class BoardAutoSaveNotifier : NotificationProviderBase, IDisposabl
         {
             if (_request is null || !string.Equals(_shownKey, key, StringComparison.Ordinal))
             {
+                // 通知被系统禁用或用户立刻关掉时会连续 Cancel；同一轮倒计时不要每秒重建。
+                if (_request is null && string.Equals(_lastAttemptKey, key, StringComparison.Ordinal)
+                    && DateTimeOffset.Now - _lastAttemptAt < TimeSpan.FromSeconds(5))
+                    return;
                 Show(state, key, text);
                 return;
             }
@@ -91,6 +99,22 @@ public sealed class BoardAutoSaveNotifier : NotificationProviderBase, IDisposabl
 
     private void Show(BoardAutoSaveState state, string key, string text)
     {
+        NotificationRequest? previous;
+        lock (_gate)
+        {
+            previous = _request;
+            _request = null;
+            _data = null;
+            _shownKey = null;
+        }
+        if (previous is not null)
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                try { previous.Cancel(); } catch { /* 已经结束 */ }
+            });
+        }
+
         var mask = NotificationContent.CreateTwoIconsMask(
             string.IsNullOrWhiteSpace(state.Subject) ? "课后自动保存" : state.Subject + " · 自动保存",
             rightIcon: "lucide(\ue224)");
@@ -111,11 +135,17 @@ public sealed class BoardAutoSaveNotifier : NotificationProviderBase, IDisposabl
         _request = request;
         _data = data;
         _shownKey = key;
+        _lastAttemptKey = key;
+        _lastAttemptAt = DateTimeOffset.Now;
 
         Dispatcher.UIThread.Post(() =>
         {
             try { ShowNotification(request); }
-            catch (Exception ex) { LogThrottled("显示自动保存倒计时失败：" + ex.Message); }
+            catch (Exception ex)
+            {
+                Clear(request);
+                LogThrottled("显示自动保存倒计时失败：" + ex.Message);
+            }
         });
     }
 
@@ -155,6 +185,8 @@ public sealed class BoardAutoSaveNotifier : NotificationProviderBase, IDisposabl
     private static string BuildText(BoardAutoSaveState state)
     {
         var left = Math.Clamp(state.RemainingSeconds, 0, 999);
+        if (string.Equals(state.Phase, BoardAutoSavePhases.Cooldown, StringComparison.OrdinalIgnoreCase))
+            return "已打断，" + left + " 秒后重新倒计时" + Environment.NewLine + "先别碰屏幕就能自动保存";
         if (left <= 0) return "正在保存板书…";
         return "还剩 " + left + " 秒自动保存板书" + Environment.NewLine + "点击屏幕可打断";
     }

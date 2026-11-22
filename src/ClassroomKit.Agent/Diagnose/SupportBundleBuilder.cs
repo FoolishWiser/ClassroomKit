@@ -55,7 +55,7 @@ public static class SupportBundleBuilder
     private static string Explain() => string.Join(Environment.NewLine, new[]
     {
         "ClassroomKit 诊断包",
-        "包含：自检结果、运行环境、配置摘要（不含令牌与热点密码）、在线设备、最近 5 个日志。",
+        "包含：自检结果、运行环境、配置摘要（不含令牌与热点密码）、在线设备、最近 5 个日志或崩溃报告。",
         "所有文本已做脱敏；如果仍担心，打开 zip 确认后再发送。",
         "生成时间：" + DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm:ss zzz"),
     });
@@ -149,7 +149,11 @@ public static class SupportBundleBuilder
         try
         {
             if (!Directory.Exists(Paths.LogDir)) return Array.Empty<(string, string)>();
-            return Directory.EnumerateFiles(Paths.LogDir, "agent-*.log")
+            return Directory.EnumerateFiles(Paths.LogDir)
+                .Where(path => path.EndsWith(".log", StringComparison.OrdinalIgnoreCase)
+                    || path.EndsWith(".txt", StringComparison.OrdinalIgnoreCase))
+                .Where(path => Path.GetFileName(path).StartsWith("agent-", StringComparison.OrdinalIgnoreCase)
+                    || Path.GetFileName(path).StartsWith("crash-", StringComparison.OrdinalIgnoreCase))
                 .OrderByDescending(File.GetLastWriteTimeUtc)
                 .Take(5)
                 .Select(path => (Path.GetFileName(path), ReadTail(path, MaxLogBytes)))

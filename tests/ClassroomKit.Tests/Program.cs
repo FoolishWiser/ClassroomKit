@@ -184,14 +184,19 @@ internal static class Program
             Contains(cfg.BoardSave.ClassInPath ?? "", "ClassIn X.exe", "手工路径保留");
         });
 
-        await Run("坏 JSON 回退默认且能恢复", () =>
+        await Run("坏 JSON 不覆盖原文件，先备份再用默认配置", () =>
         {
             var path = TempFile("config.json");
-            File.WriteAllText(path, "{ 这不是 JSON");
+            const string broken = "{ 这不是 JSON";
+            File.WriteAllText(path, broken);
             Eq<AppConfig?>(null, ConfigStore.Load(path), "坏 JSON 应返回 null");
             var store = new ConfigStore(path);
             Eq(36037, store.Current.Port, "坏 JSON 应回退默认配置");
-            NotNull(ConfigStore.Load(path), "坏文件应被重写为合法配置");
+            False(store.CreatedNew, "坏配置不是首次运行");
+            NotNull(store.LoadError, "应记录读取失败原因");
+            NotNull(store.CorruptBackupPath, "应生成 .bad 备份");
+            Eq(broken, File.ReadAllText(path), "原文件必须原样保留，等用户决定");
+            Eq(broken, File.ReadAllText(store.CorruptBackupPath!), "备份内容应是原始坏文件");
         });
 
         await Run("Update 修改并写回磁盘", () =>

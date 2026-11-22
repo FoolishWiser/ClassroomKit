@@ -43,6 +43,16 @@ jobs:
           "version=$v" >> $env:GITHUB_OUTPUT
           Write-Host "版本：$v"
 
+      - name: 同步版本号
+        shell: pwsh
+        # 发布版本只有一个来源：把解析出的版本写回项目，单文件 exe 与资产名不会各说各话
+        run: |
+          $v = "${{ steps.ver.outputs.version }}"
+          $p = "Directory.Build.props"
+          $text = Get-Content $p -Raw
+          $text = $text -replace '<Version>[^<]+</Version>', "<Version>$v</Version>"
+          Set-Content -Path $p -Value $text -NoNewline -Encoding UTF8
+
       - name: 单元测试
         run: dotnet run --project tests/ClassroomKit.Tests/ClassroomKit.Tests.csproj -c Release
 

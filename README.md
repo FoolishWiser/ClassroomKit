@@ -75,7 +75,7 @@ msiexec /i ClassroomKit-1.0.0-x64.msi /qn
 代码结构：`Core` 纯逻辑（Linux 可单测）、`Agent` WPF 桌面与 WinRT 热点、`ClassIsland` 插件。测试零依赖：
 
 ```text
-dotnet run --project tests/ClassroomKit.Tests -c Release   # 209 项
+dotnet run --project tests/ClassroomKit.Tests -c Release   # 211 项
 ```
 
 整机验收清单在目标机跟着 [部署手册](docs/部署手册.md) 第 4 节逐条跑。

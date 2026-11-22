@@ -16,6 +16,9 @@ public static class CrashLog
     public static void Install(System.Windows.Application app)
     {
         app.DispatcherUnhandledException += (_, e) => Write("ui", e.Exception);
+        System.Windows.Forms.Application.SetUnhandledExceptionMode(
+            System.Windows.Forms.UnhandledExceptionMode.CatchException);
+        System.Windows.Forms.Application.ThreadException += (_, e) => Write("winforms", e.Exception);
         AppDomain.CurrentDomain.UnhandledException += (_, e) => Write("appdomain", e.ExceptionObject as Exception);
         TaskScheduler.UnobservedTaskException += (_, e) =>
         {

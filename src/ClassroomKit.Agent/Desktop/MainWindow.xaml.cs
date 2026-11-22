@@ -207,6 +207,7 @@ public partial class MainWindow : Window
     private void OnClosed(object? sender, EventArgs e)
     {
         UiHost.ThemeChanged -= OnThemeChanged;
+        _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
         _viewModel.Dispose();
     }
 

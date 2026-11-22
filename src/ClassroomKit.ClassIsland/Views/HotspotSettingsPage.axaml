@@ -68,7 +68,7 @@
                 <StackPanel Spacing="10">
                     <TextBlock Text="课表联动" FontSize="16" FontWeight="SemiBold" />
                     <TextBlock TextWrapping="Wrap" Opacity="0.7"
-                               Text="ClassIsland 每秒把课表状态推给守护进程：现在上什么课、下一节是什么、上一节是什么。守护据此在下课后提醒你保存板书，保存时按上一节课的名字给板书改名。这一段显示的都是守护那边的实时状态。" />
+                               Text="ClassIsland 每秒把课表状态推给守护进程：现在上什么课、下一节是什么、上一节是什么。守护据此在下课后静默倒计时自动保存板书，保存时按上一节课的名字给板书改名。这一段显示的都是守护那边的实时状态。" />
 
                     <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="6" ColumnSpacing="16">
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="课表状态" Opacity="0.7" />
@@ -81,9 +81,9 @@
                         <TextBlock Grid.Row="3" Grid.Column="1" x:Name="LessonPreviousText" Text="—" />
                         <TextBlock Grid.Row="4" Grid.Column="0" Text="板书会叫" Opacity="0.7" />
                         <TextBlock Grid.Row="4" Grid.Column="1" x:Name="LessonNameHintText" Text="—" TextWrapping="Wrap" />
-                        <TextBlock Grid.Row="5" Grid.Column="0" Text="提醒判定" Opacity="0.7" />
+                        <TextBlock Grid.Row="5" Grid.Column="0" Text="保存判定" Opacity="0.7" />
                         <TextBlock Grid.Row="5" Grid.Column="1" x:Name="LessonReminderText" Text="—" TextWrapping="Wrap" />
-                        <TextBlock Grid.Row="6" Grid.Column="0" Text="上次提醒" Opacity="0.7" />
+                        <TextBlock Grid.Row="6" Grid.Column="0" Text="上次判定" Opacity="0.7" />
                         <TextBlock Grid.Row="6" Grid.Column="1" x:Name="LessonLastKeyText" Text="—" TextWrapping="Wrap" />
                         <TextBlock Grid.Row="7" Grid.Column="0" Text="实际生效" Opacity="0.7" />
                         <TextBlock Grid.Row="7" Grid.Column="1" x:Name="LessonEffectiveText" Text="—" TextWrapping="Wrap" />

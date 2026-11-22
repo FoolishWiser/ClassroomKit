@@ -19,7 +19,19 @@ public sealed class ConfigStore
     public ConfigStore(string filePath)
     {
         FilePath = filePath;
-        var loaded = Load(filePath);
+        var loaded = LoadCore(filePath, out var corrupt);
+        if (corrupt)
+        {
+            // 读失败不等于首次运行：先备份坏文件，再用内存里的临时配置启动，绝不覆盖原件。
+            CorruptBackupPath = BackupCorrupt(filePath);
+            LoadError = CorruptBackupPath is null
+                ? "配置文件无法解析，本次使用临时配置（原文件未覆盖）"
+                : $"配置文件无法解析，已备份到 {CorruptBackupPath}，本次使用临时配置（原文件未覆盖）";
+            _config = CreateDefault();
+            CreatedNew = false;
+            return;
+        }
+
         _config = loaded ?? CreateDefault();
         CreatedNew = loaded is null;
 
@@ -53,6 +65,12 @@ public sealed class ConfigStore
     /// 教程引导只在「空白配置 + 用户没看完」时自动弹出（0.7.0 起）。
     /// </summary>
     public bool CreatedNew { get; }
+
+    /// <summary>配置损坏时的说明；正常为 null。</summary>
+    public string? LoadError { get; }
+
+    /// <summary>配置损坏时备份出来的文件路径；没有备份则为 null。</summary>
+    public string? CorruptBackupPath { get; }
 
     private static bool HasOnboardingField(string filePath)
     {
@@ -111,14 +129,21 @@ public sealed class ConfigStore
         AllowTrailingCommas = true
     };
 
-    public static AppConfig? Load(string filePath)
+    public static AppConfig? Load(string filePath) => LoadCore(filePath, out _);
+
+    private static AppConfig? LoadCore(string filePath, out bool corrupt)
     {
+        corrupt = false;
         try
         {
             if (!File.Exists(filePath)) return null;
             var json = File.ReadAllText(filePath);
             var cfg = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions);
-            if (cfg is null) return null;
+            if (cfg is null)
+            {
+                corrupt = true;
+                return null;
+            }
             cfg.Hotspot ??= new HotspotConfig();
             cfg.Uplink ??= new UplinkConfig();
             if (string.IsNullOrWhiteSpace(cfg.Uplink.Mode)) cfg.Uplink.Mode = UplinkSelector.Auto;
@@ -162,36 +187,43 @@ public sealed class ConfigStore
         }
         catch
         {
+            corrupt = true;
+            return null;
+        }
+    }
+
+    /// <summary>把无法解析的配置复制到同目录的 .bad-时间 文件；失败返回 null。</summary>
+    private static string? BackupCorrupt(string filePath)
+    {
+        try
+        {
+            if (!File.Exists(filePath)) return null;
+            var backup = $"{filePath}.bad-{DateTime.Now:yyyyMMdd-HHmmss}";
+            var n = 2;
+            while (File.Exists(backup)) backup = $"{filePath}.bad-{DateTime.Now:yyyyMMdd-HHmmss}-{n++}";
+            File.Copy(filePath, backup, overwrite: false);
+            return backup;
+        }
+        catch
+        {
             return null;
         }
     }
 
     public void Save()
     {
-        string json;
-        lock (_gate)
-        {
-            json = JsonSerializer.Serialize(_config, JsonOptions);
-        }
-        var dir = Path.GetDirectoryName(FilePath);
-        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-        var tmp = FilePath + ".tmp";
-        File.WriteAllText(tmp, json);
-        File.Move(tmp, FilePath, overwrite: true);
+        lock (_gate) { SaveLocked(_config); }
     }
 
     /// <summary>原子地修改配置并落盘。</summary>
     public T Update<T>(Func<AppConfig, T> mutator)
     {
-        AppConfig snapshot;
-        T result;
         lock (_gate)
         {
-            result = mutator(_config);
-            snapshot = _config;
+            var result = mutator(_config);
+            SaveLocked(_config);
+            return result;
         }
-        lock (_gate) { SaveLocked(snapshot); }
-        return result;
     }
 
     /// <summary>原子地修改配置并落盘（不需要返回值时用）。</summary>
@@ -202,8 +234,15 @@ public sealed class ConfigStore
         var json = JsonSerializer.Serialize(cfg, JsonOptions);
         var dir = Path.GetDirectoryName(FilePath);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-        var tmp = FilePath + ".tmp";
-        File.WriteAllText(tmp, json);
-        File.Move(tmp, FilePath, overwrite: true);
+        var tmp = FilePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            File.WriteAllText(tmp, json);
+            File.Move(tmp, FilePath, overwrite: true);
+        }
+        finally
+        {
+            try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* 清理失败不影响主文件 */ }
+        }
     }
 }
