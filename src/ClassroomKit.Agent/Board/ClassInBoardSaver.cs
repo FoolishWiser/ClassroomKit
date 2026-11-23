@@ -353,10 +353,33 @@ public sealed class ClassInBoardSaver
         }
         Step("文件已落盘");
 
-        ClosePanels(null, share);
+        // ClassInX 点完「保存」后还会做收尾：有的版本先留在保存对话框里把 .edb/.png/.pdf 写完、
+        // 锁释放掉，再自己把窗口收掉。文件非空不代表它已经放手；这时立刻结束进程，可能让最后
+        // 一个文件只写了一半。所以先等这次定位到的保存窗口自然消失，再决定要不要关闭 ClassInX。
+        var windowsGone = WaitForSaveWindows(panel, share, 3000);
+        if (!windowsGone)
+        {
+            // 等不到自然关闭再替它关：发 WM_CLOSE 后继续等，确认窗口真的没了才继续。
+            ClosePanels(panel, share);
+            windowsGone = WaitForSaveWindows(panel, share, 5000);
+            Step(windowsGone ? "保存窗口已关闭" : "保存窗口仍未关闭");
+        }
+        else
+        {
+            Step("保存窗口已自行关闭");
+        }
 
         if (closeAfterSave)
         {
+            if (!windowsGone)
+            {
+                // 窗口还在说明 ClassInX 还没放开文件。宁可留着它让老师手动关，也不在保存途中杀进程。
+                return new BoardSaveResult(true, $"板书已保存（{files.Count} 个文件），但保存窗口没有消失，已保留 ClassInX 未关闭", (int)total.ElapsedMilliseconds, files, steps)
+                {
+                    Launched = launched
+                };
+            }
+
             var killed = KillClassIn();
             Step(killed ? "已关闭 ClassInX" : "关闭 ClassInX 失败（请手动关）");
             if (!killed)
@@ -826,6 +849,27 @@ public sealed class ClassInBoardSaver
         return result;
     }
 
+    /// <summary>等到这次定位到的保存窗口真的消失（句柄销毁或不再可见），而不是只看文件大小。</summary>
+    private static bool WaitForSaveWindows(WindowInfo? panel, WindowInfo? share, int timeoutMs)
+    {
+        var deadline = Environment.TickCount64 + timeoutMs;
+        while (Environment.TickCount64 < deadline)
+        {
+            if (WindowGone(panel) && WindowGone(share)) return true;
+            Thread.Sleep(40);
+        }
+        return WindowGone(panel) && WindowGone(share);
+    }
+
+    private static bool WindowGone(WindowInfo? window)
+    {
+        if (window is null) return true;
+
+        // Qt 的 QDialog::done() 默认只是隐藏，不一定销毁句柄；用户看到窗口消失就算保存流程结束。
+        var handle = new IntPtr(window.Handle);
+        return !Native.IsWindow(handle) || !Native.IsWindowVisible(handle);
+    }
+
     private static void ClosePanels(WindowInfo? panel, WindowInfo? share)
     {
         try
@@ -839,11 +883,18 @@ public sealed class ClassInBoardSaver
         }
     }
 
-    /// <summary>结束整个 ClassInX（含子进程），不问未保存内容。</summary>
+    private static readonly string[] ProcessNames = { ProcessName, "ClassInX", "ClassIn" };
+
+    /// <summary>
+    /// 结束整个 ClassInX（含子进程），不问未保存内容。
+    /// 返回 true 的条件是三个可能的进程名都不再存活——不能只看 "ClassIn X" 一个名字，
+    /// 否则某些版本实际叫 ClassInX/ClassIn 时，明明已经退出却会报「关闭失败」。
+    /// </summary>
     public static bool KillClassIn()
     {
-        var any = false;
-        foreach (var name in new[] { ProcessName, "ClassInX", "ClassIn" })
+        if (!AnyProcessRunning()) return true;
+
+        foreach (var name in ProcessNames)
         {
             foreach (var p in Process.GetProcessesByName(name))
             {
@@ -851,7 +902,6 @@ public sealed class ClassInBoardSaver
                 {
                     p.Kill(entireProcessTree: true);
                     p.WaitForExit(3000);
-                    any = true;
                 }
                 catch
                 {
@@ -864,14 +914,31 @@ public sealed class ClassInBoardSaver
             }
         }
 
-        // 确认真的没了
-        for (var i = 0; i < 10; i++)
+        // 给进程树留出收尾时间，再按「全部进程名」确认。
+        for (var i = 0; i < 50; i++)
         {
-            if (Process.GetProcessesByName(ProcessName).Length == 0) return any || true;
-            Thread.Sleep(120);
+            if (!AnyProcessRunning()) return true;
+            Thread.Sleep(100);
+        }
+        return !AnyProcessRunning();
+    }
+
+    public static bool IsClassInRunning() => AnyProcessRunning();
+
+    private static bool AnyProcessRunning()
+    {
+        foreach (var name in ProcessNames)
+        {
+            var processes = Process.GetProcessesByName(name);
+            try
+            {
+                if (processes.Length > 0) return true;
+            }
+            finally
+            {
+                foreach (var p in processes) p.Dispose();
+            }
         }
         return false;
     }
-
-    public static bool IsClassInRunning() => Process.GetProcessesByName(ProcessName).Length > 0;
 }

@@ -4,6 +4,8 @@
 
 1.0 起，课后保存不再弹窗打断课堂：下课 5 分钟后安静地等 15 秒，没人碰鼠标键盘就自动保存；老师一动，它就退回去再等。
 
+1.0.1 修好保存收尾：等 ClassInX 的保存窗口真正消失再结束进程，不让最后一个 `.edb/.png/.pdf` 冒被截断的风险。
+
 单文件 exe（约 80 MB，自包含，目标机不用装 .NET）；原生桌面主界面 + 托盘常驻；管理员账户下默认以管理员权限运行，标准账户也能启动。
 
 ![主界面](docs/img/ui-overview.png)
@@ -18,14 +20,14 @@
 
 预编译包在 [Releases](https://github.com/FoolishWiser/ClassroomKit/releases/latest)：
 
-- `ClassroomKit-1.0.0-x64.msi`（约 74 MB，推荐）
-- `ClassroomKit-1.0.0-win-x64.zip`（绿色版）
-- `ClassroomKit-1.0.0.cipx`（ClassIsland 2.1 插件，装进 ClassIsland，不是安装包）
+- `ClassroomKit-1.0.1-x64.msi`（约 74 MB，推荐）
+- `ClassroomKit-1.0.1-win-x64.zip`（绿色版）
+- `ClassroomKit-1.0.1.cipx`（ClassIsland 2.1 插件，装进 ClassIsland，不是安装包）
 
 ```text
-双击 ClassroomKit-1.0.0-x64.msi
+双击 ClassroomKit-1.0.1-x64.msi
 # 或静默安装：
-msiexec /i ClassroomKit-1.0.0-x64.msi /qn
+msiexec /i ClassroomKit-1.0.1-x64.msi /qn
 ```
 
 装完自动落地到 `C:\Program Files\ClassroomKit`、建配置目录、放宽设备上限到 16 台、注册登录自启与 SYSTEM 护航任务，并立刻拉起守护。开始菜单会多一项「ClassroomKit 助手」。默认按「最高可用权限」启动：管理员账户直接提权，标准账户仍以普通权限运行。
