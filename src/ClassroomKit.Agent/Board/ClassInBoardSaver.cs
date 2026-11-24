@@ -307,12 +307,40 @@ public sealed class ClassInBoardSaver
         if (clicked > 0) Step($"补勾 {clicked} 个格式");
         Step("三种格式已确认");
 
-        Input.Click(located
-            ? saveButton.X
-            : panel.X + Px(_recipe.SaveLocal.SaveButtonX),
-            located
-            ? saveButton.Y
-            : panel.Y + Py(_recipe.SaveLocal.SaveButtonY));
+        // 勾选格式后面板可能重排，点保存前再抓一次绿色按钮；抓不到才退回配方坐标。
+        var (saveX, saveY) = located
+            ? saveButton
+            : (panel.X + Px(_recipe.SaveLocal.SaveButtonX), panel.Y + Py(_recipe.SaveLocal.SaveButtonY));
+        var freshButton = FindSaveButton(panel);
+        if (freshButton is not null)
+        {
+            (saveX, saveY) = freshButton.Value;
+            located = true;
+        }
+
+        _log.Info($"板书保存诊断：点击保存 @ {saveX},{saveY}"
+            + $"（视觉定位={located}，面板前台={Input.IsForeground(panel.Handle)}）");
+        Input.ForceForeground(panel.Handle);
+        Thread.Sleep(120);
+        var clickAt = DateTime.Now.AddMilliseconds(-300);
+        Input.Click(saveX, saveY);
+
+        // 有的机器上第一下点击只把面板激活、不触发按钮（尤其是自动保存时焦点不在 ClassInX）。
+        // 等 1.2 秒：没新文件、面板还在、也没弹覆盖确认，就补点一次。
+        var clickDeadline = Environment.TickCount64 + 1200;
+        while (Environment.TickCount64 < clickDeadline)
+        {
+            if (NewFiles(clickAt).Count > 0 || WindowGone(panel)) break;
+            Thread.Sleep(60);
+        }
+        if (NewFiles(clickAt).Count == 0 && !WindowGone(panel)
+            && FindOverwriteDialog(shareScaleX, shareScaleY) is null)
+        {
+            _log.Warn("板书保存诊断：第一次点保存没有产生文件，补点一次");
+            Input.ForceForeground(panel.Handle);
+            Thread.Sleep(150);
+            Input.Click(saveX, saveY);
+        }
 
         // 覆盖确认：每个已存在的文件弹一次「…已经存在，是否替换它？」
         var confirmed = 0;
@@ -709,6 +737,30 @@ public sealed class ClassInBoardSaver
         catch
         {
             return false;
+        }
+    }
+
+    /// <summary>
+    /// 只找绿色「保存」按钮，不碰勾选框。勾选格式后版面可能变化，点保存前用它重新取一次坐标。
+    /// </summary>
+    private (int X, int Y)? FindSaveButton(WindowInfo panel)
+    {
+        try
+        {
+            using var bmp = Input.CaptureBitmap(panel.X, panel.Y, panel.Width, panel.Height);
+            if (bmp is null) return null;
+
+            var save = ScreenVision.FindBlobs(bmp, ScreenVision.IsGreen, 40)
+                .Where(b => b.Width >= 50 && b.Height >= 18 && b.Area >= 600)
+                .OrderByDescending(b => b.Area)
+                .FirstOrDefault();
+            if (save.Area <= 0) return null;
+
+            return (panel.X + save.CenterX, panel.Y + save.CenterY);
+        }
+        catch
+        {
+            return null;
         }
     }
 

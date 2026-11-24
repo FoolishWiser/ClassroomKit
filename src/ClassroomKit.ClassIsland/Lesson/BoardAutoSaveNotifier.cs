@@ -76,6 +76,15 @@ public sealed class BoardAutoSaveNotifier : NotificationProviderBase, IDisposabl
             return;
         }
 
+        // 保存动作开始前先收起提醒：ClassIsland 的提醒层是置顶窗口，
+        // 如果压在 ClassInX 保存面板的「保存」按钮上，鼠标点击会被它截走。
+        if (string.Equals(state.Phase, BoardAutoSavePhases.Countdown, StringComparison.OrdinalIgnoreCase)
+            && state.RemainingSeconds <= 2)
+        {
+            Hide();
+            return;
+        }
+
         var key = CountdownKey(state);
         var text = BuildText(state);
 
