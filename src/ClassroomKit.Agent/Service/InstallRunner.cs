@@ -22,7 +22,8 @@ public static class InstallRunner
 
         if (ok)
         {
-            // MSI 的 deferred 自定义动作通常会自己把新版本拉起来；万一没有（升级时没人登录等），这里兜底。
+            // 升级时 MsiSetup 的 Condition 是 NOT Installed，不会执行；这里负责把新版本拉回用户会话，
+            // 且带 --tray，升级完只出现在托盘里，不打断正在上课的老师。
             Thread.Sleep(2000);
             if (UserInstanceCount() == 0)
             {

@@ -469,7 +469,7 @@ public sealed class UpdateService
                 "set \"EXE=%ProgramFiles%\\ClassroomKit\\ClassroomKit.Agent.exe\"\r\n" +
                 "if exist \"%EXE%\" (\r\n" +
                 "  tasklist /FI \"IMAGENAME eq ClassroomKit.Agent.exe\" 2>nul | find /I \"ClassroomKit.Agent.exe\" >nul\r\n" +
-                "  if errorlevel 1 start \"\" \"%EXE%\"\r\n" +
+                "  if errorlevel 1 start \"\" \"%EXE%\" --tray\r\n" +
                 ")\r\n" +
                 "exit /b 0\r\n";
             File.WriteAllText(scriptPath, script, Encoding.Default);

@@ -40,7 +40,7 @@
                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="24,0,0,0">
                         <Button Content="检查更新" Style="{StaticResource SecondaryButton}" MinWidth="140"
                                 Command="{Binding CheckUpdateCommand}" />
-                        <Button Content="立即下载并安装" Style="{StaticResource PrimaryButton}" Margin="0,8,0,0"
+                        <Button Content="立即更新" Style="{StaticResource PrimaryButton}" Margin="0,8,0,0"
                                 Command="{Binding UpgradeCommand}" />
                     </StackPanel>
                 </Grid>

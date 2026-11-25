@@ -284,19 +284,23 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         CheckUpdateCommand = new RelayCommand(() => RunUpdateOnce(async () =>
         {
             var status = await _rt.Update.CheckAsync(true);
-            if (!status.HasUpdate) return status.PhaseText;
-            var after = await _rt.Update.DownloadAsync();
-            return after.Phase == UpdatePhase.Ready ? $"发现新版本 v{status.Latest}，安装包已下载" : after.PhaseText;
+            return status.HasUpdate
+                ? $"发现新版本 v{status.Latest}，点「立即更新」一次完成下载与安装"
+                : status.PhaseText;
         }));
         UpgradeCommand = new RelayCommand(() => RunUpdateOnce(async () =>
         {
-            var s = await _rt.Update.DownloadAsync();
-            if (s.Phase == UpdatePhase.Ready)
+            var s = _rt.Update.Status;
+            if (s.Phase == UpdatePhase.Installing) return "正在安装新版本，稍等几秒…";
+            if (!s.HasUpdate)
             {
-                var (ok, msg) = _rt.Update.Install();
-                return msg;
+                s = await _rt.Update.CheckAsync(true);
+                if (!s.HasUpdate) return s.PhaseText;
             }
-            return s.PhaseText;
+            s = await _rt.Update.DownloadAsync();
+            if (s.Phase != UpdatePhase.Ready) return s.PhaseText;
+            var (_, msg) = _rt.Update.Install();
+            return msg;
         }));
         UpdatePluginCommand = new RelayCommand(() => RunUpdateOnce(async () =>
         {

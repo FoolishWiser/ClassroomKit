@@ -82,7 +82,7 @@
                         <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
                             <Button Content="检查更新" Style="{StaticResource SecondaryButton}"
                                     Command="{Binding CheckUpdateCommand}" />
-                            <Button Content="立即升级" Style="{StaticResource GhostButton}" Margin="8,0,0,0"
+                            <Button Content="立即更新" Style="{StaticResource GhostButton}" Margin="8,0,0,0"
                                     Command="{Binding UpgradeCommand}" />
                         </StackPanel>
                     </StackPanel>
