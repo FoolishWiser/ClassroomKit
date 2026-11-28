@@ -360,6 +360,13 @@ public sealed class UpdateService
                 }
                 catch (Exception ex)
                 {
+                    // 不是所有下载失败都怪学校网络：磁盘满、没有写权限、杀软拦截也会走到这里，
+                    // 一律说“网络被屏蔽”会让老师白折腾换网络。
+                    if (ex is UnauthorizedAccessException or IOException)
+                    {
+                        return Fail("安装包没能写入磁盘（磁盘空间不足或没有写入权限）：" + ex.Message);
+                    }
+
                     var hint = "：" + ex.Message;
                     return Fail("下载安装包失败（直连和镜像都不通，学校网络可能屏蔽了 GitHub）："
                         + "可以用浏览器手动下载安装包再双击安装" + hint);
@@ -371,11 +378,24 @@ public sealed class UpdateService
             if (pluginAsset is not null)
                 await DownloadPluginPackageAsync(pluginAsset, dir, ct).ConfigureAwait(false);
 
+            // 下载与安装可能并发：安装已经开始时，结尾的 Ready 会把 Installing 冲掉，
+            // 面板会永远显示「正在安装」，看门狗也对不上号。
+            if (Status.Phase == UpdatePhase.Installing)
+            {
+                _log.Info("安装已经开始，下载完成后保持「正在安装」状态");
+                return Status;
+            }
+
             return Set(Ready());
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            return Fail("下载已取消");
         }
         catch (OperationCanceledException)
         {
-            return Fail("下载已取消");
+            _log.Warn("下载超时（连接 2 小时没有完成）");
+            return Fail("下载超时：网络太慢或连接被中断，请稍后重试，或用浏览器手动下载安装包");
         }
         catch (Exception ex)
         {
@@ -452,38 +472,20 @@ public sealed class UpdateService
             return (false, "当前没有可交互的桌面会话，无法弹管理员授权：请到这台电脑前手动运行安装包，或先装好护航任务");
         }
 
-        var logPath = Path.Combine(Paths.LogDir, "update.log");
-        var scriptPath = Path.Combine(UpdateRoot, "apply-update.cmd");
         try
         {
             Directory.CreateDirectory(Paths.LogDir);
-            Directory.CreateDirectory(Path.GetDirectoryName(scriptPath)!);
-            var script =
-                "@echo off\r\n" +
-                "setlocal\r\n" +
-                "timeout /t 2 /nobreak >nul\r\n" +
-                $"echo [%date% %time%] 开始安装 {Path.GetFileName(path)}>>\"{logPath}\"\r\n" +
-                $"msiexec /i \"{path}\" /qn /norestart REBOOT=ReallySuppress\r\n" +
-                $"echo [%date% %time%] msiexec 退出码=%ERRORLEVEL% >>\"{logPath}\"\r\n" +
-                "timeout /t 3 /nobreak >nul\r\n" +
-                "set \"EXE=%ProgramFiles%\\ClassroomKit\\ClassroomKit.Agent.exe\"\r\n" +
-                "if exist \"%EXE%\" (\r\n" +
-                "  tasklist /FI \"IMAGENAME eq ClassroomKit.Agent.exe\" 2>nul | find /I \"ClassroomKit.Agent.exe\" >nul\r\n" +
-                "  if errorlevel 1 start \"\" \"%EXE%\" --tray\r\n" +
-                ")\r\n" +
-                "exit /b 0\r\n";
-            File.WriteAllText(scriptPath, script, Encoding.Default);
-
-            var psi = new ProcessStartInfo("cmd.exe", $"/c \"{scriptPath}\"")
+            // 不再把 .cmd 写到用户可写的 ProgramData：那等于给普通用户一个「管理员会执行的脚本」，
+            // 存在 TOCTOU 提权。直接以管理员重启受保护的自身 exe，由 --apply-update 完成安装。
+            var psi = new ProcessStartInfo(Paths.ExePath, $"--apply-update \"{path}\"")
             {
                 UseShellExecute = true,
-                WindowStyle = ProcessWindowStyle.Hidden,
-                WorkingDirectory = Path.GetTempPath()
+                WindowStyle = ProcessWindowStyle.Hidden
             };
             if (!AdminElevation.IsElevated()) psi.Verb = "runas";
 
             var process = Process.Start(psi);
-            _log.Info($"已启动升级脚本（PID {process?.Id}）：{Path.GetFileName(path)}");
+            _log.Info($"已启动升级进程（PID {process?.Id}）：{Path.GetFileName(path)}");
 
             Set(Status with { Phase = UpdatePhase.Installing, Silent = false, Error = null });
 
@@ -740,6 +742,17 @@ public sealed class UpdateService
                 return false;
             }
 
+            // ClassIsland 运行时插件 DLL 正在被加载，覆盖到一半才失败会留下混合版本；先拒绝，等它退出再补装。
+            if (IsClassIslandRunning())
+            {
+                var busy = "ClassIsland 正在运行，先不动插件文件；退出后会自动补装";
+                if (stageOnFailure && StagePendingPlugin(cipxPath))
+                    busy += $"（{Path.GetFileName(PendingPluginPath)}）";
+                SetPluginError(busy);
+                _log.Warn(busy);
+                return false;
+            }
+
             _log.Info($"更新 ClassIsland 插件：{Path.GetFileName(cipxPath)} → {location.Dir}");
 
             // 临时解压目录放到 update\tmp，绝不能落在 …\Plugins 里（ClassIsland 会把它当第二个插件）。
@@ -774,6 +787,18 @@ public sealed class UpdateService
                 hint += $"；已排入待安装队列（{Path.GetFileName(PendingPluginPath)}），退出 ClassIsland 后下次巡检会自动重试";
 
             SetPluginError(hint);
+            return false;
+        }
+    }
+
+    private static bool IsClassIslandRunning()
+    {
+        try
+        {
+            return Process.GetProcessesByName("ClassIsland").Length > 0;
+        }
+        catch
+        {
             return false;
         }
     }
@@ -1038,6 +1063,12 @@ public sealed class UpdateService
                         var (digestOk, message) = VerifyDigest(target, asset.Digest);
                         if (!digestOk) throw new InvalidDataException("文件校验不通过：" + message);
                     }
+                    else
+                    {
+                        // 只比大小挡不住被中间人替换的安装包。GitHub 从 2025 年起给资产带 digest，
+                        // 自己的发布流程也一定有；缺失就拒绝自动安装，宁可让用户手动装。
+                        throw new InvalidDataException("发布资产没有 sha256 摘要，无法确认安装包完整，请手动下载安装");
+                    }
 
                     _log.Info($"下载完成（{via}）：{asset.Name}（{info.Length} 字节）");
                     onProgress?.Invoke(100);
@@ -1062,14 +1093,14 @@ public sealed class UpdateService
             lastError);
     }
 
-    /// <summary>文件已下载且大小、摘要都对得上（摘要缺失时只比大小）。</summary>
+    /// <summary>文件已下载且大小、摘要都对得上（没有摘要一律视为不完整）。</summary>
     private static bool IsAssetComplete(string path, ReleaseAsset asset)
     {
         try
         {
             if (!File.Exists(path)) return false;
             if (asset.Size > 0 && new FileInfo(path).Length != asset.Size) return false;
-            return asset.Digest is null || VerifyDigest(path, asset.Digest).Ok;
+            return !string.IsNullOrEmpty(asset.Digest) && VerifyDigest(path, asset.Digest).Ok;
         }
         catch
         {
@@ -1292,7 +1323,9 @@ public sealed class UpdateService
 
     private static HttpClient CreateHttp()
     {
-        var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+        // 学校网络到 GitHub 可能只有几十 KB/s，78 MB 安装包 5 分钟根本下不完。
+        // 用 2 小时兜底，真正的取消由用户操作传入的 CancellationToken 负责。
+        var client = new HttpClient { Timeout = TimeSpan.FromHours(2) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd("ClassroomKit-Agent");
         return client;
     }

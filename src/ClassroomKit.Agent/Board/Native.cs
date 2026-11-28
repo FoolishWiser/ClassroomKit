@@ -14,6 +14,9 @@ internal static class Native
     public const byte VkControl = 0x11;
     public const byte VkS = 0x53;
     public const byte VkEscape = 0x1B;
+    public const byte VkA = 0x41;
+    public const byte VkDelete = 0x2E;
+    public const byte VkBack = 0x08;
 
     public const int SwRestore = 9;
     public const int SwShowNoActivate = 4;

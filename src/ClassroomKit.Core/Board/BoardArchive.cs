@@ -110,8 +110,25 @@ public sealed class BoardArchive
         }
         catch
         {
-            // 坏索引只影响历史/续用，不影响保存本身
+            // 坏索引只影响历史/续用，不影响保存本身；先留一份现场，别让下一次写入直接覆盖
+            BackupCorrupt(path);
             return new List<BoardRecord>();
+        }
+    }
+
+    private static void BackupCorrupt(string path)
+    {
+        try
+        {
+            if (!File.Exists(path)) return;
+            var backup = $"{path}.bad-{DateTime.Now:yyyyMMdd-HHmmss}";
+            var index = 1;
+            while (File.Exists(backup)) backup = $"{path}.bad-{DateTime.Now:yyyyMMdd-HHmmss}-{index++}";
+            File.Copy(path, backup, overwrite: false);
+        }
+        catch
+        {
+            // 备份失败也不能阻止启动
         }
     }
 

@@ -124,22 +124,13 @@ internal static class LessonTests
             Eq("after|2026-11-14|数学", d.Key);
         });
 
-        Run("连堂课间默认也保存，供下一节续用", () =>
+        Run("连堂课间不保存，等这门课最后一段下课再存", () =>
         {
             var ledger = LessonLedger.FromState(null);
             ledger.Accept(Snapshot(next: "语文", previous: "语文"));
             var d = ledger.Evaluate(Now, new LessonConfig());
-            True(d.Show, "默认连堂也保存，下一节才能续用");
-            Eq("语文", d.Subject);
-        });
-
-        Run("关掉连堂保存后，等最后一节下课", () =>
-        {
-            var ledger = LessonLedger.FromState(null);
-            ledger.Accept(Snapshot(next: "语文", previous: "语文"));
-            var d = ledger.Evaluate(Now, new LessonConfig { SaveConnectedClasses = false });
             Eq("continuous", d.Reason);
-            False(d.Show, "连堂中间不打扰老师");
+            False(d.Show, "连堂中间不打扰老师，避免把同一份板书拆成两段");
         });
 
         Run("课间名命中跳过清单时不保存", () =>
@@ -255,6 +246,29 @@ internal static class LessonTests
             Eq(10, again.State.RemainingSeconds, "继续操作要把冷却重置成 10 秒");
             var still = tracker.Tick(start.AddSeconds(14), start.AddSeconds(5), Snapshot(nextStart: Now.AddMinutes(10)));
             Eq(BoardAutoSavePhases.Cooldown, still.State.Phase);
+        });
+
+        Run("持续操作最多顺延 60 秒，之后必须保存", () =>
+        {
+            var tracker = new BoardAutoSaveTracker(() => new AppConfig());
+            tracker.Arm(Snapshot(nextStart: Now.AddMinutes(10)), Now, true);
+            var start = Now.AddMinutes(5);
+            tracker.Tick(start, null, Snapshot(nextStart: Now.AddMinutes(10)));
+            tracker.Tick(start.AddSeconds(2), start.AddSeconds(1), Snapshot(nextStart: Now.AddMinutes(10)));
+
+            // 每 5 秒碰一下屏幕：前 60 秒一直被顺延。
+            var t = start.AddSeconds(6);
+            for (; t <= start.AddSeconds(56); t = t.AddSeconds(5))
+            {
+                var held = tracker.Tick(t, t.AddSeconds(-1), Snapshot(nextStart: Now.AddMinutes(10)));
+                Eq(BoardAutoSavePhases.Cooldown, held.State.Phase, $"第 {(t - start).TotalSeconds:F0} 秒仍在冷却");
+                False(held.StartSave, "冷却中不保存");
+            }
+
+            // 超过上限后不能再顺延，回到倒计时；没人再碰，15 秒后保存。
+            tracker.Tick(start.AddSeconds(62), start.AddSeconds(61), Snapshot(nextStart: Now.AddMinutes(10)));
+            var saved = tracker.Tick(start.AddSeconds(78), start.AddSeconds(61), Snapshot(nextStart: Now.AddMinutes(10)));
+            True(saved.StartSave, "顺延上限到了必须保存，否则下课保存永远不触发");
         });
 
         Run("快到上课前 2 分 30 秒就放弃", () =>

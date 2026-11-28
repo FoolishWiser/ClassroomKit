@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using ClassroomKit.Agent.Board;
 using Microsoft.Win32;
 
 namespace ClassroomKit.Agent.Shell;
@@ -32,6 +33,15 @@ public static class SelfUninstaller
     /// <summary>启动卸载，然后调用方应尽快退出进程。返回给面板/命令行的说明文字。</summary>
     public static (bool Ok, string Message) Start(bool keepData, Action<string>? log = null)
     {
+        // 卸载脚本 2 秒后就会 taskkill：正在保存板书时必须先等完，否则会留下写了一半的文件和按住的按键。
+        var until = DateTime.UtcNow.AddSeconds(60);
+        while (ClassroomKit.Agent.Board.ClassInBoardSaver.IsSaving && DateTime.UtcNow < until)
+        {
+            log?.Invoke("板书正在保存，等它完成后再卸载…");
+            Thread.Sleep(250);
+        }
+        try { ClassroomKit.Agent.Board.Input.ReleaseAllInputs(); } catch { }
+
         var plan = BuildPlan(keepData);
 
         if (plan.ViaMsi && plan.ProductCode is { } productCode)
@@ -53,16 +63,25 @@ public static class SelfUninstaller
         }
 
         var dataLine = keepData ? "" : $"rmdir /s /q \"{plan.DataDir}\" >nul 2>&1\r\n";
+        // 绿色版允许用户自选目录。如果他把 exe 解到 D:\Tools 这种共用目录，rmdir /s 会把整个目录删掉。
+        // 只在自己专属的 ClassroomKit 目录里才整目录删除，否则只删程序文件、保留目录。
+        var exeDirIsOurs = plan.ExeDir.Contains("ClassroomKit", StringComparison.OrdinalIgnoreCase);
+        var exeLine = exeDirIsOurs
+            ? $"rmdir /s /q \"{plan.ExeDir}\" >nul 2>&1\r\n"
+            : "";
+        if (!exeDirIsOurs) log?.Invoke($"程序目录 {plan.ExeDir} 不像 ClassroomKit 专属目录，只删程序文件、不删目录");
         var green =
             "@echo off\r\n" +
             "timeout /t 2 /nobreak >nul\r\n" +
             "taskkill /f /im ClassroomKit.Agent.exe >nul 2>&1\r\n" +
             "schtasks /delete /tn \"ClassroomKit-Agent\" /f >nul 2>&1\r\n" +
+            // 从 MSI 版退回绿色版/改装的机器上可能还留着 SYSTEM 护航任务，只删用户任务是删不掉的。
+            "schtasks /delete /tn \"ClassroomKit-Service\" /f >nul 2>&1\r\n" +
             "reg delete \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\icssvc\\Settings\" /v WifiMaxPeers /f >nul 2>&1\r\n" +
             "sc stop icssvc >nul 2>&1\r\n" +
             "sc start icssvc >nul 2>&1\r\n" +
             "timeout /t 1 /nobreak >nul\r\n" +
-            $"rmdir /s /q \"{plan.ExeDir}\" >nul 2>&1\r\n" +
+            exeLine +
             dataLine +
             "del \"%~f0\" >nul 2>&1\r\n";
 

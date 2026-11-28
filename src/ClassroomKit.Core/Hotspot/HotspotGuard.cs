@@ -55,6 +55,7 @@ public sealed class HotspotGuard
     private int _failStreak;
     private DateTimeOffset _nextAttempt = DateTimeOffset.MinValue;
     private bool _capWarned;
+    private bool _clientsWarned;
     private bool _timeoutWarned;
     private OperationalState _lastState = OperationalState.Unknown;
 
@@ -99,6 +100,10 @@ public sealed class HotspotGuard
     public DateTimeOffset? LastChange { get; private set; }
     public int RestartCount { get; private set; }
     public IReadOnlyList<TetherClient> Clients { get; private set; } = Array.Empty<TetherClient>();
+    /// <summary>客户端列表这次是否读成功；读失败时保留上一次的列表，不能用空表冒充「零客户端」。</summary>
+    public bool ClientsKnown { get; private set; } = true;
+    /// <summary>最近一次读取客户端失败的原因。</summary>
+    public string? LastClientsError { get; private set; }
 
     /// <summary>最近一次自我修复的时间（自动或手动都算）。</summary>
     public DateTimeOffset? LastRepairAt { get; private set; }
@@ -220,8 +225,24 @@ public sealed class HotspotGuard
                 }
             }
 
-            try { Clients = StabilizeClients(await _tethering.GetClientsAsync(ct), _now()); }
-            catch { Clients = Array.Empty<TetherClient>(); }
+            try
+            {
+                Clients = StabilizeClients(await _tethering.GetClientsAsync(ct), _now());
+                ClientsKnown = true;
+                LastClientsError = null;
+                _clientsWarned = false;
+            }
+            catch (Exception ex)
+            {
+                // 读失败不代表没人：保留上一次的列表，只把「未知」标出来，避免升级逻辑误判教室空了。
+                ClientsKnown = false;
+                LastClientsError = ex.Message;
+                if (!_clientsWarned)
+                {
+                    _clientsWarned = true;
+                    _log.Warn("读取在线设备失败，已保留上一次的列表：" + ex.Message);
+                }
+            }
 
             _onSince ??= _now();
             await CheckIdleNoRxAsync(snap, cfg, ct);

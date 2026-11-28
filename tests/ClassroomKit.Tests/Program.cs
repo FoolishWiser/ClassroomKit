@@ -76,7 +76,7 @@ internal static class Program
         await LessonTests.RunAsync();
 
         Console.WriteLine();
-        Console.WriteLine("[1.0.4 板书归档与续用]");
+        Console.WriteLine("[板书归档与续用]");
         await BoardV104Tests.RunAsync();
 
         Console.WriteLine();

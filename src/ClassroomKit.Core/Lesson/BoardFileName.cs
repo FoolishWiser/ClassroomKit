@@ -52,7 +52,7 @@ public static class BoardFileName
 
     /// <summary>
     /// 渲染模板；模板为空用默认模板，渲染后为空退回「板书_日期_时间」。
-    /// includeLessonInName=true 时，即使模板没写 {节次} 也会补「_第N节」，保证 1.0.4 的自动保存文件名一定带节次。
+    /// includeLessonInName=false 时 {节次} 渲染为空，不再自作主张补「_第N节」。
     /// </summary>
     public static string Render(string? template, string? subject, DateTimeOffset at, int lessonIndex = 0,
         bool includeLessonInName = true)
@@ -63,7 +63,7 @@ public static class BoardFileName
         var local = at;
         var date = local.ToString("yyyy-MM-dd");
         var time = local.ToString("HH-mm");
-        var period = lessonIndex > 0 ? $"第{lessonIndex}节" : "";
+        var period = includeLessonInName && lessonIndex > 0 ? $"第{lessonIndex}节" : "";
         var weekday = "周" + "日一二三四五六"[(int)local.DayOfWeek];
         // 没有科目名时用「板书」占位，否则默认模板会渲染成 _2026-11-14_10-05 这种不好认的名字
         var name = Sanitize(subject) is { Length: > 0 } s ? s : "板书";
@@ -74,11 +74,6 @@ public static class BoardFileName
             .Replace("{时间}", time, StringComparison.Ordinal)
             .Replace("{节次}", period, StringComparison.Ordinal)
             .Replace("{周几}", weekday, StringComparison.Ordinal);
-
-        if (includeLessonInName && period.Length > 0
-            && !tpl.Contains("{节次}", StringComparison.Ordinal)
-            && !rendered.Contains(period, StringComparison.Ordinal))
-            rendered += "_" + period;
 
         rendered = Sanitize(rendered);
         if (rendered.Length == 0) rendered = $"板书_{date}_{time}";
@@ -99,6 +94,7 @@ public static class BoardFileName
         var result = new List<string>(list.Count);
         var renamed = 0;
         var failed = 0;
+        var movedPairs = new List<(string Source, string Target)>();
 
         foreach (var file in list)
         {
@@ -134,6 +130,7 @@ public static class BoardFileName
             if (moved)
             {
                 renamed++;
+                movedPairs.Add((file, target));
                 result.Add(target);
             }
             else
@@ -143,12 +140,25 @@ public static class BoardFileName
             }
         }
 
-        var message = renamed == 0
-            ? "文件名保持不变（文件被占用或无需改名）"
-            : failed == 0
-                ? $"已改名为 {safe}"
-                : $"已改名 {renamed} 个，{failed} 个仍被占用";
-        return new BoardRenameResult(result, renamed, failed, message);
+        if (failed > 0)
+        {
+            // 一半新名、一半原名会让同一份板书分裂成两处，宁可全部退回原名。
+            foreach (var pair in movedPairs.AsEnumerable().Reverse())
+            {
+                try
+                {
+                    if (File.Exists(pair.Target) && !File.Exists(pair.Source))
+                        File.Move(pair.Target, pair.Source);
+                }
+                catch { /* 回滚失败保留现状，至少不丢文件 */ }
+            }
+
+            return new BoardRenameResult(list, 0, failed,
+                $"有 {failed} 个文件改名失败，已全部恢复原名（文件可能被 ClassInX 占用）");
+        }
+
+        var message = renamed == 0 ? "文件名保持不变（文件被占用或无需改名）" : $"已改名为 {safe}";
+        return new BoardRenameResult(result, renamed, 0, message);
     }
 
     /// <summary>科目文件夹名：清理非法字符，空科目归到「未分类」。</summary>
@@ -239,7 +249,7 @@ public static class BoardFileName
                 catch { /* 回滚失败就保留现状，至少不丢文件 */ }
             }
 
-            return BoardMoveResult.Unchanged(list,
+            return new BoardMoveResult(list, 0, failed,
                 $"有 {failed} 个文件无法移入「{folder}」，已保留在原目录" + (firstError is null ? "" : $"（{firstError}）"));
         }
 

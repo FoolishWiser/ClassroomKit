@@ -136,7 +136,7 @@ internal static class PluginTests
                 var path = Path.Combine(dir, "v6.json");
                 File.WriteAllText(path, "{ \"schemaVersion\": 6, \"tray\": { \"enabled\": true }, \"update\": { \"checkOnBoot\": true } }");
                 var store = new ConfigStore(path);
-                Eq(8, store.Current.SchemaVersion, "升到结构 8");
+                Eq(9, store.Current.SchemaVersion, "升到结构 9");
                 Eq(ClassroomKit.Core.Lesson.BoardFileName.DefaultTemplate, store.Current.BoardSave.NameTemplate, "板书模板带节次");
                 False(store.Current.Tray.SaveKeepOpen, "「保存，保留 ClassInX」默认收起");
                 False(store.Current.Tray.SaveWithoutRename, "「保存（不按课表改名）」默认收起");

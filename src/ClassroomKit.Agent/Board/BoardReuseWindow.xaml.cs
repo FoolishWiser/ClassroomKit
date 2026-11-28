@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Threading;
 using ClassroomKit.Core.Board;
 
 namespace ClassroomKit.Agent.Board;
@@ -23,6 +24,16 @@ public partial class BoardReuseWindow : Window
         _onDismiss = onDismiss;
         InitializeComponent();
         MessageText.Text = target.Text;
+
+        // 不关就一直置顶会挡着上课；60 秒没动作按「稍后」处理，让老师还能再等到提示
+        var autoClose = new DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };
+        autoClose.Tick += (_, _) =>
+        {
+            autoClose.Stop();
+            Close();
+        };
+        Closed += (_, _) => autoClose.Stop();
+        autoClose.Start();
     }
 
     private void OnReuse(object sender, RoutedEventArgs e)

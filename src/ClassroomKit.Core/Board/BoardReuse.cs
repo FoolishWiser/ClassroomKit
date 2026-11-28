@@ -62,22 +62,9 @@ public static class BoardReusePlanner
         DateTimeOffset start;
         DateTimeOffset end;
 
-        if (snapshot.State == LessonStates.Breaking)
-        {
-            subject = snapshot.NextSubject;
-            targetIndex = snapshot.NextLessonIndex > 0 ? snapshot.NextLessonIndex : snapshot.LessonIndex + 1;
-            previousIndex = snapshot.PreviousLessonIndex > 0 ? snapshot.PreviousLessonIndex : snapshot.LessonIndex;
-            start = snapshot.CurrentEndAt ?? now;
-            end = snapshot.NextEndAt
-                  ?? (snapshot.NextStartAt is { } nextStart ? nextStart.AddMinutes(45) : now.AddMinutes(45));
+        // 连堂课间不保存板书，只在下一节同科目已经在上课时提示续用。
+        if (snapshot.State != LessonStates.Class) return null;
 
-            // 下一节必须和上一节同科目；插件没给上一节时交给档案按科目匹配兜底。
-            if (!string.IsNullOrWhiteSpace(snapshot.PreviousSubject)
-                && !SameSubject(snapshot.PreviousSubject, subject)) return null;
-            if (!string.IsNullOrWhiteSpace(snapshot.NextSubject)
-                && !SameSubject(snapshot.NextSubject, subject)) return null;
-        }
-        else if (snapshot.State == LessonStates.Class)
         {
             subject = snapshot.CurrentSubject;
             targetIndex = snapshot.LessonIndex;
@@ -88,10 +75,6 @@ public static class BoardReusePlanner
             // 上一节必须有同科目记录；插件没给 PreviousSubject 时允许按档案匹配。
             if (!string.IsNullOrWhiteSpace(snapshot.PreviousSubject)
                 && !SameSubject(snapshot.PreviousSubject, subject)) return null;
-        }
-        else
-        {
-            return null;
         }
 
         if (string.IsNullOrWhiteSpace(subject) || targetIndex <= 0 || previousIndex <= 0) return null;
@@ -171,7 +154,24 @@ public sealed class BoardReuseStore
         }
         catch
         {
+            BackupCorrupt(path);
             return new BoardReuseState();
+        }
+    }
+
+    private static void BackupCorrupt(string path)
+    {
+        try
+        {
+            if (!File.Exists(path)) return;
+            var backup = $"{path}.bad-{DateTime.Now:yyyyMMdd-HHmmss}";
+            var index = 1;
+            while (File.Exists(backup)) backup = $"{path}.bad-{DateTime.Now:yyyyMMdd-HHmmss}-{index++}";
+            File.Copy(path, backup, overwrite: false);
+        }
+        catch
+        {
+            // 备份失败也不能影响保存/提示
         }
     }
 }

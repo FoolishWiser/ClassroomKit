@@ -1,38 +1,47 @@
-using System.Windows.Automation;
 using ClassroomKit.Core.Board;
 using ClassroomKit.Core.Logging;
 
 namespace ClassroomKit.Agent.Board;
 
 /// <summary>
-/// 保存后清屏：先按 UIAutomation 找 ClassInX 的「橡皮 / 清屏」按钮，找不到再用老师校准过的
-/// 相对坐标点一次。两种方式都没有时返回失败，只记日志，不影响板书已经保存成功。
+/// 保存后清屏：确认 ClassInX 在前台，Ctrl+A 全选，再按配置的 Delete 或 Backspace。
+/// 用清屏前后的 32x32 亮度指纹判断画面是否真的变了；失败只记日志，不影响板书已保存。
 /// </summary>
 internal static class BoardScreenCleaner
 {
-    private static readonly string[] Names =
-    {
-        "清屏", "一键清屏", "橡皮", "擦除", "清空", "清除", "Clear", "Erase", "Eraser"
-    };
+    private const double ChangedThreshold = 0.02;
 
-    public static (bool Ok, string Message) TryClear(WindowInfo board, UiRecipe recipe, AppLog log)
+    public static (bool Ok, string Message) TryClear(WindowInfo board, string? clearKey, AppLog log)
     {
         try
         {
-            var byName = TryClearByAutomation(board, log);
-            if (byName is not null) return (true, byName);
+            if (!Input.IsForeground(board.Handle) && !Input.ForceForeground(board.Handle))
+                return (false, "清屏失败：无法把 ClassInX 切到前台");
+            if (!Input.IsForeground(board.Handle))
+                return (false, "清屏失败：ClassInX 不在前台，未发送按键");
 
-            if (recipe.Clear.IsCalibrated)
-            {
-                var x = board.X + (int)Math.Round(board.Width * recipe.Clear.XPercent / 100.0);
-                var y = board.Y + (int)Math.Round(board.Height * recipe.Clear.YPercent / 100.0);
-                Input.Click(x, y);
-                Thread.Sleep(120);
-                log.Info($"保存后清屏：按校准坐标点击 ({x},{y})");
-                return (true, "已按校准坐标点击清屏");
-            }
+            var width = Math.Max(1, board.Width);
+            var height = Math.Max(1, board.Height);
 
-            return (false, "没有找到清屏按钮，也没有校准坐标（可在「板书」页校准一次）");
+            // 点一下画布中心，确保键盘焦点在板书上，而不是标题栏或工具栏。
+            Input.Click(board.X + width / 2, board.Y + height / 2);
+            Thread.Sleep(80);
+
+            var before = Input.Fingerprint(board.X, board.Y, width, height);
+            if (before is null) return (false, "清屏失败：无法截取板书窗口");
+
+            var key = NormalizeKey(clearKey);
+            var first = SendAndMeasure(board, before, key);
+            if (first >= ChangedThreshold)
+                return (true, $"已按 Ctrl+A + {KeyText(key)} 清屏");
+
+            var alternate = key == "backspace" ? "delete" : "backspace";
+            var second = SendAndMeasure(board, before, alternate);
+            if (second >= ChangedThreshold)
+                return (true, $"已按 Ctrl+A + {KeyText(alternate)} 清屏");
+
+            log.Info($"保存后清屏：已发送 Ctrl+A + {KeyText(key)}，但画面没有变化");
+            return (false, "已发送清屏按键，但画面没有变化（可能本来就没有板书）");
         }
         catch (Exception ex)
         {
@@ -41,50 +50,20 @@ internal static class BoardScreenCleaner
         }
     }
 
-    private static string? TryClearByAutomation(WindowInfo board, AppLog log)
+    private static double SendAndMeasure(WindowInfo board, double[] before, string key)
     {
-        try
-        {
-            var root = AutomationElement.FromHandle(new IntPtr(board.Handle));
-            if (root is null) return null;
-            var all = root.FindAll(TreeScope.Descendants, Condition.TrueCondition);
-            foreach (AutomationElement element in all)
-            {
-                string name;
-                try { name = element.Current.Name ?? ""; }
-                catch { continue; }
-                if (string.IsNullOrWhiteSpace(name)) continue;
-                if (!Names.Any(n => name.Contains(n, StringComparison.OrdinalIgnoreCase))) continue;
+        Input.SendCtrlA();
+        Thread.Sleep(120);
+        if (key == "backspace") Input.SendBackspace();
+        else Input.SendDelete();
+        Thread.Sleep(350);
 
-                try
-                {
-                    var rect = element.Current.BoundingRectangle;
-                    if (rect.IsEmpty || rect.Width <= 0 || rect.Height <= 0) continue;
-                    if (element.TryGetCurrentPattern(InvokePattern.Pattern, out var pattern)
-                        && pattern is InvokePattern invoke)
-                    {
-                        invoke.Invoke();
-                    }
-                    else
-                    {
-                        Input.Click((int)Math.Round(rect.X + rect.Width / 2), (int)Math.Round(rect.Y + rect.Height / 2));
-                    }
-
-                    Thread.Sleep(120);
-                    log.Info($"保存后清屏：已点击「{name}」");
-                    return $"已点击「{name}」清屏";
-                }
-                catch
-                {
-                    // 单个元素失效就继续找下一个
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            log.Info("清屏按钮自动识别不可用：" + ex.Message);
-        }
-
-        return null;
+        var after = Input.Fingerprint(board.X, board.Y, Math.Max(1, board.Width), Math.Max(1, board.Height));
+        return after is null ? 0 : Input.Difference(before, after);
     }
+
+    private static string NormalizeKey(string? value) =>
+        string.Equals(value, "backspace", StringComparison.OrdinalIgnoreCase) ? "backspace" : "delete";
+
+    private static string KeyText(string key) => key == "backspace" ? "Backspace" : "Delete";
 }

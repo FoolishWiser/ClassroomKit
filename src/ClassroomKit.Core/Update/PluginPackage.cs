@@ -128,6 +128,8 @@ public static class PluginPackage
         }
 
         string? staging = null;
+        // 覆盖前先备份旧文件；任何一步失败都整体回滚，别留下「新 dll + 旧清单」的半套插件。
+        var backups = new List<(string Dest, string Backup, bool Existed)>();
         try
         {
             using var archive = ZipFile.OpenRead(zipPath);
@@ -205,6 +207,15 @@ public static class PluginPackage
                     return PluginPackageResult.Bad("插件包里有越界路径：" + relative);
 
                 Directory.CreateDirectory(Path.GetDirectoryName(destFull)!);
+                var existed = File.Exists(destFull);
+                var backup = "";
+                if (existed)
+                {
+                    backup = Path.Combine(staging, ".backup", relative.Replace('/', Path.DirectorySeparatorChar));
+                    Directory.CreateDirectory(Path.GetDirectoryName(backup)!);
+                    File.Copy(destFull, backup, overwrite: true);
+                }
+                backups.Add((destFull, backup, existed));
                 File.Copy(source, destFull, overwrite: true);
                 copied++;
             }
@@ -213,27 +224,50 @@ public static class PluginPackage
         }
         catch (InvalidDataException ex)
         {
+            Rollback(backups);
             return PluginPackageResult.Bad("插件包已损坏（不是有效的 zip）：" + ex.Message);
         }
         catch (NotSupportedException ex)
         {
+            Rollback(backups);
             return PluginPackageResult.Bad("插件包格式不支持：" + ex.Message);
         }
         catch (UnauthorizedAccessException ex)
         {
+            Rollback(backups);
             return PluginPackageResult.NoAccess("没有权限写入插件目录（请用管理员运行，或检查目录权限）：" + ex.Message);
         }
         catch (IOException ex)
         {
-            return PluginPackageResult.Busy("插件文件被占用（ClassIsland 可能正在运行）：" + ex.Message);
+            Rollback(backups);
+            return PluginPackageResult.Busy("插件文件被占用（ClassIsland 可能正在运行），已恢复原插件：" + ex.Message);
         }
         catch (Exception ex)
         {
-            return PluginPackageResult.Bad("解压插件包失败：" + ex.Message);
+            Rollback(backups);
+            return PluginPackageResult.Bad("解压插件包失败，已恢复原插件：" + ex.Message);
         }
         finally
         {
             if (staging is not null) TryDeleteDirectory(staging);
+        }
+    }
+
+    /// <summary>把已经覆盖的文件恢复原样：旧文件拷回，新文件删除。失败尽力而为。</summary>
+    private static void Rollback(List<(string Dest, string Backup, bool Existed)> backups)
+    {
+        for (var i = backups.Count - 1; i >= 0; i--)
+        {
+            var (dest, backup, existed) = backups[i];
+            try
+            {
+                if (existed) File.Copy(backup, dest, overwrite: true);
+                else if (File.Exists(dest)) File.Delete(dest);
+            }
+            catch
+            {
+                // 回滚本身失败时保留现场，下一次安装会继续重试
+            }
         }
     }
 

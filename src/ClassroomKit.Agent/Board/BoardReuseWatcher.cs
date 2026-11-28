@@ -45,6 +45,7 @@ public sealed class BoardReuseWatcher : IDisposable
         {
             if (_window is not null) return;
             if (!_config().ReusePrompt) return;
+            if (ClassInBoardSaver.IsSaving) return;
 
             var board = ClassInBoardSaver.LocateBoardWindow();
             if (board is null)
@@ -69,9 +70,17 @@ public sealed class BoardReuseWatcher : IDisposable
             if (!_store.Current.ShouldPrompt(target, now)) return;
 
             _promptedKey = target.Key;
-            _store.Save(_store.Current.MarkPrompted(target));
             _log.Info($"续用提示：{target.Text}");
-            System.Windows.Application.Current?.Dispatcher.BeginInvoke(new Action(() => Show(target)));
+            System.Windows.Application.Current?.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                // 只有窗口真的显示出来才记为「已提示」，否则老师没看到却再也等不到第二次
+                if (!Show(target))
+                {
+                    _promptedKey = null;
+                    return;
+                }
+                _store.Save(_store.Current.MarkPrompted(target));
+            }));
         }
         catch (Exception ex)
         {
@@ -83,11 +92,11 @@ public sealed class BoardReuseWatcher : IDisposable
         }
     }
 
-    private void Show(BoardReuseTarget target)
+    private bool Show(BoardReuseTarget target)
     {
         try
         {
-            if (_window is not null) return;
+            if (_window is not null) return false;
             var window = new BoardReuseWindow(target, Reuse, Snooze, Dismiss);
             window.Closed += (_, _) =>
             {
@@ -98,12 +107,14 @@ public sealed class BoardReuseWatcher : IDisposable
             _window = window;
             window.Show();
             window.Activate();
+            return true;
         }
         catch (Exception ex)
         {
             _window = null;
             _promptedKey = null;
             _log.Warn("续用提示窗打开失败：" + ex.Message);
+            return false;
         }
     }
 

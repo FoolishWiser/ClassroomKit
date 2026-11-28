@@ -15,8 +15,8 @@ public sealed class UiRecipe
     public string Source { get; set; } = "default";
     public SaveLocalRecipe SaveLocal { get; set; } = new();
     public OverwriteRecipe Overwrite { get; set; } = new();
-    /// <summary>「清屏」按钮的校准位置；没校准过时 XPercent/YPercent 为 -1，不盲点。</summary>
-    public ClearRecipe Clear { get; set; } = new();
+
+
 
     /// <summary>窗口尺寸容差（DPI 缩放下尺寸会变，用比例匹配更稳）。</summary>
     [JsonIgnore]
@@ -44,16 +44,6 @@ public sealed class UiRecipe
         public int SaveButtonY { get; set; } = 258;
     }
 
-    public sealed class ClearRecipe
-    {
-        /// <summary>相对板书窗口宽/高的百分比（0–100）；-1 表示未校准。</summary>
-        public double XPercent { get; set; } = -1;
-        public double YPercent { get; set; } = -1;
-        public DateTimeOffset? CalibratedAt { get; set; }
-
-        [JsonIgnore]
-        public bool IsCalibrated => XPercent >= 0 && XPercent <= 100 && YPercent >= 0 && YPercent <= 100;
-    }
 
     public sealed class OverwriteRecipe
     {

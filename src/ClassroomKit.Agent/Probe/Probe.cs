@@ -4,6 +4,7 @@ using ClassroomKit.Agent.Shell;
 using ClassroomKit.Agent.Tasks;
 using ClassroomKit.Agent.Tethering;
 using ClassroomKit.Core.Config;
+using ClassroomKit.Core.Support;
 using Microsoft.Win32;
 
 namespace ClassroomKit.Agent.Probe;
@@ -23,11 +24,11 @@ public static class Probe
         {
             ["time"] = DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm:ss"),
             ["version"] = AgentRuntime.DisplayVersion(),
-            ["machine"] = Environment.MachineName,
-            ["user"] = Environment.UserName,
+            ["machine"] = SupportBundle.MaskName(Environment.MachineName),
+            ["user"] = SupportBundle.MaskName(Environment.UserName, 1),
             ["os"] = Environment.OSVersion.VersionString,
             ["elevated"] = AdminElevation.IsElevated(),
-            ["configPath"] = Paths.ConfigPath,
+            ["configPath"] = "<数据目录>\\config.json",
             ["registryPeers"] = PeerLimit.Read(),
             ["registryTarget"] = store.Current.Hotspot.RegistryPeers,
             ["maxClientCount"] = snapshot.MaxClientCount,
@@ -35,20 +36,20 @@ public static class Probe
             ["operationalState"] = snapshot.OperationalState.ToString(),
             ["clientCount"] = snapshot.ClientCount,
             ["noConnectionsTimeout"] = snapshot.NoConnectionsTimeoutEnabled,
-            ["currentSsid"] = snapshot.CurrentSsid,
+            ["currentSsid"] = SupportBundle.MaskName(snapshot.CurrentSsid),
             ["uplinkAvailable"] = snapshot.UplinkAvailable,
             ["uplinkIsWifi"] = snapshot.UplinkIsWifi,
             ["uplinkName"] = snapshot.UplinkName,
-            ["uplinkId"] = snapshot.UplinkId,
+            ["uplinkId"] = SupportBundle.MaskName(snapshot.UplinkId, 4),
             ["uplinkHasInternet"] = snapshot.UplinkHasInternet,
             ["uplinkReason"] = snapshot.UplinkReason,
             ["uplinkMode"] = store.Current.Uplink.Mode,
             ["uplinks"] = probe.Enumerate().Select(c => new
             {
-                c.Id,
-                c.Name,
-                c.Description,
-                c.Ipv4,
+                Id = SupportBundle.MaskName(c.Id, 4),
+                Name = SupportBundle.MaskName(c.Name, 2),
+                Description = SupportBundle.MaskName(c.Description, 2),
+                Ipv4 = SupportBundle.MaskIp(c.Ipv4),
                 c.IsWired,
                 c.IsWifi,
                 c.HasGateway,
@@ -59,7 +60,7 @@ public static class Probe
             }).ToArray(),
             ["hotspotError"] = snapshot.Error,
             ["taskInstalled"] = ScheduledTaskInstaller.IsInstalled(),
-            ["bcuPath"] = BcuLauncher.Locate(store.Current.Bcu.Path),
+            ["bcuPath"] = string.IsNullOrWhiteSpace(store.Current.Bcu.Path) ? "" : "<路径>",
             ["geekOnDesktop"] = File.Exists(Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "geek.lnk")),
             ["classIsland"] = DetectClassIsland(),
@@ -84,7 +85,7 @@ public static class Probe
         };
 
         var found = candidates.Where(Directory.Exists).ToArray();
-        if (found.Length > 0) return new { installed = true, paths = found };
+        if (found.Length > 0) return new { installed = true, locations = found.Length };
 
         foreach (var root in new[] { @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall", @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall" })
         {

@@ -4,6 +4,7 @@ using System.Text.Json;
 using ClassroomKit.Agent.Board;
 using ClassroomKit.Agent.Diagnose;
 using ClassroomKit.Agent.Lesson;
+using ClassroomKit.Agent.Service;
 using ClassroomKit.Agent.Shell;
 using ClassroomKit.Agent.Tasks;
 using ClassroomKit.Agent.Tethering;
@@ -54,6 +55,7 @@ ClassroomKit.Agent {Version}
   --save-classin-board  同 --save-board，但默认保存后关闭 ClassInX（旧行为）
   --lesson-status   课表联动状态（JSON：当前/下一节/自动保存判定）
   --lesson-reminder-test 打印「现在会不会提醒、还差多久」（JSON；加 --show 直接弹窗）
+  --apply-update     （升级内部使用）以管理员运行 msiexec 安装指定包，完成后拉起主界面
   --diagnose        一键自检（JSON：热点/上行/自启/护航/hosts/课表/升级）
   --rotate-token    换一个本地 API 令牌（ClassIsland 插件要重新填）
   --probe-classin   重新探测 ClassInX 保存界面（更新 ui-recipe.json）
@@ -163,6 +165,21 @@ ClassroomKit.Agent {Version}
         return 0;
     }
 
+    /// <summary>CLI：以管理员身份执行 MSI 升级（由 UpdateService 提权调用）。</summary>
+    public static int ApplyUpdateCli(string[] args)
+    {
+        if (args.Length < 2 || !File.Exists(args[1]))
+        {
+            Console.WriteLine("用法：--apply-update <安装包.msi>");
+            return 2;
+        }
+
+        var log = new AppLog(Paths.LogDir);
+        var (ok, message) = InstallRunner.Run(args[1], log);
+        Console.WriteLine(message);
+        return ok ? 0 : 1;
+    }
+
     /// <summary>CLI：保存 ClassInX 板书。</summary>
     public static int SaveClassInBoardCli(string[] args)
     {
@@ -267,19 +284,50 @@ ClassroomKit.Agent {Version}
     public static int RotateTokenCli()
     {
         var store = new ConfigStore(Paths.ConfigPath);
-        var token = ConfigStore.NewToken();
+
+        // 守护在跑时必须让它自己换令牌：只改磁盘文件的话，旧令牌在进程里继续有效，插件会一直 401。
+        if (IsRunning(store, out _))
+        {
+            if (!PostJsonCapture(store, "/api/action", JsonSerializer.Serialize(new { action = "rotate-token" }), out var body, out var error))
+            {
+                Console.WriteLine("重置令牌失败：" + error);
+                return 1;
+            }
+
+            string? token = null;
+            try
+            {
+                using var doc = JsonDocument.Parse(body);
+                if (doc.RootElement.TryGetProperty("token", out var value)) token = value.GetString();
+            }
+            catch
+            {
+                // 解析失败时仍把原始响应打出来，方便排查
+            }
+
+            Console.WriteLine(JsonSerializer.Serialize(new
+            {
+                ok = token is not null,
+                token,
+                api = $"http://127.0.0.1:{store.Current.Port}/api/",
+                message = "守护进程已换令牌，旧令牌立即失效；ClassIsland 插件需在设置页重新读取令牌"
+            }, new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
+            return token is null ? 1 : 0;
+        }
+
+        var newToken = ConfigStore.NewToken();
         store.Update(c =>
         {
-            c.Token = token;
+            c.Token = newToken;
             return 0;
         });
 
         Console.WriteLine(JsonSerializer.Serialize(new
         {
             ok = true,
-            token,
+            token = newToken,
             api = $"http://127.0.0.1:{store.Current.Port}/api/",
-            message = "已写入 config.json；旧令牌立即失效，ClassIsland 插件需在设置页重新读取令牌"
+            message = "已写入 config.json（守护未运行，下次启动生效）；ClassIsland 插件需在设置页重新读取令牌"
         }, new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
         return 0;
     }
@@ -404,8 +452,14 @@ ClassroomKit.Agent {Version}
 
         MarkEnsureAttempt();
         StartDaemon();
-        Console.WriteLine("已启动 ClassroomKit.Agent");
-        return 0;
+        if (WaitForState(store, TimeSpan.FromSeconds(20), out _))
+        {
+            Console.WriteLine("已启动 ClassroomKit.Agent");
+            return 0;
+        }
+
+        Console.WriteLine("已尝试启动 ClassroomKit.Agent，但 20 秒内接口仍没有响应；请查看日志后重启主程序");
+        return 1;
     }
 
     /// <summary>派生尝试的时间戳文件（60 秒冷却）。</summary>
@@ -492,6 +546,30 @@ ClassroomKit.Agent {Version}
     /// </summary>
     public static int RestartWifiCli()
     {
+        var store = new ConfigStore(Paths.ConfigPath);
+        var log = new AppLog(null);
+
+        // 守护在跑时交给它协商：直接复位会和它的巡检/自我修复互相打架。
+        if (IsRunning(store, out _))
+        {
+            Console.WriteLine("守护正在运行，交给守护协商修复…");
+            if (!PostJsonCapture(store, "/api/action", JsonSerializer.Serialize(new { action = "repair-network" }), out var body, out var error))
+            {
+                Console.WriteLine("修复失败：" + error);
+                return 1;
+            }
+            Console.WriteLine(DescribeRepair(body));
+            return 0;
+        }
+
+        var choice = new UplinkProbe(log).Resolve(store.Current.Uplink, store.Current.Hotspot.AllowWifiUplink);
+        if (choice.Chosen?.IsWifi == true)
+        {
+            Console.WriteLine("当前上行是 Wi-Fi：复位无线网卡会先断开整机网络，而且这台机器没有第二条上行可以连回来。");
+            Console.WriteLine("请改接网线，或在「网络与上行」里把上行改成有线后再试。");
+            return 1;
+        }
+
         Console.WriteLine("正在复位无线网卡（约 10–30 秒）…");
         var ok = WlanAdapter.RestartAsync(CancellationToken.None).GetAwaiter().GetResult();
         if (!ok)
@@ -500,8 +578,6 @@ ClassroomKit.Agent {Version}
             return 1;
         }
 
-        var store = new ConfigStore(Paths.ConfigPath);
-        var log = new AppLog(null);
         var tethering = new TetheringService(new UplinkProbe(log), () => store.Current);
         var started = tethering.StartAsync(CancellationToken.None).GetAwaiter().GetResult();
         Console.WriteLine(started
@@ -771,6 +847,61 @@ ClassroomKit.Agent {Version}
         {
             return null;
         }
+    }
+
+    /// <summary>等主实例的 /api/state 真正可读；超时返回 false。</summary>
+    private static bool WaitForState(ConfigStore store, TimeSpan timeout, out string? stateJson)
+    {
+        var until = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < until)
+        {
+            stateJson = TryGetState(store.Current.Port, store.Current.Token);
+            if (stateJson is not null) return true;
+            Thread.Sleep(500);
+        }
+
+        stateJson = null;
+        return false;
+    }
+
+    /// <summary>POST 并保留响应正文（换令牌/修复这类接口要把结果原样打给用户）。</summary>
+    private static bool PostJsonCapture(ConfigStore store, string path, string json, out string body, out string message)
+    {
+        body = "";
+        try
+        {
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{store.Current.Port}{path}");
+            request.Headers.Add("X-Token", store.Current.Token);
+            request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+            using var response = client.Send(request);
+            using var reader = new StreamReader(response.Content.ReadAsStream());
+            body = reader.ReadToEnd();
+            message = response.IsSuccessStatusCode ? "ok" : $"HTTP {(int)response.StatusCode} {body}";
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            message = ex.Message;
+            return false;
+        }
+    }
+
+    /// <summary>从 /api/action repair-network 的响应里取出可读结论。</summary>
+    private static string DescribeRepair(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.TryGetProperty("message", out var message) && message.GetString() is { } text)
+                return text;
+        }
+        catch
+        {
+            // 不是 JSON 就原样返回
+        }
+
+        return string.IsNullOrWhiteSpace(body) ? "修复请求已发送" : body;
     }
 
     private static bool PostJson(ConfigStore store, string path, string json, out string message)

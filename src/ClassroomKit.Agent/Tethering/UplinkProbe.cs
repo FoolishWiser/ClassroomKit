@@ -96,19 +96,39 @@ public sealed class UplinkProbe
     public static ConnectionProfile? ProfileFor(UplinkCandidate candidate)
     {
         var id = candidate.Id.Trim('{', '}');
+        ConnectionProfile? fallback = null;
+        var bestScore = -1;
         foreach (var profile in SafeProfiles())
         {
             try
             {
                 var adapterId = profile.NetworkAdapter?.NetworkAdapterId.ToString("D") ?? "";
-                if (string.Equals(adapterId, id, StringComparison.OrdinalIgnoreCase)) return profile;
+                if (!string.Equals(adapterId, id, StringComparison.OrdinalIgnoreCase)) continue;
+
+                // 同一块网卡可能同时有多个连接配置（旧的、受限的、当前连着的）。
+                // 以前直接取第一条，可能拿到没有外网的旧配置，热点开起来却上不了网。
+                var level = profile.GetNetworkConnectivityLevel();
+                var score = level switch
+                {
+                    NetworkConnectivityLevel.InternetAccess => 3,
+                    NetworkConnectivityLevel.ConstrainedInternetAccess => 2,
+                    NetworkConnectivityLevel.LocalAccess => 1,
+                    _ => 0
+                };
+                if (fallback is null) fallback = profile;
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    fallback = profile;
+                }
+                if (score == 3) return profile;
             }
             catch
             {
                 // 某些配置文件读不到 adapter，跳过
             }
         }
-        return null;
+        return fallback;
     }
 
     private sealed record ProfileInfo(bool Internet);

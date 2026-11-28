@@ -22,8 +22,20 @@ public sealed class ConfigStore
         var loaded = LoadCore(filePath, out var corrupt);
         if (corrupt)
         {
-            // 读失败不等于首次运行：先备份坏文件，再用内存里的临时配置启动，绝不覆盖原件。
+            // 读失败不等于首次运行：先备份坏文件，绝不覆盖原件。
+            // 再尝试最近一次成功保存的副本：热点密码/token 不能每次启动都重新随机，否则手机和插件全连不上。
             CorruptBackupPath = BackupCorrupt(filePath);
+            var recovered = TryLoadGood(filePath);
+            if (recovered is not null)
+            {
+                _config = recovered;
+                CreatedNew = false;
+                LoadError = CorruptBackupPath is null
+                    ? "配置文件无法解析，已从最近一次可用配置恢复"
+                    : $"配置文件无法解析，已备份到 {CorruptBackupPath}，并从最近一次可用配置恢复";
+                return;
+            }
+
             LoadError = CorruptBackupPath is null
                 ? "配置文件无法解析，本次使用临时配置（原文件未覆盖）"
                 : $"配置文件无法解析，已备份到 {CorruptBackupPath}，本次使用临时配置（原文件未覆盖）";
@@ -55,7 +67,7 @@ public sealed class ConfigStore
     }
 
     /// <summary>当前配置结构版本。</summary>
-    public const int CurrentSchemaVersion = 8;
+    public const int CurrentSchemaVersion = 9;
 
     /// <summary>本次加载从哪个结构版本迁移过来；0 表示没有迁移。</summary>
     public int MigratedFrom { get; private set; }
@@ -94,6 +106,7 @@ public sealed class ConfigStore
     /// v5 → v6 只给 ui 段补 maximized（上次是否最大化），同样不改任何已有值。
     /// v6 → v7 只给 tray 段补保存菜单开关、给 update 段补 UpdatePlugin，不改任何已有值。
     /// v7 → v8 只把旧默认模板换成带 {节次} 的新默认；用户自定义模板原样保留。
+    /// v8 → v9 删除 lesson.saveConnectedClasses（连堂课间不再保存），其它值不动。
     /// 改机器名/热点名的动作由用户显式触发（面板按钮 / rename-ssid）。
     /// </summary>
     private static void Migrate(AppConfig cfg)
@@ -104,11 +117,18 @@ public sealed class ConfigStore
             // 0.3.x 默认把升级锁在凌晨，教室机器一关机就永远等不到；改成不限，用户自填的窗口不动
             update.InstallWindow = "";
         }
-        if (cfg.SchemaVersion < 8 && cfg.BoardSave is { } board
-            && board.NameTemplate == "{科目}_{日期}_{时间}")
+        if (cfg.SchemaVersion < 8 && cfg.BoardSave is { } board)
         {
-            // 1.0.4 默认文件名带节次；只认旧默认，用户自己写过的模板绝不覆盖
-            board.NameTemplate = BoardFileName.DefaultTemplate;
+            // 1.0.4 的四个新行为在升级时不能静默打开：清屏会按键、改名会移动文件、续用窗会弹窗。
+            board.IncludeLessonInName = false;
+            board.SubjectFolders = false;
+            board.ClearAfterSave = false;
+            board.ReusePrompt = false;
+            if (board.NameTemplate == "{科目}_{日期}_{时间}")
+            {
+                // 只认旧默认，用户自己写过的模板绝不覆盖
+                board.NameTemplate = BoardFileName.DefaultTemplate;
+            }
         }
         cfg.SchemaVersion = CurrentSchemaVersion;
     }
@@ -246,10 +266,25 @@ public sealed class ConfigStore
         {
             File.WriteAllText(tmp, json);
             File.Move(tmp, FilePath, overwrite: true);
+            try { File.Copy(FilePath, FilePath + ".good", overwrite: true); } catch { /* 副本只是兜底 */ }
         }
         finally
         {
             try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* 清理失败不影响主文件 */ }
+        }
+    }
+
+    /// <summary>最近一次成功保存的配置副本；主文件坏掉时用它恢复，避免密码/token 重新随机。</summary>
+    private static AppConfig? TryLoadGood(string filePath)
+    {
+        try
+        {
+            var good = filePath + ".good";
+            return File.Exists(good) ? LoadCore(good, out _) : null;
+        }
+        catch
+        {
+            return null;
         }
     }
 }

@@ -559,11 +559,20 @@ public sealed class AgentRuntime : IDisposable
 
     private (bool Ok, string Message) SaveBoard(bool closeAfterSave, bool launchIfNeeded)
     {
-        if (!Config.Current.BoardSave.Enabled)
-            return (false, "「保存 ClassInX 板书」已在配置里关闭");
+        try
+        {
+            if (!Config.Current.BoardSave.Enabled)
+                return (false, "「保存 ClassInX 板书」已在配置里关闭");
 
-        var result = BoardSaver.Save(closeAfterSave, launchIfNeeded);
-        return (result.Ok, result.Message);
+            var result = BoardSaver.Save(closeAfterSave, launchIfNeeded);
+            return (result.Ok, result.Message);
+        }
+        catch (Exception ex)
+        {
+            // 托盘菜单、HTTP、插件三个入口都走这里；异常必须变成提示，不能把整个进程带走。
+            Log.Error("保存板书异常：" + ex);
+            return (false, "保存板书异常：" + ex.Message);
+        }
     }
 
     /// <summary>
@@ -722,10 +731,12 @@ public sealed class AgentRuntime : IDisposable
 
     internal (bool Ok, string Message) SaveBoardNamed(bool closeAfterSave, bool nameWithLesson, bool? clearAfterSave)
     {
+        try
+        {
         var cfg = Config.Current.BoardSave;
         if (!cfg.Enabled) return (false, "「保存 ClassInX 板书」已在配置里关闭");
 
-        var result = BoardSaver.Save(closeAfterSave, null, clearAfterSave);
+        var result = BoardSaver.Save(closeAfterSave, null, clearAfterSave, cfg.ClearKey);
         if (!result.Ok) return (false, result.Message);
 
         var now = DateTimeOffset.Now;
@@ -733,12 +744,15 @@ public sealed class AgentRuntime : IDisposable
         var subject = Lesson.NameHint(now);
         var files = result.Files;
         var message = result.Message;
+        var renameFailed = 0;
+        var moveFailed = 0;
 
         if (nameWithLesson && files.Count > 0)
         {
             var baseName = BoardFileName.Render(cfg.NameTemplate, subject, now, lessonIndex, cfg.IncludeLessonInName);
             var rename = BoardFileName.ApplyTo(files, baseName);
             files = rename.Files;
+            renameFailed = rename.Failed;
             message += "｜" + rename.Message;
             Log.Info($"板书改名：{baseName}｜成功 {rename.Renamed} 个｜失败 {rename.Failed} 个");
         }
@@ -747,6 +761,7 @@ public sealed class AgentRuntime : IDisposable
         {
             var move = BoardFileName.MoveToSubjectFolder(files, ClassInBoardSaver.SaveFolder, subject, true);
             files = move.Files;
+            moveFailed = move.Failed;
             message += "｜" + move.Message;
             Log.Info($"板书归档：{BoardFileName.SubjectFolderName(subject)}｜成功 {move.Moved} 个｜失败 {move.Failed} 个");
         }
@@ -755,16 +770,34 @@ public sealed class AgentRuntime : IDisposable
 
         if (files.Count > 0)
         {
-            Archive.Add(new BoardRecord(
-                now.ToString("yyyyMMddHHmmss") + "-" + Guid.NewGuid().ToString("N")[..6],
-                subject ?? "",
-                lessonIndex,
-                now,
-                Path.GetDirectoryName(files[0]) ?? ClassInBoardSaver.SaveFolder,
-                files));
+            try
+            {
+                Archive.Add(new BoardRecord(
+                    now.ToString("yyyyMMddHHmmss") + "-" + Guid.NewGuid().ToString("N")[..6],
+                    subject ?? "",
+                    lessonIndex,
+                    now,
+                    Path.GetDirectoryName(files[0]) ?? ClassInBoardSaver.SaveFolder,
+                    files));
+            }
+            catch (Exception ex)
+            {
+                // 索引只影响历史和续用，不能把已经落盘的板书判成失败
+                Log.Warn("板书索引写入失败：" + ex.Message);
+                message += "｜板书已保存，但索引写入失败（续用历史可能不完整）";
+            }
         }
 
+        if (renameFailed > 0 || moveFailed > 0)
+            return (false, "板书已保存，但改名/归档没有全部完成：" + message);
+
         return (true, message);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("保存板书异常：" + ex);
+            return (false, "保存板书异常：" + ex.Message);
+        }
     }
 
     /// <summary>面板“上行网卡”下拉框的数据：所有候选 + 当前选中 + 选择理由。</summary>

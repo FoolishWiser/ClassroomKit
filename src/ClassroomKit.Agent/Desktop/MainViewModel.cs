@@ -195,13 +195,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private bool _editSubjectFolders = true;
     private bool _editClearAfterSave = true;
     private bool _editReusePrompt = true;
-    private bool _editSaveConnectedClasses = true;
+
     private string _editNameTemplate = BoardFileName.DefaultTemplate;
     private string _boardArchiveText = "还没有板书索引";
     private IReadOnlyList<BoardRecord> _boardHistory = Array.Empty<BoardRecord>();
     private string _reuseStatusText = "还没有续用目标";
-    private string _calibrateText = "";
-    private DispatcherTimer? _calibrateTimer;
+    private string _editClearKey = "delete";
     private bool _editCloseToTray = true;
     private bool _editStartMinimized;
     private string _editTheme = "system";
@@ -296,7 +295,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _rt.Config.Current.BoardSave.NameWithLesson).Message));
         RefreshBoardLibraryCommand = new RelayCommand(() => { _ = RefreshBoardLibraryAsync(); });
         OpenBoardFolderCommand = new RelayCommand(OpenBoardFolder);
-        CalibrateClearCommand = new RelayCommand(StartCalibrateClear);
+
         RunWeiciCommand = new RelayCommand(() => _ = RunWeiciAsync());
         CancelWeiciCommand = new RelayCommand(() => _weiciCts?.Cancel());
         SaveWeiciCommand = new RelayCommand(() =>
@@ -569,7 +568,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public RelayCommand SaveBoardNamedCommand { get; }
     public RelayCommand RefreshBoardLibraryCommand { get; }
     public RelayCommand OpenBoardFolderCommand { get; }
-    public RelayCommand CalibrateClearCommand { get; }
+    public IReadOnlyList<string> ClearKeyOptions { get; } = new[] { "delete", "backspace" };
     public RelayCommand RunWeiciCommand { get; }
     public RelayCommand CancelWeiciCommand { get; }
     public RelayCommand SaveWeiciCommand { get; }
@@ -806,12 +805,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public bool EditSubjectFolders { get => _editSubjectFolders; set => SetDirty(ref _editSubjectFolders, value); }
     public bool EditClearAfterSave { get => _editClearAfterSave; set => SetDirty(ref _editClearAfterSave, value); }
     public bool EditReusePrompt { get => _editReusePrompt; set => SetDirty(ref _editReusePrompt, value); }
-    public bool EditSaveConnectedClasses { get => _editSaveConnectedClasses; set => SetDirty(ref _editSaveConnectedClasses, value); }
+
     public string EditNameTemplate { get => _editNameTemplate; set => SetDirty(ref _editNameTemplate, value); }
     public string BoardArchiveText { get => _boardArchiveText; private set => Set(ref _boardArchiveText, value); }
     public IReadOnlyList<BoardRecord> BoardHistory { get => _boardHistory; private set => Set(ref _boardHistory, value); }
     public string ReuseStatusText { get => _reuseStatusText; private set => Set(ref _reuseStatusText, value); }
-    public string CalibrateText { get => _calibrateText; private set => Set(ref _calibrateText, value); }
+    public string EditClearKey { get => _editClearKey; set => SetDirty(ref _editClearKey, value); }
     public bool EditCloseToTray { get => _editCloseToTray; set => SetDirty(ref _editCloseToTray, value); }
     public bool EditStartMinimized { get => _editStartMinimized; set => SetDirty(ref _editStartMinimized, value); }
     public string EditTheme { get => _editTheme; set => SetDirty(ref _editTheme, value); }
@@ -1056,8 +1055,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         EditIncludeLessonInName = c.BoardSave.IncludeLessonInName;
         EditSubjectFolders = c.BoardSave.SubjectFolders;
         EditClearAfterSave = c.BoardSave.ClearAfterSave;
+        EditClearKey = c.BoardSave.ClearKey;
         EditReusePrompt = c.BoardSave.ReusePrompt;
-        EditSaveConnectedClasses = c.Lesson.SaveConnectedClasses;
+
         EditWeiciAppPath = c.Weici.AppPath;
         EditWeiciPort = c.Weici.DebugPort;
         EditWeiciFirstWord = c.Weici.FirstWord;
@@ -1122,10 +1122,30 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void SaveHotspot()
     {
+        // 先校验再落盘：以前空名/超长名/短密码也会提示「已保存」，实际热点并未生效。
+        var ssid = string.IsNullOrWhiteSpace(EditSsid) ? MachineDefaults.DefaultSsid() : EditSsid.Trim();
+        if (System.Text.Encoding.UTF8.GetByteCount(ssid) > MachineDefaults.MaxSsidBytes)
+        {
+            Toast($"热点名最多 {MachineDefaults.MaxSsidBytes} 字节（约 10 个汉字），请改短一点");
+            return;
+        }
+        if (ssid.Any(char.IsControl))
+        {
+            Toast("热点名不能包含换行或控制字符");
+            return;
+        }
+
+        var passphrase = EditPassphrase.Trim();
+        if (passphrase.Length > 0 && (passphrase.Length < 8 || passphrase.Length > 63))
+        {
+            Toast("热点密码要 8–63 位；留空表示保持原密码");
+            return;
+        }
+
         _rt.Config.Mutate(c =>
         {
-            c.Hotspot.Ssid = string.IsNullOrWhiteSpace(EditSsid) ? MachineDefaults.DefaultSsid() : EditSsid.Trim();
-            if (!string.IsNullOrWhiteSpace(EditPassphrase)) c.Hotspot.Passphrase = EditPassphrase.Trim();
+            c.Hotspot.Ssid = ssid;
+            if (passphrase.Length > 0) c.Hotspot.Passphrase = passphrase;
             c.Hotspot.TargetClients = Math.Clamp(EditTargetClients, 1, 32);
         });
         _settingsDirty = false;
@@ -1144,9 +1164,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             c.BoardSave.IncludeLessonInName = EditIncludeLessonInName;
             c.BoardSave.SubjectFolders = EditSubjectFolders;
             c.BoardSave.ClearAfterSave = EditClearAfterSave;
+            c.BoardSave.ClearKey = EditClearKey;
             c.BoardSave.ReusePrompt = EditReusePrompt;
             c.BoardSave.Normalize();
-            c.Lesson.SaveConnectedClasses = EditSaveConnectedClasses;
+
             c.Lesson.Subjects = LessonSubjects.Normalize(_editSubjects);
             c.Lesson.SkipBreakNames = LessonSubjects.Normalize(SplitProcessList(EditSkipBreakNames));
             c.Lesson.Normalize();
@@ -1591,73 +1612,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    private void StartCalibrateClear()
-    {
-        if (_calibrateTimer is not null)
-        {
-            Toast("正在倒计时，等它记完这一次");
-            return;
-        }
-
-        if (ClassInBoardSaver.LocateBoardWindow() is null)
-        {
-            Toast("先把 ClassInX 的板书窗口打开，再校准清屏按钮的位置", true);
-            return;
-        }
-
-        var remain = 3;
-        CalibrateText = $"{remain} 秒后记录鼠标位置：请把指针移到 ClassInX 的「橡皮 / 清屏」按钮上，别点。";
-        _calibrateTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher.CurrentDispatcher)
-        {
-            Interval = TimeSpan.FromSeconds(1)
-        };
-        _calibrateTimer.Tick += (_, _) =>
-        {
-            remain--;
-            if (remain > 0)
-            {
-                CalibrateText = $"还剩 {remain} 秒，把指针移到「橡皮 / 清屏」按钮上。";
-                return;
-            }
-
-            _calibrateTimer?.Stop();
-            _calibrateTimer = null;
-            try
-            {
-                var window = ClassInBoardSaver.LocateBoardWindow();
-                if (window is null)
-                {
-                    CalibrateText = "板书窗口已经关了，这次没记下来。";
-                    Toast("校准失败：板书窗口不见了", true);
-                    return;
-                }
-
-                var point = System.Windows.Forms.Cursor.Position;
-                if (point.X < window.X || point.Y < window.Y
-                    || point.X > window.X + window.Width || point.Y > window.Y + window.Height)
-                {
-                    CalibrateText = "指针不在板书窗口里，这次没记下来。";
-                    Toast("校准失败：指针不在 ClassInX 板书窗口里", true);
-                    return;
-                }
-
-                var x = Math.Round((point.X - window.X) * 100.0 / Math.Max(1, window.Width), 1);
-                var y = Math.Round((point.Y - window.Y) * 100.0 / Math.Max(1, window.Height), 1);
-                _rt.Recipe.Clear.XPercent = x;
-                _rt.Recipe.Clear.YPercent = y;
-                _rt.Recipe.Clear.CalibratedAt = DateTimeOffset.Now;
-                _rt.Recipe.Save(Paths.RecipePath);
-                CalibrateText = $"已记下清屏按钮：窗口内 ({x}%, {y}%)，保存后会按这个位置点一下。";
-                Toast("清屏按钮位置已校准");
-            }
-            catch (Exception ex)
-            {
-                CalibrateText = "校准失败：" + ex.Message;
-                Toast("校准失败：" + ex.Message, true);
-            }
-        };
-        _calibrateTimer.Start();
-    }
 
     private void PreviewReuse()
     {

@@ -109,8 +109,9 @@ public sealed class TetheringService : ITethering
 
     public Task<IReadOnlyList<TetherClient>> GetClientsAsync(CancellationToken ct) => Task.Run<IReadOnlyList<TetherClient>>(() =>
     {
-        var manager = TryCreateManager(out _);
-        if (manager is null) return Array.Empty<TetherClient>();
+        var manager = TryCreateManager(out var error);
+        // 不能返回空表：调用方会把「读不到」当成「教室里一台设备都没有」。
+        if (manager is null) throw new InvalidOperationException(error ?? "无法访问移动热点");
         try
         {
             var list = new List<TetherClient>();

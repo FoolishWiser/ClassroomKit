@@ -35,7 +35,7 @@
                         <StackPanel Grid.Column="2">
                             <CheckBox Content="保存后清屏" IsChecked="{Binding EditClearAfterSave}" />
                             <CheckBox Content="下一节同科目时提示续用" Margin="0,8,0,0" IsChecked="{Binding EditReusePrompt}" />
-                            <CheckBox Content="连堂课间也保存" Margin="0,8,0,0" IsChecked="{Binding EditSaveConnectedClasses}" />
+
                         </StackPanel>
                     </Grid>
                     <TextBlock Text="命名模板" Style="{StaticResource FieldLabel}" Margin="0,16,0,6" />
@@ -151,12 +151,11 @@
                         <StackPanel>
                             <StackPanel Orientation="Horizontal">
                                 <Button Content="预览续用提示" Style="{StaticResource SecondaryButton}" Command="{Binding PreviewReuseCommand}" />
-                                <Button Content="校准清屏按钮" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0"
-                                        Command="{Binding CalibrateClearCommand}" />
+                                <TextBlock Text="清屏按键" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="16,0,8,0" />
+                                <ComboBox Width="120" ItemsSource="{Binding ClearKeyOptions}" SelectedItem="{Binding EditClearKey}" />
                             </StackPanel>
-                            <TextBlock Text="{Binding CalibrateText}" Style="{StaticResource Caption}" Margin="0,8,0,0" TextWrapping="Wrap" />
-                            <TextBlock Text="清屏优先按按钮名字找「橡皮 / 清屏」；找不到时用这里校准的位置点一下。校准需要先把 ClassInX 板书窗口打开。"
-                                       Style="{StaticResource Caption}" Margin="0,4,0,0" TextWrapping="Wrap" />
+                            <TextBlock Text="保存后先 Ctrl+A 全选，再按所选按键；前后画面指纹变化超过 2% 才算成功。"
+                                       Style="{StaticResource Caption}" Margin="0,8,0,0" TextWrapping="Wrap" />
                         </StackPanel>
                     </Border>
                 </StackPanel>

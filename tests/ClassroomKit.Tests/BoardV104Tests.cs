@@ -5,7 +5,7 @@ using static ClassroomKit.Tests.Harness;
 
 namespace ClassroomKit.Tests;
 
-/// <summary>1.0.4：文件名带节次、科目文件夹归档、板书记录与下一节同科目续用。</summary>
+/// <summary>板书：文件名带节次、科目文件夹归档、板书记录与下一节同科目续用。</summary>
 internal static class BoardV104Tests
 {
     private static readonly DateTimeOffset Now = new(2026, 11, 14, 10, 0, 0, TimeSpan.FromHours(8));
@@ -27,11 +27,11 @@ internal static class BoardV104Tests
             Eq("数学_第3节_2026-11-14_10-05", BoardFileName.Render(BoardFileName.DefaultTemplate, "数学", at, 3));
         });
 
-        Run("自定义模板没写节次时自动补在末尾", () =>
+        Run("模板没写节次就不擅自追加，关掉开关时节次渲染为空", () =>
         {
             var at = new DateTimeOffset(2026, 11, 14, 10, 5, 0, TimeSpan.FromHours(8));
-            Eq("数学_2026-11-14_10-05_第2节", BoardFileName.Render("{科目}_{日期}_{时间}", "数学", at, 2));
-            Eq("数学_2026-11-14_10-05", BoardFileName.Render("{科目}_{日期}_{时间}", "数学", at, 2, includeLessonInName: false));
+            Eq("数学_2026-11-14_10-05", BoardFileName.Render("{科目}_{日期}_{时间}", "数学", at, 2));
+            Eq("数学_2026-11-14_10-05", BoardFileName.Render("{科目}_{节次}_{日期}_{时间}", "数学", at, 2, includeLessonInName: false));
         });
 
         Run("科目为空归到「未分类」，非法字符被清理", () =>
@@ -101,7 +101,7 @@ internal static class BoardV104Tests
 
     private static void Reuse()
     {
-        Run("课间下一节同科目时提示续用，文案带周几和第几节", () =>
+        Run("连堂课间不再保存，也不在课间提示续用", () =>
         {
             var dir = TempDir();
             try
@@ -111,30 +111,7 @@ internal static class BoardV104Tests
                 var snapshot = Snapshot(LessonStates.Breaking, next: "数学", current: null, previous: "数学",
                     lessonIndex: 3, previousIndex: 3, nextIndex: 4,
                     currentStart: Now.AddMinutes(-45), currentEnd: Now.AddMinutes(-5), nextEnd: Now.AddMinutes(48));
-
-                var target = BoardReusePlanner.FromSnapshot(snapshot, archive, Now);
-                NotNull(target, "应生成续用目标");
-                Eq("数学", target!.Subject);
-                Eq(3, target.PreviousLessonIndex);
-                Eq(4, target.LessonIndex);
-                Contains(target.Text, "数学老师您好");
-                Contains(target.Text, "第 3 节数学课");
-                Eq("p3", target.Record.Id);
-            }
-            finally { try { Directory.Delete(dir, true); } catch { } }
-        });
-
-        Run("课间下一节换科目就不提示", () =>
-        {
-            var dir = TempDir();
-            try
-            {
-                var archive = new BoardArchive(Path.Combine(dir, "board-index.json"));
-                archive.Add(Record("p3", "数学", 3, Now.AddMinutes(-50)));
-                var snapshot = Snapshot(LessonStates.Breaking, next: "语文", current: null, previous: "数学",
-                    lessonIndex: 3, previousIndex: 3, nextIndex: 4,
-                    currentStart: Now.AddMinutes(-45), currentEnd: Now.AddMinutes(-5), nextEnd: Now.AddMinutes(48));
-                Eq(null, BoardReusePlanner.FromSnapshot(snapshot, archive, Now));
+                Eq(null, BoardReusePlanner.FromSnapshot(snapshot, archive, Now), "课间一律不提示");
             }
             finally { try { Directory.Delete(dir, true); } catch { } }
         });
@@ -158,16 +135,16 @@ internal static class BoardV104Tests
             finally { try { Directory.Delete(dir, true); } catch { } }
         });
 
-        Run("续用状态：提示一次、稍后重试、这次不用", () =>
+        Run("续用状态：上课中提示一次、稍后重试、这次不用", () =>
         {
             var dir = TempDir();
             try
             {
                 var archive = new BoardArchive(Path.Combine(dir, "board-index.json"));
-                archive.Add(Record("p3", "数学", 3, Now.AddMinutes(-50)));
-                var snapshot = Snapshot(LessonStates.Breaking, next: "数学", current: null, previous: "数学",
-                    lessonIndex: 3, previousIndex: 3, nextIndex: 4,
-                    currentStart: Now.AddMinutes(-45), currentEnd: Now.AddMinutes(-5), nextEnd: Now.AddMinutes(48));
+                archive.Add(Record("p3", "数学", 3, Now.AddMinutes(-55)));
+                var snapshot = Snapshot(LessonStates.Class, next: "语文", current: "数学", previous: "数学",
+                    lessonIndex: 4, previousIndex: 3, nextIndex: 5,
+                    currentStart: Now.AddMinutes(-8), currentEnd: Now.AddMinutes(37), nextEnd: Now.AddMinutes(90));
                 var target = BoardReusePlanner.FromSnapshot(snapshot, archive, Now)!;
 
                 var state = new BoardReuseState();
@@ -188,7 +165,7 @@ internal static class BoardV104Tests
 
     private static void ConfigMigration()
     {
-        Run("结构 8：旧默认模板换成带节次的新默认", () =>
+        Run("结构 9：旧默认模板换成带节次的新默认", () =>
         {
             var dir = TempDir();
             try
@@ -196,13 +173,14 @@ internal static class BoardV104Tests
                 var path = Path.Combine(dir, "old.json");
                 File.WriteAllText(path, "{ \"schemaVersion\": 7, \"boardSave\": { \"nameTemplate\": \"{科目}_{日期}_{时间}\" } }");
                 var cfg = new ConfigStore(path).Current;
-                Eq(8, cfg.SchemaVersion, "升到结构 8");
+                Eq(9, cfg.SchemaVersion, "升到结构 9");
+            Eq("delete", cfg.BoardSave.ClearKey, "默认清屏键是 Delete");
                 Eq(BoardFileName.DefaultTemplate, cfg.BoardSave.NameTemplate, "旧默认模板跟着升级");
             }
             finally { try { Directory.Delete(dir, true); } catch { } }
         });
 
-        Run("结构 8：自定义模板不被覆盖", () =>
+        Run("结构 9：自定义模板不被覆盖", () =>
         {
             var dir = TempDir();
             try

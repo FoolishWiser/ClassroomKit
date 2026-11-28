@@ -47,6 +47,8 @@ public sealed class BoardAutoSaveTracker
     public const int WaitMinutes = 5;
     public const int CountdownSeconds = 15;
     public const int CooldownSeconds = 10;
+    /// <summary>连续操作时最多顺延这么久，之后即使还在打字也必须保存，避免一节课都存不下来。</summary>
+    public const int MaxCooldownSeconds = 60;
     public const int DeadlineBeforeNextSeconds = 150;
     public const int AfterSchoolDeadlineMinutes = 30;
     /// <summary>快照时刻与当前时刻相差超过这个分钟数时，以当前时刻作为课间开始。</summary>
@@ -64,6 +66,7 @@ public sealed class BoardAutoSaveTracker
     private DateTimeOffset? _deadlineAt;
     private DateTimeOffset _countdownStartedAt;
     private DateTimeOffset _cooldownStartedAt;
+    private DateTimeOffset _cooldownFirstAt;
     private DateTimeOffset _cooldownUntil;
     private DateTimeOffset _finishedAt;
     private bool _dryRun;
@@ -216,10 +219,13 @@ public sealed class BoardAutoSaveTracker
 
             if (_phase == BoardAutoSavePhases.Countdown)
             {
-                if (lastInputAt is { } input && input > _countdownStartedAt)
+                var cooldownCapped = _cooldownFirstAt != default &&
+                                     (now - _cooldownFirstAt).TotalSeconds >= MaxCooldownSeconds;
+                if (lastInputAt is { } input && input > _countdownStartedAt && !cooldownCapped)
                 {
                     _phase = BoardAutoSavePhases.Cooldown;
                     _cooldownStartedAt = now;
+                    if (_cooldownFirstAt == default) _cooldownFirstAt = now;
                     _cooldownUntil = now.AddSeconds(CooldownSeconds);
                     _message = $"检测到操作，{CooldownSeconds} 秒后重试";
                 }
@@ -242,13 +248,15 @@ public sealed class BoardAutoSaveTracker
 
             if (_phase == BoardAutoSavePhases.Cooldown)
             {
-                if (lastInputAt is { } input && input > _cooldownStartedAt)
+                var cooldownLimitReached = _cooldownFirstAt != default &&
+                                           (now - _cooldownFirstAt).TotalSeconds >= MaxCooldownSeconds;
+                if (lastInputAt is { } input && input > _cooldownStartedAt && !cooldownLimitReached)
                 {
                     _cooldownStartedAt = now;
                     _cooldownUntil = now.AddSeconds(CooldownSeconds);
                     _message = $"检测到操作，{CooldownSeconds} 秒后重试";
                 }
-                else if (now >= _cooldownUntil)
+                else if (now >= _cooldownUntil || cooldownLimitReached)
                 {
                     if (_deadlineAt is { } limit && now.AddSeconds(CountdownSeconds) <= limit)
                     {
@@ -405,6 +413,7 @@ public sealed class BoardAutoSaveTracker
         _deadlineAt = null;
         _countdownStartedAt = default;
         _cooldownStartedAt = default;
+        _cooldownFirstAt = default;
         _cooldownUntil = default;
         _finishedAt = default;
         _dryRun = false;

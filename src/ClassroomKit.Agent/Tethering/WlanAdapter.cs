@@ -34,8 +34,16 @@ internal static class WlanAdapter
     {
         const string script = """
             $ErrorActionPreference = 'Stop'
+            # 机器上可能有两块无线网卡（内置 + USB）。以前取第一块，可能复位了没在用的那块，
+            # 真正承载热点的那块纹丝不动。按默认路由 metric 排序，优先复位正在上网的那块。
             $ad = Get-NetAdapter -Physical -ErrorAction Stop |
-                  Where-Object { $_.InterfaceDescription -match 'Wireless|Wi-Fi|WLAN|802\.11' } |
+                  Where-Object { $_.InterfaceDescription -match 'Wireless|Wi-Fi|WLAN|802\.11' -and
+                                 $_.InterfaceDescription -notmatch 'Wi-Fi Direct|Virtual' } |
+                  Sort-Object @{ Expression = {
+                      $r = Get-NetRoute -InterfaceIndex $_.ifIndex -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
+                           Sort-Object RouteMetric | Select-Object -First 1
+                      if ($r) { [int]$r.RouteMetric } else { 9999 }
+                  } } |
                   Select-Object -First 1
             if (-not $ad) { exit 3 }
             Restart-NetAdapter -Name $ad.Name -Confirm:$false -ErrorAction Stop

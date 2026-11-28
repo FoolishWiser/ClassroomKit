@@ -13,6 +13,8 @@ on:
         default: "false"
   push:
     tags: ["v*"]
+  pull_request:
+    branches: ["master"]
 
 jobs:
   windows:
@@ -83,7 +85,7 @@ jobs:
           }
 
       - name: 打 MSI 失败时把日志推到 ci-logs 分支
-        if: steps.msi.outcome == 'failure'
+        if: steps.msi.outcome == 'failure' && github.event_name != 'pull_request'
         continue-on-error: true
         shell: pwsh
         run: |
@@ -112,20 +114,11 @@ jobs:
           Copy-Item "src/ClassroomKit.ClassIsland/cipx/ClassroomKit.ClassIsland.cipx" "dist\ClassroomKit-$v.cipx" -Force
           Get-Item "dist\ClassroomKit-$v.cipx" | ForEach-Object { "{0}  {1:N0} 字节" -f $_.Name, $_.Length }
 
-      - name: 打 zip
-        shell: pwsh
-        run: |
-          $v = "${{ steps.ver.outputs.version }}"
-          $items = Get-ChildItem dist\* | Where-Object { $_.Extension -notin @('.msi', '.wixpdb', '.cipx') }
-          Compress-Archive -Path $items -DestinationPath "dist\ClassroomKit-$v-win-x64.zip" -Force
-          Get-ChildItem dist\ClassroomKit-*.zip | ForEach-Object { "{0}  {1:N0} 字节" -f $_.Name, $_.Length }
-
       - name: 校验产物
         shell: pwsh
         run: |
           $v = "${{ steps.ver.outputs.version }}"
           $msi = "dist\ClassroomKit-$v-x64.msi"
-          $zip = "dist\ClassroomKit-$v-win-x64.zip"
           $cipx = "dist\ClassroomKit-$v.cipx"
           if (-not (Test-Path $cipx)) { throw "缺少产物 $cipx" }
           $ci = Get-Item $cipx
@@ -141,7 +134,7 @@ jobs:
             $dupes = @($names | Where-Object { $_ -like 'publish/*' })
             if ($dupes.Count -gt 0) { throw "cipx 里混进了 publish/ 重复副本：$($dupes -join ', ')" }
           } finally { $zipArchive.Dispose() }
-          foreach ($f in @($msi, $zip)) {
+          foreach ($f in @($msi)) {
             if (-not (Test-Path $f)) { throw "缺少产物 $f" }
             $i = Get-Item $f
             "{0}  {1:N0} 字节  sha256={2}" -f $i.Name, $i.Length, (Get-FileHash $f -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -153,7 +146,6 @@ jobs:
           name: ClassroomKit-${{ steps.ver.outputs.version }}
           path: |
             dist/ClassroomKit-*-x64.msi
-            dist/ClassroomKit-*-win-x64.zip
             dist/ClassroomKit-*.cipx
           if-no-files-found: error
 
@@ -185,7 +177,6 @@ jobs:
           body_path: release-body.md
           files: |
             ClassroomKit-*-x64.msi
-            ClassroomKit-*-win-x64.zip
             ClassroomKit-*.cipx
           draft: false
           # 重发同一版本时要覆盖同名资产（见 docs/版本与发布.md）

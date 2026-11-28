@@ -20,22 +20,23 @@ public static class InstallRunner
         var stopped = StopUserInstances(log);
         var (ok, message) = RunMsiexec(msiPath, log);
 
-        if (ok)
+        if (ok) Thread.Sleep(2000);
+
+        // 升级成功：带 --show 打开主界面，让老师看到新版本已经就绪。
+        // 升级失败也把用户态守护拉回托盘，否则失败一次就再也没有进程守护热点（报告 #64）。
+        if (UserInstanceCount() == 0)
         {
-            // 升级时 MsiSetup 的 Condition 是 NOT Installed，不会执行；这里负责把新版本拉回用户会话，
-            // 且带 --tray，升级完只出现在托盘里，不打断正在上课的老师。
-            Thread.Sleep(2000);
-            if (UserInstanceCount() == 0)
+            try
             {
-                try
-                {
-                    var (started, startMessage) = ScheduledTaskInstaller.StartInUserSession(Paths.ExePath);
-                    log.Info(started ? "已把 ClassroomKit 拉回用户会话：" + startMessage : "暂未拉起（下次登录会自动启动）：" + startMessage);
-                }
-                catch (Exception ex)
-                {
-                    log.Warn("拉起新版本失败：" + ex.Message);
-                }
+                var (started, startMessage) = ScheduledTaskInstaller.StartInUserSession(
+                    Paths.ExePath, trayOnly: !ok, showMain: ok);
+                log.Info(started
+                    ? "已把 ClassroomKit 拉回用户会话：" + startMessage
+                    : "暂未拉起（下次登录会自动启动）：" + startMessage);
+            }
+            catch (Exception ex)
+            {
+                log.Warn("拉起新版本失败：" + ex.Message);
             }
         }
 
@@ -56,15 +57,15 @@ public static class InstallRunner
             };
             using var process = Process.Start(psi);
             if (process is null) return (false, "无法启动 msiexec");
-            if (!process.WaitForExit(600_000))
-            {
-                try { process.Kill(entireProcessTree: true); } catch { /* 忽略 */ }
-                return (false, "msiexec 超时（10 分钟）");
-            }
+            // 低带宽或大包时 10 分钟不够。超时也不杀进程树：msiexec 可能已进入事务回滚，
+            // 强杀会留下「待重启」的半个安装。让它继续跑，只如实报告。
+            if (!process.WaitForExit(1_800_000))
+                return (false, "msiexec 30 分钟仍未结束；它可能还在后台安装，请稍后重启确认，不要重复升级");
 
             return process.ExitCode switch
             {
                 0 => (true, "静默安装完成"),
+                1641 => (true, "静默安装完成（安装程序已请求重启）"),
                 3010 => (true, "静默安装完成（需要重启才能完全生效）"),
                 _ => (false, $"msiexec 退出码 {process.ExitCode}，详见 {logFile}")
             };
@@ -88,7 +89,7 @@ public static class InstallRunner
                 if (process.Id == self) continue;
                 // 护航任务自己也在 session 0，而且它就是 msiexec 的祖先进程：
                 // 在这里 Kill(entireProcessTree) 会把正在跑的 msiexec 一起带走，装到一半就断。
-                if (process.SessionId == 0 && Process.GetCurrentProcess().SessionId == 0) continue;
+                if (process.SessionId == 0) continue;
                 process.Kill(entireProcessTree: true);
                 process.WaitForExit(5000);
                 killed++;
@@ -114,7 +115,7 @@ public static class InstallRunner
         {
             using (process)
             {
-                if (process.Id != self) others++;
+                if (process.Id != self && process.SessionId != 0) others++;
             }
         }
 

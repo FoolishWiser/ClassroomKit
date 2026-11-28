@@ -23,12 +23,18 @@ public sealed class WeiciRunner
 
     public async Task<WeiciResult> RunAsync(WeiciConfig config, Action<string> log, CancellationToken ct)
     {
+        // 配置对象是活的：启动/扫描可能要几十秒，期间面板改动不能影响这一次领读。
+        config = JsonSerializer.Deserialize<WeiciConfig>(JsonSerializer.Serialize(config)) ?? config;
+
         var app = EnsureApp(config, log, ct);
         if (app is not null) return app;
 
         var list = await WeiciCdp.ListAsync(config.DebugPort, ct).ConfigureAwait(false);
-        var targets = WeiciCdp.Targets(list);
-        if (targets.Count == 0) return WeiciResult.Fail("NO_TARGET", "找不到维词窗口");
+        var all = WeiciCdp.Targets(list);
+        if (all.Count == 0) return WeiciResult.Fail("NO_TARGET", "找不到维词窗口");
+        var targets = all.Where(t => IsWeiciTarget(t.Url, t.Title)).ToList();
+        if (targets.Count == 0)
+            return WeiciResult.Fail("PORT_NOT_WEICI", $"调试端口 {config.DebugPort} 上的页面不是维词（可能被别的 Electron 程序占用），请换一个端口");
 
         var js = LoadScript();
         var primary = new List<string>();
@@ -88,7 +94,17 @@ public sealed class WeiciRunner
 
                 return parsed;
             }
-            catch (OperationCanceledException) { throw; }
+            catch (OperationCanceledException)
+            {
+                // ct 取消时页面里的 start() 还在跑：单独发一次 stop，避免取消后它继续点开始。
+                try
+                {
+                    using var stopCts = new CancellationTokenSource(1500);
+                    await cdp.EvalAsync("window.__WAR.stop()", false, 1500, stopCts.Token).ConfigureAwait(false);
+                }
+                catch { /* 连接已断时尽力而为 */ }
+                throw;
+            }
             catch (Exception ex)
             {
                 last = ex;
@@ -126,12 +142,16 @@ public sealed class WeiciRunner
         "NEED_LOGIN" => "维词还没登录",
         "NO_VICTOR_PAGE" => "当前页面不是维克多词表页",
         "WORD_NOT_FOUND" => "没找到指定的首词或尾词；请检查拼写或换一个单元",
+        "NO_FIRST_WORD" => "首词不能为空",
+        "NO_START_BUTTON" => "没有找到「开始」按钮，本次没有真正开始领读",
+        "SETTING_NOT_APPLIED" => "发音或播放次数没有设置成功，请确认维词版本里的选项文字是否变了",
+        "STOPPED" => "已按请求停止领读",
+        "PORT_NOT_WEICI" => "调试端口上的页面不是维词，可能被别的程序占用",
         "ORDER_REVERSED" => "首词在尾词后面，请对调",
         "UNIT_NOT_LOADED" => "单元没有加载完成",
         "SELECT_MISMATCH" => "勾选词数与目标不一致",
         "NO_UNITS" => "词表里没有单元",
         "NO_DIALOG" => "没有弹出「领读/默写设置」对话框",
-        "NO_START_BUTTON" => "没有找到「开始」按钮",
         "NEED_DEBUG_PORT" => "维词已经运行但没有调试端口，请先完全退出再重试",
         "NO_APP" => "找不到或启动不了维词主程序",
         _ => ""
@@ -141,8 +161,11 @@ public sealed class WeiciRunner
     {
         var port = config.DebugPort;
         var list = WeiciCdp.ListAsync(port, ct).GetAwaiter().GetResult();
-        if (WeiciCdp.Targets(list).Count > 0)
+        var existing = WeiciCdp.Targets(list);
+        if (existing.Count > 0)
         {
+            if (!existing.Any(t => IsWeiciTarget(t.Url, t.Title)))
+                return WeiciResult.Fail("PORT_NOT_WEICI", $"调试端口 {port} 已被别的程序占用，请换一个端口");
             log("已连接运行中的维词程序");
             return null;
         }
@@ -160,7 +183,8 @@ public sealed class WeiciRunner
             UseShellExecute = true,
             WorkingDirectory = Path.GetDirectoryName(app) ?? ""
         };
-        try { Process.Start(psi); }
+        Process? started = null;
+        try { started = Process.Start(psi); }
         catch (Exception ex)
         {
             return WeiciResult.Fail("NO_APP", "启动维词失败：" + ex.Message);
@@ -179,7 +203,15 @@ public sealed class WeiciRunner
             }
         }
 
-        return WeiciResult.Fail("NO_APP", "等待维词调试端口超时");
+        // 是我们拉起来的进程就收回去，别在后台留一个没有调试端口的维词。
+        try { if (started is { HasExited: false }) started.Kill(); } catch { }
+        return WeiciResult.Fail("NO_APP", "等待维词调试端口超时，已关闭本次启动的维词；请确认安装路径和端口后重试");
+    }
+
+    private static bool IsWeiciTarget(string url, string title)
+    {
+        var text = (url + " " + title).ToLowerInvariant();
+        return text.Contains("weici") || text.Contains("victor");
     }
 
     private static string LoadScript()

@@ -21,6 +21,12 @@ ClassroomKit 本体以 MIT 许可开源（见 [LICENSE](LICENSE)）。下面列�
 - Segoe MDL2 Assets / Segoe Fluent Icons：Windows 系统自带字体，仅通过字体族名引用，不随包分发。
 - 应用图标 `Assets/app.ico`、`Assets/app-64.png`：本项目自制。
 
+## 维词自动领读脚本
+
+- 文件：`src/ClassroomKit.Agent/Weici/automation.js`（以资源内嵌进程序，运行时由 CDP 注入维词页面）
+- 来源：Teachers' own weici-autoread experimental project, bundled with permission; no third-party open-source code is included.
+- 说明：脚本只在本机已登录的维词窗口里操作页面，不收集账号、密码或页面内容；不使用时不注入。
+
 ## .NET 运行时与第三方库
 
 单文件安装包内含 .NET 8 运行时与下列 NuGet 依赖，均以各自许可分发（MIT / Apache-2.0）：

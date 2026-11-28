@@ -35,7 +35,16 @@ public static class SupportBundleBuilder
         foreach (var log in RecentLogs())
             entries.Add(new KeyValuePair<string, string>(log.Name, log.Text));
 
-        var secrets = new[] { config.Token, config.Hotspot.Passphrase };
+        // 机器名、用户名、热点名也当作密钥替换：日志里经常带着它们，不能只遮 token。
+        var secrets = new[]
+        {
+            config.Token,
+            config.Hotspot.Passphrase,
+            Environment.MachineName,
+            Environment.UserName,
+            Environment.UserDomainName,
+            config.Hotspot.Ssid,
+        };
         return SupportBundle.Create(path, entries, secrets.Where(x => !string.IsNullOrWhiteSpace(x))!);
     }
 
@@ -56,7 +65,8 @@ public static class SupportBundleBuilder
     {
         "ClassroomKit 诊断包",
         "包含：自检结果、运行环境、配置摘要（不含令牌与热点密码）、在线设备、最近 5 个日志或崩溃报告。",
-        "所有文本已做脱敏；如果仍担心，打开 zip 确认后再发送。",
+        "已脱敏：令牌/密码、计算机名/用户名、热点名、设备名、IP/MAC 与本地绝对路径都会变成掩码或占位符。",
+        "如果仍担心，打开 zip 确认后再发送。",
         "生成时间：" + DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm:ss zzz"),
     });
 
@@ -83,10 +93,10 @@ public static class SupportBundleBuilder
         "运行时：" + RuntimeInformation.FrameworkDescription,
         "架构：" + RuntimeInformation.ProcessArchitecture,
         "管理员：" + (AdminElevation.IsElevated() ? "是" : "否"),
-        "计算机：" + Environment.MachineName,
-        "用户：" + Environment.UserName,
-        "程序目录：" + AppContext.BaseDirectory,
-        "数据目录：" + Paths.DataDir,
+        "计算机：" + SupportBundle.MaskName(Environment.MachineName),
+        "用户：" + SupportBundle.MaskName(Environment.UserName, 1),
+        "程序目录：<程序目录>",
+        "数据目录：<数据目录>",
         "端口：" + config.Port,
     });
 
@@ -97,7 +107,7 @@ public static class SupportBundleBuilder
         hotspot = new
         {
             config.Hotspot.Enabled,
-            config.Hotspot.Ssid,
+            ssid = SupportBundle.MaskName(config.Hotspot.Ssid),
             config.Hotspot.Band,
             config.Hotspot.TargetClients,
             config.Hotspot.RegistryPeers,
@@ -138,7 +148,8 @@ public static class SupportBundleBuilder
             var duration = c.ConnectedAt is { } since
                 ? (DateTimeOffset.Now - since).ToString(@"hh\:mm\:ss")
                 : "-";
-            sb.AppendLine($"{c.HostName ?? "未命名"}｜{c.Ip ?? "-"}｜{c.Mac}｜已连接 {duration}");
+            var host = string.IsNullOrWhiteSpace(c.HostName) ? "未命名" : SupportBundle.MaskName(c.HostName);
+            sb.AppendLine($"{host}｜{SupportBundle.MaskIp(c.Ip)}｜{SupportBundle.MaskMac(c.Mac)}｜已连接 {duration}");
         }
 
         return sb.ToString();

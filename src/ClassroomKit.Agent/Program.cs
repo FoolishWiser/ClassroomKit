@@ -20,7 +20,7 @@ internal static class Program
         {
             return command switch
             {
-                "" or "run" or "--run" or "--tray" or "--autostart" => RunTray(args),
+                "" or "run" or "--run" or "--tray" or "--autostart" or "--show" => RunTray(args),
                 "--ensure" => Commands.Ensure(),
                 "--on" or "--start" => Commands.SetPolicy(true),
                 "--off" or "--stop" => Commands.SetPolicy(false),
@@ -41,6 +41,7 @@ internal static class Program
                 "--conflict-preview" => Commands.ConflictPreviewCli(args),
                 "--uninstall" => Commands.Uninstall(args),
                 "--msi-setup" => MsiSetup.Install(),
+                "--apply-update" => Commands.ApplyUpdateCli(args),
                 "--msi-cleanup" => MsiSetup.Cleanup(),
                 "--uninstall-task" => Commands.UninstallTask(),
                 "--install-service" => Commands.InstallServiceTask(),
@@ -71,7 +72,9 @@ internal static class Program
 
     private static int RunTray(string[] args)
     {
-        // 开机自启的任务带 --tray：只驻留托盘，不跳到老师面前抢焦点
+        // 开机自启的任务带 --tray：只驻留托盘，不跳到老师面前抢焦点。
+        // 升级/安装完成带 --show：即使配置了「启动时只驻留托盘」也要把主界面打开。
+        var forceShow = StartupArgs.IsShow(args);
         var trayOnly = StartupArgs.IsTrayOnly(args);
         using var mutex = new Mutex(true, MutexName, out var created);
         if (!created)
@@ -79,6 +82,11 @@ internal static class Program
             // 已有实例在跑：不重复开热点、不抢端口。
             // 60 秒冷却内的重复启动只把已有实例的窗口叫出来，不再派生新进程：
             // 主实例 /api/state 卡住时，原来每次启动都会 Ensure() 出一条新的派生链。
+            if (forceShow)
+            {
+                Desktop.UiHost.SignalShow();
+                return 0;
+            }
             if (trayOnly) return 0;
             try
             {
@@ -107,7 +115,7 @@ internal static class Program
         SynchronizationContext.SetSynchronizationContext(
             new System.Windows.Threading.DispatcherSynchronizationContext(app.Dispatcher));
         using var host = new Desktop.AgentHost();
-        Desktop.UiHost.Initialize(app, host.Runtime, trayOnly);
+        Desktop.UiHost.Initialize(app, host.Runtime, trayOnly, forceShow);
         try
         {
             app.Run();

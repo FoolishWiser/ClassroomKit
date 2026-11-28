@@ -152,7 +152,7 @@ public static class ScheduledTaskInstaller
     /// /Run 会把进程拉进 Session 0 —— 没有托盘、也没有交互桌面。改成临时用交互令牌任务拉起，进程就落在用户会话里。
     /// </summary>
     /// <param name="trayOnly">为 true 时带 --tray：装完/升级完只进托盘，不把主界面弹到老师面前。</param>
-    public static (bool Ok, string Message) StartInUserSession(string exePath, bool trayOnly = true)
+    public static (bool Ok, string Message) StartInUserSession(string exePath, bool trayOnly = true, bool showMain = false)
     {
         var user = ConsoleUser();
         if (string.IsNullOrWhiteSpace(user))
@@ -161,7 +161,8 @@ public static class ScheduledTaskInstaller
         const string temp = "ClassroomKit-Agent-Start";
         try
         {
-            var target = trayOnly ? $"\\\"{exePath}\\\" --tray" : $"\\\"{exePath}\\\"";
+            var argument = showMain ? " --show" : trayOnly ? " --tray" : "";
+            var target = "\"" + exePath + "\"" + argument;
             var create = Run("schtasks.exe",
                 $"/Create /TN \"{temp}\" /TR \"{target}\" /SC ONCE /ST 23:59 /RU \"{user}\" /IT /F");
             if (create.Code != 0) return (false, $"临时任务创建失败（{create.Code}）：{create.Output}");
@@ -169,7 +170,7 @@ public static class ScheduledTaskInstaller
             var run = Run("schtasks.exe", $"/Run /TN \"{temp}\"");
             Run("schtasks.exe", $"/Delete /TN \"{temp}\" /F");
             return run.Code == 0
-                ? (true, $"已在 {user} 的桌面会话启动（{(trayOnly ? "托盘" : "主界面")}）")
+                ? (true, $"已在 {user} 的桌面会话启动（{(showMain ? "主界面" : trayOnly ? "托盘" : "主界面")}）")
                 : (false, $"启动失败（{run.Code}）：{run.Output}");
         }
         catch (Exception ex)

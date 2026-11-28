@@ -33,6 +33,15 @@ public sealed class ClassInBoardSaver
 {
     private const string ProcessName = "ClassIn X";
 
+    private static int _saving;
+
+    /// <summary>续用提示等旁路用它判断：正在保存时不要弹窗抢焦点。</summary>
+    public static bool IsSaving => Volatile.Read(ref _saving) != 0;
+
+    /// <summary>ClassInX 的进程名在不同版本里是「ClassIn X」「ClassInX」「ClassIn」，不能只认一个。</summary>
+    private static bool IsClassInProcess(string? name) =>
+        !string.IsNullOrWhiteSpace(name) && name.Replace(" ", "").Contains("classin", StringComparison.OrdinalIgnoreCase);
+
     private readonly AppLog _log;
     private readonly UiRecipe _recipe;
     private readonly Func<BoardSaveConfig>? _config;
@@ -56,22 +65,27 @@ public sealed class ClassInBoardSaver
     public BoardSaveResult Save(bool closeAfterSave, bool? launchIfNeeded) => Save(closeAfterSave, launchIfNeeded, null);
 
     /// <param name="clearAfterSave">null = 用配置里的 boardSave.clearAfterSave。</param>
-    public BoardSaveResult Save(bool closeAfterSave, bool? launchIfNeeded, bool? clearAfterSave)
+    public BoardSaveResult Save(bool closeAfterSave, bool? launchIfNeeded, bool? clearAfterSave, string? clearKey = null)
     {
         // 上一次保存如果被打断（窗口提前关闭、进程被杀），可能留下按住的 ALT / 鼠标键，
         // 那样整机键盘鼠标都会「像坏了」——开始前先清一次，结束时无论成败再清一次。
+        if (Interlocked.Exchange(ref _saving, 1) == 1)
+            return new BoardSaveResult(false, "正在保存上一份板书，请稍候再试", 0,
+                Array.Empty<string>(), Array.Empty<BoardSaveStep>());
+
         Input.ReleaseAllInputs();
         try
         {
-            return SaveCore(closeAfterSave, launchIfNeeded, clearAfterSave);
+            return SaveCore(closeAfterSave, launchIfNeeded, clearAfterSave, clearKey);
         }
         finally
         {
             Input.ReleaseAllInputs();
+            Interlocked.Exchange(ref _saving, 0);
         }
     }
 
-    private BoardSaveResult SaveCore(bool closeAfterSave, bool? launchIfNeeded, bool? clearAfterSave)
+    private BoardSaveResult SaveCore(bool closeAfterSave, bool? launchIfNeeded, bool? clearAfterSave, string? clearKey = null)
     {
         var total = Stopwatch.StartNew();
         var steps = new List<BoardSaveStep>();
@@ -222,7 +236,7 @@ public sealed class ClassInBoardSaver
 
         // 记下点击前的窗口，点完只认“新冒出来的”那个，避免再把登录卡片/弹层当面板。
         var beforeWindows = WindowScanner.Scan()
-            .Where(w => w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase))
+            .Where(w => IsClassInProcess(w.ProcessName))
             .Select(w => w.Handle)
             .ToHashSet();
         var tile = FindSaveLocalTile(share)
@@ -368,7 +382,7 @@ public sealed class ClassInBoardSaver
             }
 
             files = NewFiles(startedAt);
-            if (files.Count >= 3 && FilesComplete(files)) break;
+            if (FilesComplete(files)) break;
             Thread.Sleep(30);
         }
         if (confirmed > 0) Step($"确认覆盖 {confirmed} 次");
@@ -376,7 +390,7 @@ public sealed class ClassInBoardSaver
         // ClassInX 会先建出 0 字节的 .pdf/.png/.edb，再把内容写进去；
         // 0.8.0 起必须等到 PDF 有 %PDF- 头并且都写完了才算成功，否则老师拿到的是 0 kB 的板书。
         files = WaitFilesComplete(startedAt, TimeSpan.FromSeconds(15));
-        if (files.Count < 3)
+        if (files.Count < 2)
         {
             var found = files.Count == 0 ? "没有发现新文件" : "只发现 " + string.Join("、", files.Select(Path.GetFileName));
             ClosePanels(panel, share);
@@ -447,7 +461,7 @@ public sealed class ClassInBoardSaver
             }
             else
             {
-                var (ok, message) = BoardScreenCleaner.TryClear(current, _recipe, _log);
+                var (ok, message) = BoardScreenCleaner.TryClear(current, clearKey ?? (_config?.Invoke() ?? new BoardSaveConfig()).ClearKey, _log);
                 cleared = ok;
                 clearMessage = message;
                 Step(ok ? "已清屏" : "清屏失败");
@@ -481,7 +495,7 @@ public sealed class ClassInBoardSaver
     {
         var restored = 0;
         foreach (var window in WindowScanner.Scan().Where(w =>
-                     w.Visible && w.Minimized && w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase)))
+                     w.Visible && w.Minimized && IsClassInProcess(w.ProcessName)))
         {
             if (Native.ShowWindow(new IntPtr(window.Handle), Native.SwRestore)) restored++;
         }
@@ -490,21 +504,21 @@ public sealed class ClassInBoardSaver
 
     /// <summary>ClassInX 是否有可见的顶层窗口（用来区分“还在启动/全隐藏”和“停在启动台”）。</summary>
     private static bool HasVisibleClassInWindows() => WindowScanner.Scan().Any(w =>
-        w.Visible && w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase));
+        w.Visible && IsClassInProcess(w.ProcessName));
 
     /// <summary>没等到板书时，把 ClassInX 的窗口（通常停在启动台）切到前台，省得老师找窗口。</summary>
     private static void BringClassInToFront()
     {
         // 最小化窗口的尺寸不可信，先还原再挑最大的那个。
         foreach (var minimized in WindowScanner.Scan().Where(w =>
-                     w.Visible && w.Minimized && w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase)))
+                     w.Visible && w.Minimized && IsClassInProcess(w.ProcessName)))
         {
             Native.ShowWindow(new IntPtr(minimized.Handle), Native.SwRestore);
             Thread.Sleep(120);
         }
 
         var biggest = WindowScanner.Scan()
-            .Where(w => w.Visible && w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase))
+            .Where(w => w.Visible && IsClassInProcess(w.ProcessName))
             .OrderByDescending(w => (long)w.Width * w.Height)
             .FirstOrDefault();
         if (biggest is not null) Input.ForceForeground(biggest.Handle);
@@ -519,7 +533,7 @@ public sealed class ClassInBoardSaver
     {
         var windows = WindowScanner.Scan();
         return windows
-            .Where(w => w.Visible && w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase))
+            .Where(w => w.Visible && IsClassInProcess(w.ProcessName))
             .Where(w => IsBoardTitle(w.Title))
             .OrderByDescending(w => w.CoversScreen(screenW, screenH))
             .ThenByDescending(w => (long)w.Width * w.Height)
@@ -595,7 +609,7 @@ public sealed class ClassInBoardSaver
         var minH = (int)Math.Round(100 * uiScale);
         var maxH = (int)Math.Round(320 * uiScale);
         return WindowScanner.Scan().FirstOrDefault(w =>
-            w.Visible && w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase) &&
+            w.Visible && IsClassInProcess(w.ProcessName) &&
             w.Width >= minW && w.Width <= maxW && w.Height >= minH && w.Height <= maxH);
     }
 
@@ -603,7 +617,7 @@ public sealed class ClassInBoardSaver
     {
         var windows = WindowScanner.Scan();
         return windows.FirstOrDefault(w =>
-            w.Visible && w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase) &&
+            w.Visible && IsClassInProcess(w.ProcessName) &&
             (w.Title == "Form" || _recipe.MatchesShare(w.Width, w.Height)));
     }
 
@@ -638,7 +652,7 @@ public sealed class ClassInBoardSaver
 
         // 最后兜底：挑尺寸最接近预期的一个，不再随便抓第一个（那样会抓成登录卡片/弹层）。
         var fallback = WindowScanner.Scan()
-            .Where(w => w.Visible && w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase))
+            .Where(w => w.Visible && IsClassInProcess(w.ProcessName))
             .Where(w => w.Width is >= 200 and <= 1200 && w.Height is >= 150 and <= 1000)
             .Where(w => !w.Title.StartsWith("Classroom", StringComparison.OrdinalIgnoreCase))
             .Where(w => !(w.X == share.X && w.Y == share.Y && w.Width == share.Width && w.Height == share.Height))
@@ -655,7 +669,7 @@ public sealed class ClassInBoardSaver
 
     private static string DescribeWindows() =>
         string.Join("；", WindowScanner.Scan()
-            .Where(w => w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase))
+            .Where(w => IsClassInProcess(w.ProcessName))
             .OrderByDescending(w => (long)w.Width * w.Height)
             .Take(8)
             .Select(w => $"{(string.IsNullOrEmpty(w.Title) ? "(无标题)" : w.Title)} {w.Width}×{w.Height}"
@@ -815,7 +829,7 @@ public sealed class ClassInBoardSaver
     private WindowInfo? FindSavePanel(int expectedW, int expectedH, HashSet<long>? before, WindowInfo share)
     {
         var windows = WindowScanner.Scan()
-            .Where(w => w.Visible && w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase))
+            .Where(w => w.Visible && IsClassInProcess(w.ProcessName))
             .Where(w => IsLikelyPanel(w, expectedW, expectedH) && OverlapsShare(w, share))
             .ToList();
 
@@ -855,7 +869,7 @@ public sealed class ClassInBoardSaver
         var expectedW = (int)Math.Round(_recipe.Overwrite.Width * scaleX);
         var expectedH = (int)Math.Round(_recipe.Overwrite.Height * scaleY);
         return WindowScanner.Scan().FirstOrDefault(w =>
-            w.Visible && w.ProcessName.Equals(ProcessName, StringComparison.OrdinalIgnoreCase) &&
+            w.Visible && IsClassInProcess(w.ProcessName) &&
             NearSize(w.Width, expectedW) && NearSize(w.Height, expectedH));
     }
 
@@ -890,10 +904,30 @@ public sealed class ClassInBoardSaver
     {
         var deadline = DateTime.Now + timeout;
         var files = NewFiles(since);
+        var lastSignature = "";
+        var stableSince = DateTime.MinValue;
         while (DateTime.Now < deadline)
         {
             files = NewFiles(since);
-            if (files.Count >= 3 && FilesComplete(files)) return files;
+            if (FilesComplete(files))
+            {
+                // 版本不同导出的文件数量不一样（2–4 个），不能写死 3 个；改成「PDF 完整 + 所有文件大小连续 400ms 不变」。
+                var signature = string.Join("|", files.OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+                    .Select(x => x + ":" + SizeOf(x)));
+                if (signature == lastSignature)
+                {
+                    if ((DateTime.Now - stableSince).TotalMilliseconds >= 400) return files;
+                }
+                else
+                {
+                    lastSignature = signature;
+                    stableSince = DateTime.Now;
+                }
+            }
+            else
+            {
+                lastSignature = "";
+            }
             Thread.Sleep(100);
         }
         return files;
@@ -901,7 +935,7 @@ public sealed class ClassInBoardSaver
 
     private static bool FilesComplete(IReadOnlyList<string> files)
     {
-        if (files.Count < 3) return false;
+        if (files.Count < 2) return false;
         var hasPdf = false;
         foreach (var file in files)
         {

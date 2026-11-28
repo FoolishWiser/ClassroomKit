@@ -69,6 +69,16 @@ internal static class ReleaseTests
             False(StartupArgs.IsTrayOnly(null), "null 安全");
             False(StartupArgs.IsTrayOnly(new[] { "--run" }), "普通启动不算");
         });
+
+        Run("启动参数：--show 强制打开主界面，压过托盘与最小化", () =>
+        {
+            True(StartupArgs.IsShow(new[] { "--show" }), "--show");
+            True(StartupArgs.IsShow(new[] { "run", "--SHOW" }), "大小写不敏感、任意位置");
+            False(StartupArgs.IsShow(new[] { "--tray" }), "托盘启动不强制显示");
+            False(StartupArgs.IsShow(null), "null 安全");
+            False(StartupArgs.IsTrayOnly(new[] { "--show" }), "--show 不算只到托盘");
+            False(StartupArgs.IsTrayOnly(new[] { "--tray", "--show" }), "两个都给时以 --show 为准，交给 UiHost 覆盖最小化");
+        });
     }
 
     private static void AboutLinks()

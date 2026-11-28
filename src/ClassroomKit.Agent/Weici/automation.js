@@ -1,5 +1,6 @@
 (function () {
   var LOG = [];
+  var STOP = false;
   function log(s) { LOG.push(String(s)); }
   function root() { var el = document.querySelector('#app'); return el && el.__vue__; }
   function walkFind(pred) {
@@ -17,7 +18,7 @@
   function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
   async function waitUntil(fn, ms) {
     var t0 = Date.now();
-    while (Date.now() - t0 < ms) { var v = fn(); if (v) return v; await sleep(200); }
+    while (Date.now() - t0 < ms) { if (STOP) return null; var v = fn(); if (v) return v; await sleep(200); }
     return null;
   }
   function hashQuery() {
@@ -131,6 +132,7 @@
     if (!units.length) return { ok: false, code: 'NO_UNITS' };
     var scan = [];
     for (var k = 0; k < units.length; k++) {
+      if (STOP) return { ok: false, code: 'STOPPED' };
       var u = units[k];
       var w = await openUnit(ctx, u.id);
       if (!w) { scan.push({ unitId: u.id, unitName: u.name, words: [] }); log('unit ' + u.name + ' = 读取失败'); continue; }
@@ -146,6 +148,7 @@
   async function start(from, to, opts) {
     opts = opts || {};
     LOG.length = 0;
+    STOP = false;
     var pron = opts.pron || '\u82f1\u7f8e\u6df7\u97f3';
     var loop = opts.loop || '1\u6b21';
     var dryRun = !!opts.dryRun;
@@ -156,20 +159,27 @@
       if (lr !== 'OK') return { ok: false, code: 'LOGIN_FAILED', detail: lr, log: LOG };
       log('已模拟点击登录按钮');
       await sleep(1500);
+      if (STOP) return { ok: false, code: 'STOPPED', log: LOG };
     }
 
     var p = await openVictor();
+    if (STOP) return { ok: false, code: 'STOPPED', log: LOG };
     if (!p) return { ok: false, code: loginBtn() ? 'NEED_LOGIN' : 'NO_VICTOR_PAGE', hash: location.hash, log: LOG };
     var ctx = readCtx(p);
 
     var sc = await scanAll(p, ctx);
     if (!sc.ok) return { ok: false, code: sc.code, log: LOG };
+    if (STOP) return { ok: false, code: 'STOPPED', log: LOG };
     var scan = sc.scan;
     var total = 0;
     for (var t = 0; t < scan.length; t++) total += scan[t].words.length;
     log('已读取 ' + scan.length + ' 个单元 / ' + total + ' 个单词');
 
-    var flat = [], fromN = norm(from), toN = norm(to), a = -1, b = -1;
+    var fromN = norm(from);
+    if (!fromN) return { ok: false, code: 'NO_FIRST_WORD', log: LOG };
+    // 尾词留空表示「只领第一个词」，不能拿空串去匹配。
+    var toN = norm(to) || fromN;
+    var flat = [], a = -1, b = -1;
     for (var i = 0; i < scan.length; i++) {
       for (var j = 0; j < scan[i].words.length; j++) {
         var idx = flat.length;
@@ -190,6 +200,7 @@
     log('\u533a\u95f4: ' + firstU.unitName + ' \u7b2c' + (a + 1) + ' \u2192 ' + lastU.unitName + ' \u7b2c' + (b + 1) + '\uff0c\u5171 ' + words.length + ' \u8bcd' + (cross ? '\uff08\u8de8\u5355\u5143\uff09' : ''));
 
     var wv = await openUnit(ctx, firstU.unitId);
+    if (STOP) return { ok: false, code: 'STOPPED', log: LOG };
     if (!wv) return { ok: false, code: 'UNIT_NOT_LOADED', unit: firstU.unitName, log: LOG };
     wv.selectWord = words.slice();
     wv.setSelectRow();
@@ -205,22 +216,27 @@
       .filter(function (e) { return e.innerText.trim() === '\u5f00\u59cb'; })[0];
     if (!startBtn) return { ok: false, code: 'NO_START_BUTTON', log: LOG };
     startBtn.click();
+    if (STOP) return { ok: false, code: 'STOPPED', log: LOG };
     var dlg = await waitUntil(function () {
       return Array.prototype.slice.call(document.querySelectorAll('.el-dialog')).filter(function (d) {
         return d.innerText && d.innerText.indexOf('\u9886\u8bfb/\u9ed8\u5199\u8bbe\u7f6e') >= 0;
       })[0] || null;
     }, 6000);
-    if (!dlg) return { ok: false, code: 'NO_DIALOG', log: LOG };
+    if (!dlg) return { ok: false, code: STOP ? 'STOPPED' : 'NO_DIALOG', log: LOG };
     var setP = setRadio(dlg, '\u9ed8\u8ba4\u53d1\u97f3', pron);
     var setL = setRadio(dlg, '\u6574\u4f53\u5faa\u73af\u64ad\u653e', loop);
+    if (!setP || !setL) return { ok: false, code: 'SETTING_NOT_APPLIED', setP: setP, setL: setL, log: LOG };
     await sleep(300);
     var checked = checkedTexts(dlg);
     log('dialog pron=' + checked['\u9ed8\u8ba4\u53d1\u97f3'] + ' loop=' + checked['\u6574\u4f53\u5faa\u73af\u64ad\u653e']);
 
     var started = false;
     if (!dryRun) {
+      if (STOP) return { ok: false, code: 'STOPPED', log: LOG };
       var go = dlg.querySelector('.el-dialog__footer div.start');
-      if (go) { go.click(); started = true; await sleep(1500); }
+      // 正式运行必须真的点到「开始」；没点到不能报 READY，否则老师会以为已经在领读。
+      if (!go) return { ok: false, code: 'NO_START_BUTTON', detail: 'footer', log: LOG };
+      go.click(); started = true; await sleep(1500);
     }
     return {
       ok: true, code: started ? 'STARTED' : 'READY',
@@ -245,6 +261,7 @@
     });
   }
 
-  window.__WAR = { start: start, probe: probe, log: function () { return LOG.slice(); } };
+  function stop() { STOP = true; log('收到取消，正在停止'); }
+  window.__WAR = { start: start, stop: stop, probe: probe, log: function () { return LOG.slice(); } };
   return 'installed';
 })()

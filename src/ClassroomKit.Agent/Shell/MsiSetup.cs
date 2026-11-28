@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.Security.Principal;
 using ClassroomKit.Agent.Tasks;
 using ClassroomKit.Agent.Tethering;
+using ClassroomKit.Core.Logging;
+using ClassroomKit.Core.Model;
 using ClassroomKit.Core.Config;
 
 namespace ClassroomKit.Agent.Shell;
@@ -39,7 +41,8 @@ internal static class MsiSetup
     public static int Install()
     {
         Log("== ClassroomKit MSI 安装后配置 ==");
-
+        try
+        {
         Directory.CreateDirectory(Paths.DataDir);
         Directory.CreateDirectory(Paths.LogDir);
         GrantUsersModify(Paths.DataDir);
@@ -71,11 +74,17 @@ internal static class MsiSetup
         // MSI 的自定义动作跑在 Session 0，直接 /Run 会把进程拉进 Session 0（没托盘、没有交互桌面），
         // 所以这里用「交互令牌临时任务」把它送进用户会话；没有已登录用户就等下次登录，不算错误。
         // 首次安装：装完直接把主界面打开，老师能立刻看到向导；升级路径（InstallRunner）则只进托盘。
-        var (runOk, runMsg) = ScheduledTaskInstaller.StartInUserSession(Paths.ExePath, trayOnly: false);
+        var (runOk, runMsg) = ScheduledTaskInstaller.StartInUserSession(Paths.ExePath, trayOnly: false, showMain: true);
         Log(runOk ? "已请求立即启动：" + runMsg : "暂未启动（下次登录会自动启动）：" + runMsg);
 
         Log("安装后配置完成");
         return 0;
+        }
+        catch (Exception ex)
+        {
+            Log("安装后配置失败：" + ex);
+            return 1603;
+        }
     }
 
     /// <summary>卸载前：关热点 → 停掉其它实例（不含自己）→ 删计划任务 → 恢复 WifiMaxPeers → 清 BCU 目录。</summary>
@@ -83,14 +92,33 @@ internal static class MsiSetup
     {
         Log("== ClassroomKit MSI 卸载前清理 ==");
 
+        AppConfig? config = null;
         try
         {
-            var store = new ConfigStore(Paths.ConfigPath);
-            if (store.Current.Hotspot.Enabled) { /* 下面统一停进程即可 */ }
+            config = new ConfigStore(Paths.ConfigPath).Current;
         }
         catch (Exception ex)
         {
             Log("读取配置失败（继续）：" + ex.Message);
+        }
+
+        // 以前这里是空语句，卸载后热点会一直开着，手机还能连上一个没有程序的网络。
+        // 卸载动作跑在 SYSTEM/Session 0，WinRT 可能失败，所以只尽力而为、失败不挡卸载。
+        if (config?.Hotspot.Enabled == true)
+        {
+            try
+            {
+                var tethering = new TetheringService(new UplinkProbe(new AppLog(Paths.LogDir)), () => config);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                if (tethering.StopAsync(cts.Token).GetAwaiter().GetResult())
+                    Log("热点已关闭");
+                else
+                    Log("关闭热点失败（继续卸载）：" + (tethering.LastError ?? "未知原因"));
+            }
+            catch (Exception ex)
+            {
+                Log("关闭热点异常（继续卸载）：" + ex.Message);
+            }
         }
 
         StopOtherInstances();

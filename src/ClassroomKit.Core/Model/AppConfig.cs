@@ -118,6 +118,9 @@ public sealed class BoardSaveConfig
     /// <summary>1.0.4：保存成功后清屏。关闭 ClassInX 视为已清屏，不再点击。</summary>
     public bool ClearAfterSave { get; set; } = true;
 
+    /// <summary>1.1.0：清屏按键（delete 或 backspace）。保存后先 Ctrl+A 全选，再按这个键。</summary>
+    public string ClearKey { get; set; } = "delete";
+
     /// <summary>1.0.4：下一节同科目时，打开 ClassInX 提示续用上一节板书。</summary>
     public bool ReusePrompt { get; set; } = true;
 
@@ -125,6 +128,7 @@ public sealed class BoardSaveConfig
     {
         if (string.IsNullOrWhiteSpace(NameTemplate)) NameTemplate = BoardFileName.DefaultTemplate;
         NameTemplate = NameTemplate.Trim();
+        ClearKey = string.Equals(ClearKey, "backspace", StringComparison.OrdinalIgnoreCase) ? "backspace" : "delete";
         if (LaunchTimeoutSec is < 5 or > 600) LaunchTimeoutSec = 60;
     }
 }
@@ -140,8 +144,6 @@ public sealed class LessonConfig
     /// <summary>课表快照多久没更新就算过期（分钟）。过期不弹窗，面板提示「数据已过期」。</summary>
     public int StaleMinutes { get; set; } = 120;
 
-    /// <summary>1.0.4：连堂课间（下一节同科目）也保存，供下一节续用。</summary>
-    public bool SaveConnectedClasses { get; set; } = true;
 
     /// <summary>
     /// 只在哪些科目上生效（课表里的科目名，如 ["物理"]）。空列表 = 所有科目都生效，也是旧配置没有这个字段时的默认行为。

@@ -1,6 +1,7 @@
 using ClassroomKit.Agent.Hosts;
 using ClassroomKit.Agent.Shell;
 using ClassroomKit.Core.Logging;
+using ClassroomKit.Core.Update;
 
 namespace ClassroomKit.Agent.Service;
 
@@ -14,8 +15,9 @@ public static class ServiceTick
     {
         var log = new AppLog(Paths.LogDir);
 
-        // 先打心跳：哪怕下面处理请求时出错，守护也能看到「护航任务确实在跑」。
-        ServiceChannel.WriteHeartbeat(AgentRuntime.DisplayVersion(), true);
+        // 先打一次心跳，让守护知道任务已经醒了；这次明确写 ok=false，处理完再改成 true。
+        ServiceChannel.WriteHeartbeat(AgentRuntime.DisplayVersion(), false);
+        var ok = true;
 
         try
         {
@@ -23,6 +25,7 @@ public static class ServiceTick
         }
         catch (Exception ex)
         {
+            ok = false;
             log.Warn($"护航任务处理 hosts 请求失败：{ex.Message}");
         }
 
@@ -32,11 +35,12 @@ public static class ServiceTick
         }
         catch (Exception ex)
         {
+            ok = false;
             log.Warn($"护航任务处理安装请求失败：{ex.Message}");
         }
 
-        ServiceChannel.WriteHeartbeat(AgentRuntime.DisplayVersion(), true);
-        return 0;
+        ServiceChannel.WriteHeartbeat(AgentRuntime.DisplayVersion(), ok);
+        return ok ? 0 : 1;
     }
 
     private static void HandleHosts(AppLog log)
@@ -76,10 +80,55 @@ public static class ServiceTick
             return;
         }
 
+        // 30 分钟时效挡不住“旧请求在新版本装好之后才被捡起来”。安装包放在 update<版本> 下，
+        // 目录名就是版本；不比当前版本新就丢掉，避免把已经升好的机器装回旧版。
+        var requested = VersionFromInstallPath(request.MsiPath);
+        if (requested is not null && !UpdateVersion.IsNewer(requested, AgentRuntime.DisplayVersion()))
+        {
+            ServiceChannel.Delete(ServiceChannel.InstallRequestPath);
+            log.Warn($"丢弃不会升级的静默安装请求：请求 {requested}，当前 {AgentRuntime.DisplayVersion()}");
+            return;
+        }
+
         log.Info($"护航任务开始静默安装：{Path.GetFileName(request.MsiPath)}");
-        var (ok, message) = InstallRunner.Run(request.MsiPath, log);
-        ServiceChannel.Write(ServiceChannel.InstallStatusPath, new InstallStatus(request.Id, ok, message, DateTimeOffset.Now));
-        ServiceChannel.Delete(ServiceChannel.InstallRequestPath);
+        bool ok;
+        string message;
+        try
+        {
+            (ok, message) = InstallRunner.Run(request.MsiPath, log);
+        }
+        catch (Exception ex)
+        {
+            ok = false;
+            message = "静默安装异常：" + ex.Message;
+        }
+
+        // 状态文件可能因为权限/磁盘写不进去；但请求必须消费掉，否则下个 tick 会把同一个包装第二遍。
+        try
+        {
+            ServiceChannel.Write(ServiceChannel.InstallStatusPath, new InstallStatus(request.Id, ok, message, DateTimeOffset.Now));
+        }
+        catch (Exception ex)
+        {
+            log.Warn($"写回安装结果失败（请求仍然消费）：{ex.Message}");
+        }
+        finally
+        {
+            ServiceChannel.Delete(ServiceChannel.InstallRequestPath);
+        }
         log.Info($"护航任务静默安装：{message}");
+    }
+
+    private static string? VersionFromInstallPath(string path)
+    {
+        try
+        {
+            var dir = Path.GetFileName(Path.GetDirectoryName(path) ?? "");
+            return Version.TryParse(dir, out _) ? dir : null;
+        }
+        catch
+        {
+            return null;
+        }
     }
 }

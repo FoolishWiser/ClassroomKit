@@ -22,15 +22,19 @@ internal sealed class WeiciCdp : IDisposable
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
             return await http.GetStringAsync($"http://127.0.0.1:{port}/json/list", ct).ConfigureAwait(false);
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
         catch
         {
             return null;
         }
     }
 
-    public static IReadOnlyList<(string WebSocketUrl, string Url)> Targets(string? json)
+    public static IReadOnlyList<(string WebSocketUrl, string Url, string Title)> Targets(string? json)
     {
-        var list = new List<(string, string)>();
+        var list = new List<(string, string, string)>();
         if (string.IsNullOrWhiteSpace(json)) return list;
         try
         {
@@ -40,8 +44,9 @@ internal sealed class WeiciCdp : IDisposable
             {
                 if (!item.TryGetProperty("webSocketDebuggerUrl", out var ws)) continue;
                 var url = item.TryGetProperty("url", out var u) ? u.GetString() ?? "" : "";
+                var title = item.TryGetProperty("title", out var tt) ? tt.GetString() ?? "" : "";
                 var wsUrl = ws.GetString();
-                if (!string.IsNullOrWhiteSpace(wsUrl)) list.Add((wsUrl!, url));
+                if (!string.IsNullOrWhiteSpace(wsUrl)) list.Add((wsUrl!, url, title));
             }
         }
         catch
@@ -78,6 +83,8 @@ internal sealed class WeiciCdp : IDisposable
         linked.CancelAfter(timeoutMs);
         var buffer = new byte[1 << 20];
         var builder = new StringBuilder();
+        try
+        {
         while (true)
         {
             builder.Clear();
@@ -108,6 +115,11 @@ internal sealed class WeiciCdp : IDisposable
             {
                 // 不是完整 JSON 就继续收下一帧
             }
+        }
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new TimeoutException($"页面脚本 {Math.Max(1, timeoutMs / 1000)} 秒没有响应");
         }
     }
 

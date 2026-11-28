@@ -61,6 +61,8 @@ public sealed class PluginInstaller
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var watch = Stopwatch.StartNew();
+        PluginLocation? best = null;
+        var bestScore = -1;
 
         foreach (var (root, source) in CandidateRoots(watch))
         {
@@ -69,10 +71,29 @@ public sealed class PluginInstaller
             if (full is null || !seen.Add(full)) continue;
 
             var location = TryLocate(full, source);
-            if (location is not null) return location;
+            if (location is null) continue;
+
+            // 机器上可能同时留着旧安装目录（甚至只是残留的 Plugins 目录）。
+            // 以前遇到第一个就返回，可能把插件装进一个 ClassIsland 根本不加载的旧目录。
+            var score = 0;
+            if (Directory.Exists(location.Dir))
+            {
+                score = 2;
+                if (!string.IsNullOrEmpty(ReadVersion(location.Dir!))) score = 3;
+            }
+            else if (Directory.Exists(Path.Combine(location.Root!, "data", "Plugins")))
+            {
+                score = 1;
+            }
+
+            if (score > bestScore)
+            {
+                best = location;
+                bestScore = score;
+            }
         }
 
-        return new PluginLocation(null, null, "", null);
+        return best ?? new PluginLocation(null, null, "", null);
     }
 
     /// <summary>

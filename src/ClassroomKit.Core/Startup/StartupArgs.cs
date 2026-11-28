@@ -6,12 +6,29 @@ public static class StartupArgs
     public const string TrayOnly = "--tray";
     public const string Autostart = "--autostart";
 
+    /// <summary>升级/安装完成后主动打开主界面；优先级高于 --tray 与「启动时只驻留托盘」。</summary>
+    public const string Show = "--show";
+
+    /// <summary>是否要求这次启动直接把主界面打开。</summary>
+    public static bool IsShow(IReadOnlyList<string>? args)
+    {
+        if (args is null) return false;
+        foreach (var arg in args)
+        {
+            if (string.IsNullOrWhiteSpace(arg)) continue;
+            if (arg.Trim().Equals(Show, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
+    }
+
     /// <summary>
     /// 开机自启带 --tray：固定只到托盘，不弹主界面。
     /// 手动双击（无参数）仍然按设置里的「启动时只驻留托盘」执行。
+    /// --show 表示这次要打开主界面，因此不再算托盘模式。
     /// </summary>
     public static bool IsTrayOnly(IReadOnlyList<string>? args)
     {
+        if (IsShow(args)) return false;
         if (args is null) return false;
         foreach (var arg in args)
         {

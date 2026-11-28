@@ -43,7 +43,7 @@
 护航任务是安装时注册的计划任务：`SYSTEM` 身份、开机 1 分钟后启动、之后**每 5 分钟**醒一次、每次最长跑 10 分钟，动作是 `ClassroomKit.Agent.exe --service-tick`。
 守护和它之间用文件信箱通信（`C:\ProgramData\ClassroomKit\service\hosts.request.json` / `hosts.status.json`），不需要常驻高权限进程，也不需要开端口。
 
-绿色版没经过 MSI 时，用**管理员**跑一次：
+旧绿色版没经过 MSI 时，用**管理员**跑一次：
 
 ```powershell
 ClassroomKit.Agent.exe --install-service

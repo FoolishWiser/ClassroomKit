@@ -136,7 +136,8 @@ public sealed class LessonLedger
         if (state == LessonStates.Breaking)
         {
             // 连堂：下一节还是同一门课。1.0.4 默认保存，给下一节续用；只有用户明确关掉才跳过。
-            if (!config.SaveConnectedClasses && snapshot.HasNext && SameSubject(snapshot.NextSubject, subject))
+            // 连堂（下一节同科目）不保存：等这门课最后一段下课再存。
+            if (snapshot.HasNext && SameSubject(snapshot.NextSubject, subject))
                 return ReminderDecision.No("continuous");
 
             if (MatchesBreak(snapshot.BreakName, config.SkipBreakNames))

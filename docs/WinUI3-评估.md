@@ -5,7 +5,7 @@
 ## 现在的技术底座
 
 - 目标框架 `net8.0-windows10.0.19041.0`，WPF + WinForms（托盘 `NotifyIcon`、冲突提示窗）。
-- 单文件、自包含 `win-x64` 发布；交付物是 MSI、绿色 zip 与 ClassIsland 的 `.cipx`。
+- 单文件、自包含 `win-x64` 发布；交付物是 MSI 与 ClassIsland 的 `.cipx`（1.1.0 起不再发绿色 zip）。
 - 清单 `highestAvailable`：管理员账户默认提权，标准账户仍能启动。
 - 自绘标题栏 + DWM 属性（圆角 33、深色标题栏 20）；Win10 上这两项自动失效。
 - 界面字体 HarmonyOS Sans 以 WPF `Resource` 内嵌，启动探测失败回退微软雅黑。
@@ -19,7 +19,7 @@
 
 - 成本：低，按页面逐步打磨。
 - 风险：部分系统行为（真 Mica、系统 ContentDialog、Win11 贴靠布局）只能近似。
-- 适合：教室一体机仍以 Win10 为主、要保绿色版和单文件交付。
+- 适合：教室一体机仍以 Win10 为主、要保单文件交付。
 
 ### B. 整体迁移到 WinUI 3（Windows App SDK）
 
@@ -27,7 +27,7 @@
 
 主要工作与风险：
 
-1. **交付方式**：Windows App SDK 应用通常走 MSIX，或未打包 + 引导程序；官方不支持把 WinUI 3 应用打成现在这种传统单文件 exe。MSI 自定义动作、绿色 zip、还原卡部署都要重新验证，可能被迫只发 MSIX。
+1. **交付方式**：Windows App SDK 应用通常走 MSIX，或未打包 + 引导程序；官方不支持把 WinUI 3 应用打成现在这种传统单文件 exe。MSI 自定义动作、还原卡部署都要重新验证，可能被迫只发 MSIX。
 2. **托盘**：WinUI 3 没有 `NotifyIcon`，要用 Win32 `Shell_NotifyIcon` 或第三方封装，菜单、DPI、开机自启、单实例都要重写。
 3. **自绘窗口与浮层**：冲突提示窗依赖置顶、全屏判定与鼠标悬停，连接卡、确认层、教程遮罩依赖窗口内图层与键盘处理，这些在 WinUI 3 里都要重新实现并逐项回归。
 4. **线程模型**：WPF `Dispatcher` 换成 WinUI `DispatcherQueue`；现有 `MainViewModel` 的大量 `Raise`、异步回填和 `Dispatcher.BeginInvoke` 要逐处核对。
@@ -47,7 +47,7 @@
 同时满足这四条再考虑 B：
 
 1. 教室机队以 Windows 11 为主，真 Mica 和系统贴靠有实际价值；
-2. 能接受 MSIX 或文件夹部署，放弃“单文件 exe + 绿色 zip”；
+2. 能接受 MSIX 或文件夹部署，放弃“单文件 exe”；
 3. 愿意重写托盘、冲突窗与自绘浮层，并为课堂场景做一轮完整回归；
 4. 能接受默认管理员、单实例、开机自启在 MSIX/未打包两种形态下各验一遍。
 

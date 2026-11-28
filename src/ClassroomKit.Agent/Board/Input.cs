@@ -157,6 +157,42 @@ public static class Input
         }
     }
 
+    public static void SendCtrlA() => SendCtrlKey(Native.VkA);
+
+    public static void SendDelete() => SendKey(Native.VkDelete);
+
+    public static void SendBackspace() => SendKey(Native.VkBack);
+
+    private static void SendKey(byte vk)
+    {
+        try
+        {
+            Native.keybd_event(vk, 0, 0, UIntPtr.Zero);
+            Thread.Sleep(40);
+        }
+        finally
+        {
+            RaiseKey(vk);
+        }
+    }
+
+    private static void SendCtrlKey(byte vk)
+    {
+        try
+        {
+            Native.keybd_event(Native.VkControl, 0, 0, UIntPtr.Zero);
+            Thread.Sleep(25);
+            Native.keybd_event(vk, 0, 0, UIntPtr.Zero);
+            Thread.Sleep(40);
+            Native.keybd_event(vk, 0, Native.KeyEventKeyUp, UIntPtr.Zero);
+            Thread.Sleep(25);
+        }
+        finally
+        {
+            RaiseKey(Native.VkControl);
+        }
+    }
+
     public static void SendEscape()
     {
         try
@@ -169,6 +205,46 @@ public static class Input
             // ESC 抬起放 finally：中途异常不会把 ESC 留在按下状态
             RaiseKey(Native.VkEscape);
         }
+    }
+
+    /// <summary>32x32 亮度指纹，用于确认清屏前后画面确实变了。</summary>
+    public static double[]? Fingerprint(int x, int y, int width, int height, int grid = 32)
+    {
+        if (width <= 0 || height <= 0 || grid <= 0) return null;
+        try
+        {
+            using var bmp = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.CopyFromScreen(x, y, 0, 0, new Size(width, height));
+            }
+
+            var cells = new double[grid * grid];
+            for (var gy = 0; gy < grid; gy++)
+            {
+                var py = Math.Min(height - 1, gy * height / grid);
+                for (var gx = 0; gx < grid; gx++)
+                {
+                    var px = Math.Min(width - 1, gx * width / grid);
+                    var c = bmp.GetPixel(px, py);
+                    cells[gy * grid + gx] = (0.299 * c.R + 0.587 * c.G + 0.114 * c.B) / 255.0;
+                }
+            }
+            return cells;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>两枚指纹的平均逐格亮度差（0–1）。</summary>
+    public static double Difference(double[] before, double[] after)
+    {
+        if (before.Length == 0 || before.Length != after.Length) return 0;
+        double sum = 0;
+        for (var i = 0; i < before.Length; i++) sum += Math.Abs(before[i] - after[i]);
+        return sum / before.Length;
     }
 
     /// <summary>把屏幕上一块区域存成 PNG（排查「保存至本地」面板没弹出来时用）。</summary>
@@ -272,7 +348,9 @@ public static class Input
 
     public static bool IsChecked(int x, int y, int size = 11)
     {
-        var (_, _, green, bright) = Sample(x, y, size, size);
-        return green >= 3 || bright >= 3;
+        // 旧判定把「亮像素 >= 3」也算勾选，而白底勾选框整块都是亮的，结果恒为 true、PDF 永远不勾。
+        // 只认 ClassInX 的绿色勾：未勾选的白框绿色像素接近 0，正常勾选有十几到几十个。
+        var (_, _, green, _) = Sample(x, y, size, size);
+        return green >= 5;
     }
 }

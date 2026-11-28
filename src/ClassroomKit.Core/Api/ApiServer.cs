@@ -618,6 +618,7 @@ public sealed class ApiServer
                     if (fields.TryGetValue("includeLessonInName", out var lessonName)) c.BoardSave.IncludeLessonInName = IsOn(lessonName);
                     if (fields.TryGetValue("subjectFolders", out var folders)) c.BoardSave.SubjectFolders = IsOn(folders);
                     if (fields.TryGetValue("clearAfterSave", out var clear)) c.BoardSave.ClearAfterSave = IsOn(clear);
+                    if (fields.TryGetValue("clearKey", out var key)) c.BoardSave.ClearKey = key;
                     if (fields.TryGetValue("reusePrompt", out var reuse)) c.BoardSave.ReusePrompt = IsOn(reuse);
                     c.BoardSave.Normalize();
                     return 0;
@@ -635,6 +636,7 @@ public sealed class ApiServer
                     includeLessonInName = board.IncludeLessonInName,
                     subjectFolders = board.SubjectFolders,
                     clearAfterSave = board.ClearAfterSave,
+                    clearKey = board.ClearKey,
                     reusePrompt = board.ReusePrompt,
                     message = "已保存"
                 }, Json));
@@ -677,8 +679,7 @@ public sealed class ApiServer
                         c.Lesson.Subjects = SplitSubjects(subjects);
                     if (fields.TryGetValue("skipBreakNames", out var skip))
                         c.Lesson.SkipBreakNames = SplitSubjects(skip);
-                    if (fields.TryGetValue("saveConnectedClasses", out var connected))
-                        c.Lesson.SaveConnectedClasses = IsOn(connected);
+
                     c.Lesson.Normalize();
                     return 0;
                 });
@@ -694,7 +695,7 @@ public sealed class ApiServer
                     onlyWhenClassInBoard = lesson.OnlyWhenClassInBoard,
                     staleMinutes = lesson.StaleMinutes,
                     subjects = lesson.Subjects,
-                    saveConnectedClasses = lesson.SaveConnectedClasses,
+
                     message = "已保存"
                 }, Json));
             }
@@ -824,6 +825,7 @@ public sealed class ApiServer
                 includeLessonInName = cfg.BoardSave.IncludeLessonInName,
                 subjectFolders = cfg.BoardSave.SubjectFolders,
                 clearAfterSave = cfg.BoardSave.ClearAfterSave,
+                clearKey = cfg.BoardSave.ClearKey,
                 reusePrompt = cfg.BoardSave.ReusePrompt
             },
             lesson = GetLesson?.Invoke(),
