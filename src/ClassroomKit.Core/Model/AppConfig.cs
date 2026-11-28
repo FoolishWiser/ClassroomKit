@@ -21,6 +21,7 @@ public sealed class AppConfig
     public HostsConfig Hosts { get; set; } = new();
     public LessonConfig Lesson { get; set; } = new();
     public UiConfig Ui { get; set; } = new();
+    public WeiciConfig Weici { get; set; } = new();
     public string? InstalledVersion { get; set; }
 }
 
@@ -107,6 +108,25 @@ public sealed class BoardSaveConfig
 
     /// <summary>改名模板，占位符见 <see cref="BoardFileName"/>。</summary>
     public string NameTemplate { get; set; } = BoardFileName.DefaultTemplate;
+
+    /// <summary>1.0.4：模板里没写 {节次} 时也自动补「_第N节」。</summary>
+    public bool IncludeLessonInName { get; set; } = true;
+
+    /// <summary>1.0.4：保存后把文件移进「板书目录\科目\」。</summary>
+    public bool SubjectFolders { get; set; } = true;
+
+    /// <summary>1.0.4：保存成功后清屏。关闭 ClassInX 视为已清屏，不再点击。</summary>
+    public bool ClearAfterSave { get; set; } = true;
+
+    /// <summary>1.0.4：下一节同科目时，打开 ClassInX 提示续用上一节板书。</summary>
+    public bool ReusePrompt { get; set; } = true;
+
+    public void Normalize()
+    {
+        if (string.IsNullOrWhiteSpace(NameTemplate)) NameTemplate = BoardFileName.DefaultTemplate;
+        NameTemplate = NameTemplate.Trim();
+        if (LaunchTimeoutSec is < 5 or > 600) LaunchTimeoutSec = 60;
+    }
 }
 
 /// <summary>ClassIsland 课表联动：下课后静默倒计时自动保存板书。</summary>
@@ -119,6 +139,9 @@ public sealed class LessonConfig
 
     /// <summary>课表快照多久没更新就算过期（分钟）。过期不弹窗，面板提示「数据已过期」。</summary>
     public int StaleMinutes { get; set; } = 120;
+
+    /// <summary>1.0.4：连堂课间（下一节同科目）也保存，供下一节续用。</summary>
+    public bool SaveConnectedClasses { get; set; } = true;
 
     /// <summary>
     /// 只在哪些科目上生效（课表里的科目名，如 ["物理"]）。空列表 = 所有科目都生效，也是旧配置没有这个字段时的默认行为。
@@ -201,6 +224,41 @@ public sealed class UpdateConfig
 
     /// <summary>升级 ClassroomKit 时顺带更新 ClassIsland 插件（cipx）。</summary>
     public bool UpdatePlugin { get; set; } = true;
+}
+
+
+/// <summary>
+/// 1.0.4 实验功能：维词自动领读。只保存界面参数，不保存账号密码；
+/// 账号仍由维词页面自己记住。
+/// </summary>
+public sealed class WeiciConfig
+{
+    public string AppPath { get; set; } = @"C:\Program Files\weici-teaching\weici-teaching.exe";
+
+    public int DebugPort { get; set; } = 9222;
+
+    public string FirstWord { get; set; } = "abandon";
+
+    public string LastWord { get; set; } = "";
+
+    /// <summary>英美混音 | 美音 | 英音</summary>
+    public string Pron { get; set; } = "英美混音";
+
+    /// <summary>1次 | 2次 | 3次</summary>
+    public string Loop { get; set; } = "1次";
+
+    /// <summary>默认只试运行，不真正点开始。</summary>
+    public bool DryRun { get; set; } = true;
+
+    public void Normalize()
+    {
+        AppPath = (AppPath ?? "").Trim();
+        FirstWord = (FirstWord ?? "").Trim();
+        LastWord = (LastWord ?? "").Trim();
+        if (DebugPort is < 1024 or > 65535) DebugPort = 9222;
+        Pron = Pron is "美音" or "英音" ? Pron : "英美混音";
+        Loop = Loop is "2次" or "3次" ? Loop : "1次";
+    }
 }
 
 /// <summary>桌面窗口与托盘行为（0.5.0 起；只有桌面端读，守护逻辑不依赖）。</summary>

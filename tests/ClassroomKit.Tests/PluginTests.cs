@@ -128,7 +128,7 @@ internal static class PluginTests
             Eq(null, ReleaseFeed.PickPlugin(new GitHubRelease { Tag = "v0.7.0", Assets = new[] { msi } }), "没有 cipx 返回 null");
         });
 
-        await Run("配置 v6 → v7：托盘保存菜单默认精简、插件同步更新默认开", () =>
+        await Run("配置 v6 → v8：托盘默认精简、插件同步默认开、板书模板带节次", () =>
         {
             var dir = NewDir();
             try
@@ -136,7 +136,8 @@ internal static class PluginTests
                 var path = Path.Combine(dir, "v6.json");
                 File.WriteAllText(path, "{ \"schemaVersion\": 6, \"tray\": { \"enabled\": true }, \"update\": { \"checkOnBoot\": true } }");
                 var store = new ConfigStore(path);
-                Eq(7, store.Current.SchemaVersion, "升到结构 7");
+                Eq(8, store.Current.SchemaVersion, "升到结构 8");
+                Eq(ClassroomKit.Core.Lesson.BoardFileName.DefaultTemplate, store.Current.BoardSave.NameTemplate, "板书模板带节次");
                 False(store.Current.Tray.SaveKeepOpen, "「保存，保留 ClassInX」默认收起");
                 False(store.Current.Tray.SaveWithoutRename, "「保存（不按课表改名）」默认收起");
                 True(store.Current.Tray.ShowPreviewReminder, "预览课前提醒窗默认保留");

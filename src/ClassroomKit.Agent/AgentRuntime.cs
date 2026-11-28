@@ -70,6 +70,8 @@ public sealed class AgentRuntime : IDisposable
 
         Recipe = UiRecipe.Load(Paths.RecipePath);
         BoardSaver = new ClassInBoardSaver(Log, Recipe, () => Config.Current.BoardSave);
+        Archive = new BoardArchive(Paths.BoardIndexPath);
+        ReuseStore = new BoardReuseStore(Paths.BoardReusePath);
 
         // 先起课表与科目，冲突巡检才能按「当前科目」查老师习惯。
         Subjects = new ClassIslandSubjectCatalog(Log);
@@ -109,6 +111,8 @@ public sealed class AgentRuntime : IDisposable
     public ApiServer Api { get; }
     public UiRecipe Recipe { get; }
     public ClassInBoardSaver BoardSaver { get; }
+    public BoardArchive Archive { get; }
+    public BoardReuseStore ReuseStore { get; }
     public ConflictWatcher ConflictWatcher { get; }
     public UpdateService Update { get; }
     public HostsService Hosts { get; }
@@ -714,26 +718,53 @@ public sealed class AgentRuntime : IDisposable
     }
 
     internal (bool Ok, string Message) SaveBoardNamed(bool closeAfterSave, bool nameWithLesson)
-    {
-        if (!Config.Current.BoardSave.Enabled)
-            return (false, "「保存 ClassInX 板书」已在配置里关闭");
+        => SaveBoardNamed(closeAfterSave, nameWithLesson, null);
 
-        var result = BoardSaver.Save(closeAfterSave, null);
+    internal (bool Ok, string Message) SaveBoardNamed(bool closeAfterSave, bool nameWithLesson, bool? clearAfterSave)
+    {
+        var cfg = Config.Current.BoardSave;
+        if (!cfg.Enabled) return (false, "「保存 ClassInX 板书」已在配置里关闭");
+
+        var result = BoardSaver.Save(closeAfterSave, null, clearAfterSave);
         if (!result.Ok) return (false, result.Message);
-        if (!nameWithLesson || result.Files.Count == 0) return (true, result.Message);
 
         var now = DateTimeOffset.Now;
+        var lessonIndex = Lesson.State().Snapshot?.LessonIndex ?? 0;
         var subject = Lesson.NameHint(now);
-        var baseName = BoardFileName.Render(
-            Config.Current.BoardSave.NameTemplate,
-            subject,
-            now,
-            Lesson.State().Snapshot?.LessonIndex ?? 0);
-        var rename = BoardFileName.ApplyTo(result.Files, baseName);
-        Log.Info($"板书改名：{baseName}｜成功 {rename.Renamed} 个｜失败 {rename.Failed} 个");
+        var files = result.Files;
+        var message = result.Message;
 
-        var message = result.Message + "｜" + rename.Message;
-        return (rename.Failed == 0, message);
+        if (nameWithLesson && files.Count > 0)
+        {
+            var baseName = BoardFileName.Render(cfg.NameTemplate, subject, now, lessonIndex, cfg.IncludeLessonInName);
+            var rename = BoardFileName.ApplyTo(files, baseName);
+            files = rename.Files;
+            message += "｜" + rename.Message;
+            Log.Info($"板书改名：{baseName}｜成功 {rename.Renamed} 个｜失败 {rename.Failed} 个");
+        }
+
+        if (cfg.SubjectFolders && files.Count > 0)
+        {
+            var move = BoardFileName.MoveToSubjectFolder(files, ClassInBoardSaver.SaveFolder, subject, true);
+            files = move.Files;
+            message += "｜" + move.Message;
+            Log.Info($"板书归档：{BoardFileName.SubjectFolderName(subject)}｜成功 {move.Moved} 个｜失败 {move.Failed} 个");
+        }
+
+        if (!string.IsNullOrWhiteSpace(result.ClearMessage)) message += "｜" + result.ClearMessage;
+
+        if (files.Count > 0)
+        {
+            Archive.Add(new BoardRecord(
+                now.ToString("yyyyMMddHHmmss") + "-" + Guid.NewGuid().ToString("N")[..6],
+                subject ?? "",
+                lessonIndex,
+                now,
+                Path.GetDirectoryName(files[0]) ?? ClassInBoardSaver.SaveFolder,
+                files));
+        }
+
+        return (true, message);
     }
 
     /// <summary>面板“上行网卡”下拉框的数据：所有候选 + 当前选中 + 选择理由。</summary>

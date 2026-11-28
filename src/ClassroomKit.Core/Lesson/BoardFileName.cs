@@ -9,13 +9,20 @@ public sealed record BoardRenameResult(IReadOnlyList<string> Files, int Renamed,
         new(files, 0, 0, message);
 }
 
+/// <summary>归档结果：最终文件路径、移动成功数、失败数，以及给日志看的一句话。</summary>
+public sealed record BoardMoveResult(IReadOnlyList<string> Files, int Moved, int Failed, string Message)
+{
+    public static BoardMoveResult Unchanged(IReadOnlyList<string> files, string message) =>
+        new(files, 0, 0, message);
+}
+
 /// <summary>
 /// 按课表科目给板书文件改名。模板占位符：{科目} {日期} {时间} {节次} {周几}。
 /// 默认模板渲染出「数学_2026-11-14_10-05」这种名字：科目在前好找，时间在后排得开。
 /// </summary>
 public static class BoardFileName
 {
-    public const string DefaultTemplate = "{科目}_{日期}_{时间}";
+    public const string DefaultTemplate = "{科目}_{节次}_{日期}_{时间}";
 
     private static readonly char[] Invalid = { '\\', '/', ':', '*', '?', '"', '<', '>', '|' };
 
@@ -43,8 +50,12 @@ public static class BoardFileName
         return cut.Trim(' ', '.', '_', '-');
     }
 
-    /// <summary>渲染模板；模板为空用默认模板，渲染后为空退回「板书_日期_时间」。</summary>
-    public static string Render(string? template, string? subject, DateTimeOffset at, int lessonIndex = 0)
+    /// <summary>
+    /// 渲染模板；模板为空用默认模板，渲染后为空退回「板书_日期_时间」。
+    /// includeLessonInName=true 时，即使模板没写 {节次} 也会补「_第N节」，保证 1.0.4 的自动保存文件名一定带节次。
+    /// </summary>
+    public static string Render(string? template, string? subject, DateTimeOffset at, int lessonIndex = 0,
+        bool includeLessonInName = true)
     {
         var tpl = string.IsNullOrWhiteSpace(template) ? DefaultTemplate : template;
         // 快照里的时刻本身就带本地偏移（插件用 DateTimeOffset.Now 构造），
@@ -63,6 +74,11 @@ public static class BoardFileName
             .Replace("{时间}", time, StringComparison.Ordinal)
             .Replace("{节次}", period, StringComparison.Ordinal)
             .Replace("{周几}", weekday, StringComparison.Ordinal);
+
+        if (includeLessonInName && period.Length > 0
+            && !tpl.Contains("{节次}", StringComparison.Ordinal)
+            && !rendered.Contains(period, StringComparison.Ordinal))
+            rendered += "_" + period;
 
         rendered = Sanitize(rendered);
         if (rendered.Length == 0) rendered = $"板书_{date}_{time}";
@@ -133,6 +149,102 @@ public static class BoardFileName
                 ? $"已改名为 {safe}"
                 : $"已改名 {renamed} 个，{failed} 个仍被占用";
         return new BoardRenameResult(result, renamed, failed, message);
+    }
+
+    /// <summary>科目文件夹名：清理非法字符，空科目归到「未分类」。</summary>
+    public static string SubjectFolderName(string? subject)
+    {
+        var safe = Sanitize(subject, 40);
+        return safe.Length == 0 ? "未分类" : safe;
+    }
+
+    /// <summary>
+    /// 把一批文件移进 &lt;rootFolder&gt;\&lt;科目&gt;\。失败时已移动的文件会尽量回滚，绝不删除原件。
+    /// </summary>
+    public static BoardMoveResult MoveToSubjectFolder(IEnumerable<string> files, string rootFolder, string? subject,
+        bool enabled = true)
+    {
+        var list = files?.Where(f => !string.IsNullOrWhiteSpace(f)).ToList() ?? new List<string>();
+        if (list.Count == 0) return BoardMoveResult.Unchanged(list, "没有需要归档的文件");
+        if (!enabled) return BoardMoveResult.Unchanged(list, "科目文件夹已关闭");
+        if (string.IsNullOrWhiteSpace(rootFolder)) return BoardMoveResult.Unchanged(list, "没有板书目录");
+
+        var folder = SubjectFolderName(subject);
+        var targetDir = Path.Combine(rootFolder, folder);
+        try { Directory.CreateDirectory(targetDir); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return BoardMoveResult.Unchanged(list, $"无法创建科目文件夹「{folder}」：{ex.Message}");
+        }
+
+        var result = new List<string>(list.Count);
+        var movedPairs = new List<(string Source, string Target)>();
+        var failed = 0;
+        string? firstError = null;
+
+        foreach (var file in list)
+        {
+            try
+            {
+                var ext = Path.GetExtension(file);
+                var target = UniqueTarget(targetDir, Path.GetFileNameWithoutExtension(file), ext);
+                if (string.Equals(Path.GetFullPath(file), Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase))
+                {
+                    result.Add(file);
+                    continue;
+                }
+
+                var moved = false;
+                for (var attempt = 0; attempt < 5 && !moved; attempt++)
+                {
+                    try
+                    {
+                        File.Move(file, target);
+                        moved = true;
+                    }
+                    catch (IOException) { Thread.Sleep(250); }
+                    catch (UnauthorizedAccessException) { Thread.Sleep(250); }
+                }
+
+                if (moved)
+                {
+                    movedPairs.Add((file, target));
+                    result.Add(target);
+                }
+                else
+                {
+                    failed++;
+                    firstError ??= "文件被占用";
+                    result.Add(file);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+            {
+                failed++;
+                firstError ??= ex.Message;
+                result.Add(file);
+            }
+        }
+
+        if (failed > 0)
+        {
+            // 有一个失败就整体回滚，避免同一份板书一半在科目文件夹、一半在根目录。
+            foreach (var pair in movedPairs.AsEnumerable().Reverse())
+            {
+                try
+                {
+                    if (File.Exists(pair.Target) && !File.Exists(pair.Source))
+                        File.Move(pair.Target, pair.Source);
+                }
+                catch { /* 回滚失败就保留现状，至少不丢文件 */ }
+            }
+
+            return BoardMoveResult.Unchanged(list,
+                $"有 {failed} 个文件无法移入「{folder}」，已保留在原目录" + (firstError is null ? "" : $"（{firstError}）"));
+        }
+
+        return new BoardMoveResult(result, movedPairs.Count, 0,
+            movedPairs.Count == 0 ? "文件已在科目文件夹" : $"已归档到「{folder}」");
     }
 
     private static string UniqueTarget(string dir, string baseName, string ext)

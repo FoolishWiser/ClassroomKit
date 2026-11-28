@@ -110,7 +110,8 @@ public sealed class LessonLedger
 
     /// <summary>
     /// 0.8.0 起改为「下课后保存」：课间判断刚上完的那一节，放学后保存最后一节。
-    /// 连堂课间（下一节科目 == 刚上完科目）不弹；课间名命中 SkipBreakNames 也不弹。
+    /// 1.0.4 起连堂课间也默认保存（下一节同科目要续用上一节板书）；
+    /// 只有 lesson.saveConnectedClasses=false 时才保持旧行为。课间名命中 SkipBreakNames 仍跳过。
     /// </summary>
     public ReminderDecision Evaluate(DateTimeOffset now, LessonConfig config)
     {
@@ -134,8 +135,8 @@ public sealed class LessonLedger
 
         if (state == LessonStates.Breaking)
         {
-            // 连堂：下一节还是同一门课，中间不存，等最后一节下课再存
-            if (snapshot.HasNext && SameSubject(snapshot.NextSubject, subject))
+            // 连堂：下一节还是同一门课。1.0.4 默认保存，给下一节续用；只有用户明确关掉才跳过。
+            if (!config.SaveConnectedClasses && snapshot.HasNext && SameSubject(snapshot.NextSubject, subject))
                 return ReminderDecision.No("continuous");
 
             if (MatchesBreak(snapshot.BreakName, config.SkipBreakNames))

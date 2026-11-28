@@ -13,6 +13,7 @@ internal static class UiHost
     private static AgentRuntime? _runtime;
     private static MainWindow? _window;
     private static EventWaitHandle? _showEvent;
+    private static Board.BoardReuseWatcher? _reuseWatcher;
 
     /// <summary>主题切换后触发，参数是解析后的 Light / Dark。</summary>
     public static event Action<string>? ThemeChanged;
@@ -36,6 +37,15 @@ internal static class UiHost
         app.Resources["BoolVisibility"] = new System.Windows.Controls.BooleanToVisibilityConverter();
 
         SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
+
+        _reuseWatcher = new Board.BoardReuseWatcher(
+            runtime.Log,
+            () => runtime.Lesson.State().Snapshot,
+            runtime.Archive,
+            runtime.ReuseStore,
+            () => runtime.Config.Current.BoardSave);
+        _reuseWatcher.Start();
+        app.Exit += (_, _) => { _reuseWatcher?.Dispose(); _reuseWatcher = null; };
 
         _showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName, out _);
         var thread = new Thread(WaitForShowSignal) { IsBackground = true, Name = "ClassroomKit.ShowSignal" };

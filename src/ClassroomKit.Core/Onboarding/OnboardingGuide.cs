@@ -55,5 +55,5 @@ public static class OnboardingGuide
 
     /// <summary>页面 key 是否是桌面端存在的页面（防止引导里写错 key 切到空白页）。</summary>
     public static bool IsKnownPage(string page) => page is "overview" or "hotspot" or "lesson"
-        or "update" or "diagnose" or "advanced" or "settings";
+        or "board" or "lab" or "update" or "diagnose" or "advanced" or "settings";
 }

@@ -55,7 +55,7 @@ public sealed class ConfigStore
     }
 
     /// <summary>当前配置结构版本。</summary>
-    public const int CurrentSchemaVersion = 7;
+    public const int CurrentSchemaVersion = 8;
 
     /// <summary>本次加载从哪个结构版本迁移过来；0 表示没有迁移。</summary>
     public int MigratedFrom { get; private set; }
@@ -93,6 +93,7 @@ public sealed class ConfigStore
     /// v4 → v5 只加 ui 段（桌面窗口尺寸/主题/关窗行为），不改任何已有值。
     /// v5 → v6 只给 ui 段补 maximized（上次是否最大化），同样不改任何已有值。
     /// v6 → v7 只给 tray 段补保存菜单开关、给 update 段补 UpdatePlugin，不改任何已有值。
+    /// v7 → v8 只把旧默认模板换成带 {节次} 的新默认；用户自定义模板原样保留。
     /// 改机器名/热点名的动作由用户显式触发（面板按钮 / rename-ssid）。
     /// </summary>
     private static void Migrate(AppConfig cfg)
@@ -102,6 +103,12 @@ public sealed class ConfigStore
         {
             // 0.3.x 默认把升级锁在凌晨，教室机器一关机就永远等不到；改成不限，用户自填的窗口不动
             update.InstallWindow = "";
+        }
+        if (cfg.SchemaVersion < 8 && cfg.BoardSave is { } board
+            && board.NameTemplate == "{科目}_{日期}_{时间}")
+        {
+            // 1.0.4 默认文件名带节次；只认旧默认，用户自己写过的模板绝不覆盖
+            board.NameTemplate = BoardFileName.DefaultTemplate;
         }
         cfg.SchemaVersion = CurrentSchemaVersion;
     }
@@ -158,9 +165,9 @@ public sealed class ConfigStore
             cfg.Habits ??= new HabitsConfig();
             cfg.Habits.Normalize();
             cfg.BoardSave ??= new BoardSaveConfig();
-            if (cfg.BoardSave.LaunchTimeoutSec is < 5 or > 600) cfg.BoardSave.LaunchTimeoutSec = 60;
-            if (string.IsNullOrWhiteSpace(cfg.BoardSave.NameTemplate))
-                cfg.BoardSave.NameTemplate = BoardFileName.DefaultTemplate;
+            cfg.BoardSave.Normalize();
+            cfg.Weici ??= new WeiciConfig();
+            cfg.Weici.Normalize();
             cfg.Lesson ??= new LessonConfig();
             cfg.Lesson.Normalize();
             cfg.Ui ??= new UiConfig();

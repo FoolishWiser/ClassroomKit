@@ -17,7 +17,7 @@ public sealed class PluginSettings
     public string LessonSubjects { get; set; } = "";
 
     /// <summary>板书改名模板，占位符 {科目} {日期} {时间} {节次} {周几}。</summary>
-    public string BoardNameTemplate { get; set; } = "{科目}_{日期}_{时间}";
+    public string BoardNameTemplate { get; set; } = "{科目}_{节次}_{日期}_{时间}";
 
     /// <summary>保存板书后是否关闭 ClassInX。</summary>
     public bool BoardCloseAfterSave { get; set; } = true;
@@ -26,7 +26,7 @@ public sealed class PluginSettings
     public void Normalize()
     {
         LessonSubjects = (LessonSubjects ?? "").Trim();
-        if (string.IsNullOrWhiteSpace(BoardNameTemplate)) BoardNameTemplate = "{科目}_{日期}_{时间}";
+        if (string.IsNullOrWhiteSpace(BoardNameTemplate)) BoardNameTemplate = "{科目}_{节次}_{日期}_{时间}";
         BoardNameTemplate = BoardNameTemplate.Trim();
     }
 

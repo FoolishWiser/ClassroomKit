@@ -1,9 +1,11 @@
+using ClassroomKit.Agent.Board;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Windows.Data;
 using System.Windows.Threading;
 using ClassroomKit.Agent.Diagnose;
 using ClassroomKit.Agent.Update;
+using ClassroomKit.Agent.Weici;
 using ClassroomKit.Agent.Shell;
 using ClassroomKit.Core.About;
 using ClassroomKit.Core.Board;
@@ -98,6 +100,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public const string PageOverview = "overview";
     public const string PageHotspot = "hotspot";
     public const string PageLesson = "lesson";
+    public const string PageBoard = "board";
+    public const string PageLab = "lab";
     public const string PageUpdate = "update";
     public const string PageDiagnose = "diagnose";
     public const string PageAdvanced = "advanced";
@@ -187,7 +191,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private bool _editLessonEnabled = true;
     private bool _editOnlyWhenClassInBoard = true;
     private bool _editNameWithLesson = true;
+    private bool _editIncludeLessonInName = true;
+    private bool _editSubjectFolders = true;
+    private bool _editClearAfterSave = true;
+    private bool _editReusePrompt = true;
+    private bool _editSaveConnectedClasses = true;
     private string _editNameTemplate = BoardFileName.DefaultTemplate;
+    private string _boardArchiveText = "还没有板书索引";
+    private IReadOnlyList<BoardRecord> _boardHistory = Array.Empty<BoardRecord>();
+    private string _reuseStatusText = "还没有续用目标";
+    private string _calibrateText = "";
+    private DispatcherTimer? _calibrateTimer;
     private bool _editCloseToTray = true;
     private bool _editStartMinimized;
     private string _editTheme = "system";
@@ -212,6 +226,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private bool _selfHealBusy;
     private bool _connectionCardVisible;
     private DispatcherTimer? _connectionCardTimer;
+    private string _editWeiciAppPath = "C:\\Program Files\\weici-teaching\\weici-teaching.exe";
+    private int _editWeiciPort = 9222;
+    private string _editWeiciFirstWord = "abandon";
+    private string _editWeiciLastWord = "";
+    private string _editWeiciPron = "英美混音";
+    private string _editWeiciLoop = "1次";
+    private bool _editWeiciDryRun = true;
+    private string _weiciLog = "";
+    private bool _weiciRunning;
+    private CancellationTokenSource? _weiciCts;
 
     public MainViewModel(AgentRuntime runtime)
     {
@@ -222,10 +246,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             new NavItem(PageOverview, "概览", "\uE80F", "监控"),
             new NavItem(PageHotspot, "热点与网络", "\uE701", "监控"),
-            new NavItem(PageLesson, "课表与板书", "\uE787", "监控"),
+            new NavItem(PageLesson, "课表", "\uE787", "监控"),
+            new NavItem(PageBoard, "板书", "\uE7C3", "监控"),
             new NavItem(PageUpdate, "升级", "\uE895", "维护"),
             new NavItem(PageDiagnose, "自检与日志", "\uE9D9", "维护"),
             new NavItem(PageAdvanced, "高级", "\uE7EF", "维护"),
+            new NavItem(PageLab, "实验", "\uE74C", "维护"),
             new NavItem(PageSettings, "设置", "\uE713", "维护"),
             new NavItem(PageAbout, "关于", "\uE946", "维护")
         };
@@ -270,6 +296,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _rt.Config.Current.BoardSave.NameWithLesson).Message));
         RefreshBoardLibraryCommand = new RelayCommand(() => { _ = RefreshBoardLibraryAsync(); });
         OpenBoardFolderCommand = new RelayCommand(OpenBoardFolder);
+        CalibrateClearCommand = new RelayCommand(StartCalibrateClear);
+        RunWeiciCommand = new RelayCommand(() => _ = RunWeiciAsync());
+        CancelWeiciCommand = new RelayCommand(() => _weiciCts?.Cancel());
+        SaveWeiciCommand = new RelayCommand(() =>
+        {
+            SaveWeici();
+            Toast("维词设置已保存");
+        });
+        PreviewReuseCommand = new RelayCommand(PreviewReuse);
+        OpenBoardRecordCommand = new RelayCommand(o => OpenBoardRecord(o as BoardRecord));
         PreviewAutoSaveCommand = new RelayCommand(() =>
         {
             var (ok, message) = _rt.AutoSaveAction("preview");
@@ -498,7 +534,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 RaiseOnboardingEntry();
             }
             if (value == PageAbout) _ = RefreshStarsAsync(false);
-            if (value == PageLesson) _ = RefreshBoardLibraryAsync();
+            if (value is PageLesson or PageBoard) _ = RefreshBoardLibraryAsync();
             var key = value;
             _ = Task.Run(() => _rt.Config.Update(c => c.Ui.LastPage = key));
         }
@@ -510,7 +546,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         PageOverview => "守护状态、下一节课与加速一览",
         PageHotspot => "热点开关、密码与设备容量",
-        PageLesson => "课后保存、生效科目与板书命名",
+        PageLesson => "课表、自动保存与生效科目",
+        PageBoard => "保存、科目文件夹、续用提示与清屏",
+        PageLab => "维词自动领读等实验功能",
         PageUpdate => "版本、安装包与 ClassIsland 插件",
         PageDiagnose => "一键体检与实时日志",
         PageAdvanced => "按科目记住老师习惯，冲突时自动让路",
@@ -531,6 +569,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public RelayCommand SaveBoardNamedCommand { get; }
     public RelayCommand RefreshBoardLibraryCommand { get; }
     public RelayCommand OpenBoardFolderCommand { get; }
+    public RelayCommand CalibrateClearCommand { get; }
+    public RelayCommand RunWeiciCommand { get; }
+    public RelayCommand CancelWeiciCommand { get; }
+    public RelayCommand SaveWeiciCommand { get; }
+    public RelayCommand PreviewReuseCommand { get; }
+    public RelayCommand OpenBoardRecordCommand { get; }
     public RelayCommand PreviewAutoSaveCommand { get; }
     public RelayCommand ClearLessonCommand { get; }
     public RelayCommand CheckUpdateCommand { get; }
@@ -758,7 +802,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public bool EditLessonEnabled { get => _editLessonEnabled; set => SetDirty(ref _editLessonEnabled, value); }
     public bool EditOnlyWhenClassInBoard { get => _editOnlyWhenClassInBoard; set => SetDirty(ref _editOnlyWhenClassInBoard, value); }
     public bool EditNameWithLesson { get => _editNameWithLesson; set => SetDirty(ref _editNameWithLesson, value); }
+    public bool EditIncludeLessonInName { get => _editIncludeLessonInName; set => SetDirty(ref _editIncludeLessonInName, value); }
+    public bool EditSubjectFolders { get => _editSubjectFolders; set => SetDirty(ref _editSubjectFolders, value); }
+    public bool EditClearAfterSave { get => _editClearAfterSave; set => SetDirty(ref _editClearAfterSave, value); }
+    public bool EditReusePrompt { get => _editReusePrompt; set => SetDirty(ref _editReusePrompt, value); }
+    public bool EditSaveConnectedClasses { get => _editSaveConnectedClasses; set => SetDirty(ref _editSaveConnectedClasses, value); }
     public string EditNameTemplate { get => _editNameTemplate; set => SetDirty(ref _editNameTemplate, value); }
+    public string BoardArchiveText { get => _boardArchiveText; private set => Set(ref _boardArchiveText, value); }
+    public IReadOnlyList<BoardRecord> BoardHistory { get => _boardHistory; private set => Set(ref _boardHistory, value); }
+    public string ReuseStatusText { get => _reuseStatusText; private set => Set(ref _reuseStatusText, value); }
+    public string CalibrateText { get => _calibrateText; private set => Set(ref _calibrateText, value); }
     public bool EditCloseToTray { get => _editCloseToTray; set => SetDirty(ref _editCloseToTray, value); }
     public bool EditStartMinimized { get => _editStartMinimized; set => SetDirty(ref _editStartMinimized, value); }
     public string EditTheme { get => _editTheme; set => SetDirty(ref _editTheme, value); }
@@ -1000,6 +1053,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         EditLessonEnabled = c.Lesson.Enabled;
         EditOnlyWhenClassInBoard = c.Lesson.OnlyWhenClassInBoard;
         EditNameWithLesson = c.BoardSave.NameWithLesson;
+        EditIncludeLessonInName = c.BoardSave.IncludeLessonInName;
+        EditSubjectFolders = c.BoardSave.SubjectFolders;
+        EditClearAfterSave = c.BoardSave.ClearAfterSave;
+        EditReusePrompt = c.BoardSave.ReusePrompt;
+        EditSaveConnectedClasses = c.Lesson.SaveConnectedClasses;
+        EditWeiciAppPath = c.Weici.AppPath;
+        EditWeiciPort = c.Weici.DebugPort;
+        EditWeiciFirstWord = c.Weici.FirstWord;
+        EditWeiciLastWord = c.Weici.LastWord;
+        EditWeiciPron = c.Weici.Pron;
+        EditWeiciLoop = c.Weici.Loop;
+        EditWeiciDryRun = c.Weici.DryRun;
         EditNameTemplate = c.BoardSave.NameTemplate;
         EditCloseToTray = c.Ui.CloseToTray;
         EditStartMinimized = c.Ui.StartMinimized;
@@ -1076,6 +1141,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             c.Lesson.OnlyWhenClassInBoard = EditOnlyWhenClassInBoard;
             c.BoardSave.NameWithLesson = EditNameWithLesson;
             c.BoardSave.NameTemplate = string.IsNullOrWhiteSpace(EditNameTemplate) ? BoardFileName.DefaultTemplate : EditNameTemplate.Trim();
+            c.BoardSave.IncludeLessonInName = EditIncludeLessonInName;
+            c.BoardSave.SubjectFolders = EditSubjectFolders;
+            c.BoardSave.ClearAfterSave = EditClearAfterSave;
+            c.BoardSave.ReusePrompt = EditReusePrompt;
+            c.BoardSave.Normalize();
+            c.Lesson.SaveConnectedClasses = EditSaveConnectedClasses;
             c.Lesson.Subjects = LessonSubjects.Normalize(_editSubjects);
             c.Lesson.SkipBreakNames = LessonSubjects.Normalize(SplitProcessList(EditSkipBreakNames));
             c.Lesson.Normalize();
@@ -1454,12 +1525,22 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         try
         {
-            var summary = await Task.Run(() => BoardLibrary.Scan(ClassroomKit.Agent.Board.ClassInBoardSaver.SaveFolder));
+            var summary = await Task.Run(() => BoardLibrary.Scan(ClassInBoardSaver.SaveFolder));
             BoardFolderText = summary.Folder;
             BoardLibraryText = summary.Count == 0
                 ? "这个目录里还没有板书文件"
                 : $"共 {summary.Count} 个 · 占用 {FormatBytes(summary.TotalBytes)} · 磁盘剩余 {(summary.FreeBytes > 0 ? FormatBytes(summary.FreeBytes) : "—")}";
             BoardRecent = summary.Recent;
+            var history = _rt.Archive.Recent(20);
+            BoardHistory = history;
+            BoardArchiveText = history.Count == 0
+                ? "还没有保存记录；保存一次板书后会按科目归档并出现在这里"
+                : $"索引里最近 {history.Count} 次保存（含科目文件夹与文件名）";
+            var snapshot = _rt.Lesson.State().Snapshot;
+            var target = snapshot is null ? null : BoardReusePlanner.FromSnapshot(snapshot, _rt.Archive, DateTimeOffset.Now);
+            ReuseStatusText = target is null
+                ? "现在不在「上一节同科目、下一节还是它」的时间窗里，或者还没有可续用的板书。"
+                : target.Text + "（打开 ClassInX 时会自动弹出提示）";
         }
         catch (Exception ex)
         {
@@ -1481,6 +1562,198 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             Toast("打开板书目录失败：" + ex.Message, true);
         }
     }
+
+    private void OpenBoardRecord(BoardRecord? record)
+    {
+        if (record is null) return;
+        OpenBoardFile(record);
+    }
+
+    private bool OpenBoardFile(BoardRecord record)
+    {
+        var file = record.PrimaryFile;
+        if (string.IsNullOrWhiteSpace(file) || !File.Exists(file))
+        {
+            Toast("找不到这份板书的文件：" + file, true);
+            return false;
+        }
+
+        try
+        {
+            ShellExec.Open(file);
+            Toast("正在用 ClassInX 打开这份板书");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Toast("打开板书失败：" + ex.Message + "（" + file + "）", true);
+            return false;
+        }
+    }
+
+    private void StartCalibrateClear()
+    {
+        if (_calibrateTimer is not null)
+        {
+            Toast("正在倒计时，等它记完这一次");
+            return;
+        }
+
+        if (ClassInBoardSaver.LocateBoardWindow() is null)
+        {
+            Toast("先把 ClassInX 的板书窗口打开，再校准清屏按钮的位置", true);
+            return;
+        }
+
+        var remain = 3;
+        CalibrateText = $"{remain} 秒后记录鼠标位置：请把指针移到 ClassInX 的「橡皮 / 清屏」按钮上，别点。";
+        _calibrateTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher.CurrentDispatcher)
+        {
+            Interval = TimeSpan.FromSeconds(1)
+        };
+        _calibrateTimer.Tick += (_, _) =>
+        {
+            remain--;
+            if (remain > 0)
+            {
+                CalibrateText = $"还剩 {remain} 秒，把指针移到「橡皮 / 清屏」按钮上。";
+                return;
+            }
+
+            _calibrateTimer?.Stop();
+            _calibrateTimer = null;
+            try
+            {
+                var window = ClassInBoardSaver.LocateBoardWindow();
+                if (window is null)
+                {
+                    CalibrateText = "板书窗口已经关了，这次没记下来。";
+                    Toast("校准失败：板书窗口不见了", true);
+                    return;
+                }
+
+                var point = System.Windows.Forms.Cursor.Position;
+                if (point.X < window.X || point.Y < window.Y
+                    || point.X > window.X + window.Width || point.Y > window.Y + window.Height)
+                {
+                    CalibrateText = "指针不在板书窗口里，这次没记下来。";
+                    Toast("校准失败：指针不在 ClassInX 板书窗口里", true);
+                    return;
+                }
+
+                var x = Math.Round((point.X - window.X) * 100.0 / Math.Max(1, window.Width), 1);
+                var y = Math.Round((point.Y - window.Y) * 100.0 / Math.Max(1, window.Height), 1);
+                _rt.Recipe.Clear.XPercent = x;
+                _rt.Recipe.Clear.YPercent = y;
+                _rt.Recipe.Clear.CalibratedAt = DateTimeOffset.Now;
+                _rt.Recipe.Save(Paths.RecipePath);
+                CalibrateText = $"已记下清屏按钮：窗口内 ({x}%, {y}%)，保存后会按这个位置点一下。";
+                Toast("清屏按钮位置已校准");
+            }
+            catch (Exception ex)
+            {
+                CalibrateText = "校准失败：" + ex.Message;
+                Toast("校准失败：" + ex.Message, true);
+            }
+        };
+        _calibrateTimer.Start();
+    }
+
+    private void PreviewReuse()
+    {
+        var snapshot = _rt.Lesson.State().Snapshot;
+        var target = snapshot is null ? null : BoardReusePlanner.FromSnapshot(snapshot, _rt.Archive, DateTimeOffset.Now);
+        if (target is null)
+        {
+            Toast("现在没有可续用的同科目板书", true);
+            return;
+        }
+
+        var window = new BoardReuseWindow(
+            target,
+            t => OpenBoardFile(t.Record),
+            t => _rt.ReuseStore.Save(_rt.ReuseStore.Current.Snooze(DateTimeOffset.Now.AddMinutes(10))),
+            t => _rt.ReuseStore.Save(_rt.ReuseStore.Current.Dismiss(t)));
+        window.Show();
+        window.Activate();
+    }
+
+    private void SaveWeici()
+    {
+        _rt.Config.Mutate(c =>
+        {
+            c.Weici.AppPath = EditWeiciAppPath ?? "";
+            c.Weici.DebugPort = EditWeiciPort;
+            c.Weici.FirstWord = EditWeiciFirstWord ?? "";
+            c.Weici.LastWord = EditWeiciLastWord ?? "";
+            c.Weici.Pron = EditWeiciPron ?? "英美混音";
+            c.Weici.Loop = EditWeiciLoop ?? "1次";
+            c.Weici.DryRun = EditWeiciDryRun;
+            c.Weici.Normalize();
+        });
+        _settingsDirty = false;
+        _ = RefreshAsync(true);
+    }
+
+    private async Task RunWeiciAsync()
+    {
+        if (WeiciRunning) return;
+        SaveWeici();
+        var config = _rt.Config.Current.Weici;
+        using var cts = new CancellationTokenSource();
+        _weiciCts = cts;
+        WeiciRunning = true;
+        WeiciLog = "";
+
+        void Log(string message)
+        {
+            _rt.Log.Info("[维词] " + message);
+            _dispatcher.BeginInvoke(new Action(() =>
+            {
+                var line = $"{DateTime.Now:HH:mm:ss} {message}";
+                WeiciLog = string.IsNullOrWhiteSpace(WeiciLog) ? line : WeiciLog.TrimEnd() + "\n" + line;
+            }));
+        }
+
+        try
+        {
+            Log(config.DryRun ? "试运行：只走到领读设置，不点开始" : "正式运行：会直接开始领读");
+            var result = await Task.Run(() => new WeiciRunner(_rt.Log).RunAsync(config, Log, cts.Token));
+            if (result.Ok)
+            {
+                Log(string.IsNullOrWhiteSpace(result.Message) ? "已开始" : result.Message);
+            }
+            else
+            {
+                Log($"失败（{result.Code}）：{result.Message}");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            Log("已取消");
+        }
+        catch (Exception ex)
+        {
+            Log("出错：" + ex.Message);
+        }
+        finally
+        {
+            if (ReferenceEquals(_weiciCts, cts)) _weiciCts = null;
+            WeiciRunning = false;
+        }
+    }
+
+    public string EditWeiciAppPath { get => _editWeiciAppPath; set => Set(ref _editWeiciAppPath, value); }
+    public int EditWeiciPort { get => _editWeiciPort; set => Set(ref _editWeiciPort, value); }
+    public string EditWeiciFirstWord { get => _editWeiciFirstWord; set => Set(ref _editWeiciFirstWord, value); }
+    public string EditWeiciLastWord { get => _editWeiciLastWord; set => Set(ref _editWeiciLastWord, value); }
+    public string EditWeiciPron { get => _editWeiciPron; set => Set(ref _editWeiciPron, value); }
+    public string EditWeiciLoop { get => _editWeiciLoop; set => Set(ref _editWeiciLoop, value); }
+    public bool EditWeiciDryRun { get => _editWeiciDryRun; set => Set(ref _editWeiciDryRun, value); }
+    public string WeiciLog { get => _weiciLog; private set => Set(ref _weiciLog, value); }
+    public bool WeiciRunning { get => _weiciRunning; private set => Set(ref _weiciRunning, value); }
+    public IReadOnlyList<string> WeiciPronOptions { get; } = new[] { "英美混音", "美音", "英音" };
+    public IReadOnlyList<string> WeiciLoopOptions { get; } = new[] { "1次", "2次", "3次" };
 
     private static string FormatBytes(long bytes)
     {

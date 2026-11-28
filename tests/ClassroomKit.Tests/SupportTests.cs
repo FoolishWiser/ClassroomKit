@@ -33,14 +33,17 @@ internal static class SupportTests
                 File.WriteAllText(Path.Combine(dir, "语文_02.png"), "123456");
                 File.SetLastWriteTime(Path.Combine(dir, "数学_01.png"), new DateTime(2026, 11, 14, 9, 0, 0));
                 File.SetLastWriteTime(Path.Combine(dir, "语文_02.png"), new DateTime(2026, 11, 14, 10, 0, 0));
-                Directory.CreateDirectory(Path.Combine(dir, "子目录"));
-                File.WriteAllText(Path.Combine(dir, "子目录", "不应统计.png"), "1");
+                var subjectDir = Path.Combine(dir, "数学");
+                Directory.CreateDirectory(subjectDir);
+                File.WriteAllText(Path.Combine(subjectDir, "数学_03.png"), "12");
+                File.SetLastWriteTime(Path.Combine(subjectDir, "数学_03.png"), new DateTime(2026, 11, 14, 11, 0, 0));
 
                 var summary = BoardLibrary.Scan(dir);
-                Eq(2, summary.Count, "只统计顶层文件");
-                Eq(10L, summary.TotalBytes, "总占用");
-                Eq("语文_02.png", summary.Recent[0].Name, "最近文件排在前面");
-                Eq(2, summary.Recent.Count, "最近列表数量");
+                Eq(3, summary.Count, "顶层与一级科目文件夹都统计");
+                Eq(12L, summary.TotalBytes, "总占用");
+                Eq("数学_03.png", summary.Recent[0].Name, "最近文件排在前面");
+                Eq("数学", summary.Recent[0].Subject, "子目录名当科目");
+                Eq(3, summary.Recent.Count, "最近列表数量");
                 True(summary.FreeBytes >= 0, "磁盘剩余不应为负");
             }
             finally { try { Directory.Delete(dir, true); } catch { } }

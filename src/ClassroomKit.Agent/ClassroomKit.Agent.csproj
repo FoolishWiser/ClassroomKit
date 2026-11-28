@@ -32,6 +32,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Weici\automation.js" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Resource Include="Assets\app-64.png" />
     <!-- 0.8.1：鸿蒙字体随包内嵌（WPF Resource），不安装到系统；许可随 dist 一起分发 -->
     <Resource Include="Assets\Fonts\HarmonyOS_SansSC_Regular.ttf" />

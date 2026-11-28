@@ -17,6 +17,12 @@ public sealed record BoardSaveResult(
 {
     /// <summary>这次是否顺手把 ClassInX 拉起来了。</summary>
     public bool Launched { get; init; }
+
+    /// <summary>保存后是否完成了清屏（关闭 ClassInX 也算清屏）。</summary>
+    public bool Cleared { get; init; }
+
+    /// <summary>清屏的说明；没做或失败时写原因。</summary>
+    public string ClearMessage { get; init; } = "";
 }
 
 /// <summary>
@@ -44,17 +50,20 @@ public sealed class ClassInBoardSaver
     public static string SaveFolder => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "ClassIn X Files");
 
-    public BoardSaveResult Save(bool closeAfterSave) => Save(closeAfterSave, null);
+    public BoardSaveResult Save(bool closeAfterSave) => Save(closeAfterSave, null, null);
 
     /// <param name="launchIfNeeded">null = 用配置里的 boardSave.launchIfNeeded。</param>
-    public BoardSaveResult Save(bool closeAfterSave, bool? launchIfNeeded)
+    public BoardSaveResult Save(bool closeAfterSave, bool? launchIfNeeded) => Save(closeAfterSave, launchIfNeeded, null);
+
+    /// <param name="clearAfterSave">null = 用配置里的 boardSave.clearAfterSave。</param>
+    public BoardSaveResult Save(bool closeAfterSave, bool? launchIfNeeded, bool? clearAfterSave)
     {
         // 上一次保存如果被打断（窗口提前关闭、进程被杀），可能留下按住的 ALT / 鼠标键，
         // 那样整机键盘鼠标都会「像坏了」——开始前先清一次，结束时无论成败再清一次。
         Input.ReleaseAllInputs();
         try
         {
-            return SaveCore(closeAfterSave, launchIfNeeded);
+            return SaveCore(closeAfterSave, launchIfNeeded, clearAfterSave);
         }
         finally
         {
@@ -62,7 +71,7 @@ public sealed class ClassInBoardSaver
         }
     }
 
-    private BoardSaveResult SaveCore(bool closeAfterSave, bool? launchIfNeeded)
+    private BoardSaveResult SaveCore(bool closeAfterSave, bool? launchIfNeeded, bool? clearAfterSave)
     {
         var total = Stopwatch.StartNew();
         var steps = new List<BoardSaveStep>();
@@ -397,6 +406,8 @@ public sealed class ClassInBoardSaver
             Step("保存窗口已自行关闭");
         }
 
+        var cleared = false;
+        var clearMessage = "";
         if (closeAfterSave)
         {
             if (!windowsGone)
@@ -410,6 +421,12 @@ public sealed class ClassInBoardSaver
 
             var killed = KillClassIn();
             Step(killed ? "已关闭 ClassInX" : "关闭 ClassInX 失败（请手动关）");
+            if (killed)
+            {
+                cleared = true;
+                clearMessage = "关闭 ClassInX 已清屏";
+            }
+
             if (!killed)
             {
                 return new BoardSaveResult(true, $"板书已保存（{files.Count} 个文件），但没能关闭 ClassInX", (int)total.ElapsedMilliseconds, files, steps)
@@ -419,10 +436,34 @@ public sealed class ClassInBoardSaver
             }
         }
 
+        var clearWanted = clearAfterSave ?? (_config?.Invoke() ?? new BoardSaveConfig()).ClearAfterSave;
+        if (!cleared && clearWanted)
+        {
+            var current = FindBoardWindow(screenW, screenH);
+            if (current is null)
+            {
+                clearMessage = "板书窗口已关闭，无需清屏";
+                cleared = true;
+            }
+            else
+            {
+                var (ok, message) = BoardScreenCleaner.TryClear(current, _recipe, _log);
+                cleared = ok;
+                clearMessage = message;
+                Step(ok ? "已清屏" : "清屏失败");
+            }
+        }
+        else if (!clearWanted)
+        {
+            clearMessage = "保存后清屏已关闭";
+        }
+
         _log.Info($"板书已保存：{string.Join("、", files.Select(Path.GetFileName))}，耗时 {total.ElapsedMilliseconds} ms");
         return new BoardSaveResult(true, $"板书已保存（{files.Count} 个文件，耗时 {total.ElapsedMilliseconds} ms）", (int)total.ElapsedMilliseconds, files, steps)
         {
-            Launched = launched
+            Launched = launched,
+            Cleared = cleared,
+            ClearMessage = clearMessage
         };
     }
 
@@ -487,6 +528,13 @@ public sealed class ClassInBoardSaver
 
     private static bool IsBoardTitle(string title) =>
         title.StartsWith("Classroom", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>给续用提示用：按当前屏幕找一个可见的 ClassInX 板书窗口；没有返回 null。</summary>
+    public static WindowInfo? LocateBoardWindow()
+    {
+        var (width, height) = WindowScanner.ScreenSize();
+        return FindBoardWindow(width, height);
+    }
 
     /// <summary>按一次 Ctrl+S，然后等「保存和分享板书」对话框或小提示框出现。</summary>
     private WindowInfo? CtrlSAndWait(int screenW, int screenH, int waitMs, double uiScale, out WindowInfo? notice)

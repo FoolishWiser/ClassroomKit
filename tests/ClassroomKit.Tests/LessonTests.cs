@@ -124,11 +124,20 @@ internal static class LessonTests
             Eq("after|2026-11-14|数学", d.Key);
         });
 
-        Run("连堂课间不保存，等最后一节下课", () =>
+        Run("连堂课间默认也保存，供下一节续用", () =>
         {
             var ledger = LessonLedger.FromState(null);
             ledger.Accept(Snapshot(next: "语文", previous: "语文"));
             var d = ledger.Evaluate(Now, new LessonConfig());
+            True(d.Show, "默认连堂也保存，下一节才能续用");
+            Eq("语文", d.Subject);
+        });
+
+        Run("关掉连堂保存后，等最后一节下课", () =>
+        {
+            var ledger = LessonLedger.FromState(null);
+            ledger.Accept(Snapshot(next: "语文", previous: "语文"));
+            var d = ledger.Evaluate(Now, new LessonConfig { SaveConnectedClasses = false });
             Eq("continuous", d.Reason);
             False(d.Show, "连堂中间不打扰老师");
         });

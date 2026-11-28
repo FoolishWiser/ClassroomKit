@@ -23,7 +23,7 @@
 
 ### B. 整体迁移到 WinUI 3（Windows App SDK）
 
-把 WPF 壳、八个页面、冲突提示窗和托盘全部换成 WinUI 3。业务层（Core、配置、热点、课表、升级）可以保留，界面与宿主层要重写。
+把 WPF 壳、十个页面、冲突提示窗和托盘全部换成 WinUI 3。业务层（Core、配置、热点、课表、升级）可以保留，界面与宿主层要重写。
 
 主要工作与风险：
 
@@ -31,7 +31,7 @@
 2. **托盘**：WinUI 3 没有 `NotifyIcon`，要用 Win32 `Shell_NotifyIcon` 或第三方封装，菜单、DPI、开机自启、单实例都要重写。
 3. **自绘窗口与浮层**：冲突提示窗依赖置顶、全屏判定与鼠标悬停，连接卡、确认层、教程遮罩依赖窗口内图层与键盘处理，这些在 WinUI 3 里都要重新实现并逐项回归。
 4. **线程模型**：WPF `Dispatcher` 换成 WinUI `DispatcherQueue`；现有 `MainViewModel` 的大量 `Raise`、异步回填和 `Dispatcher.BeginInvoke` 要逐处核对。
-5. **页面与样式**：八个页面 XAML 全量重写，现有 `Styles.xaml` 的 Fluent 令牌可复用，但控件模板、滚动条、下拉框、开关都要按 WinUI 3 重做。
+5. **页面与样式**：十个页面 XAML 全量重写，现有 `Styles.xaml` 的 Fluent 令牌可复用，但控件模板、滚动条、下拉框、开关都要按 WinUI 3 重做。
 6. **字体与许可**：HarmonyOS Sans 的内嵌方式、pack URI 与回退逻辑要重新验证；WinUI 3 的资源打包与 WPF 不同。
 7. **默认管理员**：WinUI 3 未打包应用在提权、启动器与 MSIX 安装场景下的行为要单独验证，不能假设和现在一致。
 8. **测试与 CI**：现有 UI 静态断言、单文件发布校验、`windows-latest` 打包链路都要改；还要处理 MSIX 签名与升级。

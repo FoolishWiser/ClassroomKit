@@ -76,8 +76,8 @@ public sealed class ApiServer
     public Func<LessonSnapshot, (bool Ok, string Message)>? AcceptLesson { get; set; }
     /// <summary>清空课表状态（插件退出、课表被关掉）。</summary>
     public Action? ClearLesson { get; set; }
-    /// <summary>保存板书并可选按上一节课改名（参数：保存后关闭、按课表改名）。</summary>
-    public Func<bool, bool, (bool Ok, string Message)>? SaveBoardNamed { get; set; }
+    /// <summary>保存板书并可选按上一节课改名（参数：保存后关闭、按课表改名、是否清屏）。</summary>
+    public Func<bool, bool, bool?, (bool Ok, string Message)>? SaveBoardNamed { get; set; }
     /// <summary>课后自动保存的当前状态（1.0.0 起）。</summary>
     public Func<BoardAutoSaveState>? GetBoardAutoSave { get; set; }
     /// <summary>课后自动保存动作：preview / cancel。</summary>
@@ -318,7 +318,12 @@ public sealed class ApiServer
             lessonIndex: Int(fields, "lessonIndex", 0),
             planLoaded: Bool(fields, "planLoaded"),
             at: Moment(fields, "at") ?? DateTimeOffset.Now,
-            subjects: SplitSubjects(Text(fields, "subjects") ?? ""));
+            subjects: SplitSubjects(Text(fields, "subjects") ?? ""),
+            previousLessonIndex: Int(fields, "previousLessonIndex", 0),
+            nextLessonIndex: Int(fields, "nextLessonIndex", 0),
+            currentStartAt: Moment(fields, "currentStartAt"),
+            currentEndAt: Moment(fields, "currentEndAt"),
+            nextEndAt: Moment(fields, "nextEndAt"));
     }
 
     private static bool IsOn(string text) => text is "1" or "true" or "on" or "yes";
@@ -589,7 +594,10 @@ public sealed class ApiServer
                 var named = _config.Current.BoardSave.NameWithLesson;
                 if (fields.TryGetValue("nameWithLesson", out var namedValue)) named = IsOn(namedValue);
 
-                var (ok, message) = SaveBoardNamed?.Invoke(close, named) ?? SaveBoard!(close, false);
+                bool? clear = null;
+                if (fields.TryGetValue("clearAfterSave", out var clearValue)) clear = IsOn(clearValue);
+
+                var (ok, message) = SaveBoardNamed?.Invoke(close, named, clear) ?? SaveBoard!(close, false);
                 _log.Info($"保存 ClassInX 板书：{message}");
                 return HttpResponse.Json(
                     JsonSerializer.Serialize(new { ok, action, closeAfterSave = close, nameWithLesson = named, message }, Json),
@@ -607,6 +615,11 @@ public sealed class ApiServer
                             ? BoardFileName.DefaultTemplate
                             : template.Trim();
                     if (fields.TryGetValue("closeAfterSave", out var close)) c.BoardSave.CloseAfterSave = IsOn(close);
+                    if (fields.TryGetValue("includeLessonInName", out var lessonName)) c.BoardSave.IncludeLessonInName = IsOn(lessonName);
+                    if (fields.TryGetValue("subjectFolders", out var folders)) c.BoardSave.SubjectFolders = IsOn(folders);
+                    if (fields.TryGetValue("clearAfterSave", out var clear)) c.BoardSave.ClearAfterSave = IsOn(clear);
+                    if (fields.TryGetValue("reusePrompt", out var reuse)) c.BoardSave.ReusePrompt = IsOn(reuse);
+                    c.BoardSave.Normalize();
                     return 0;
                 });
 
@@ -619,6 +632,10 @@ public sealed class ApiServer
                     nameWithLesson = board.NameWithLesson,
                     nameTemplate = board.NameTemplate,
                     closeAfterSave = board.CloseAfterSave,
+                    includeLessonInName = board.IncludeLessonInName,
+                    subjectFolders = board.SubjectFolders,
+                    clearAfterSave = board.ClearAfterSave,
+                    reusePrompt = board.ReusePrompt,
                     message = "已保存"
                 }, Json));
             }
@@ -660,6 +677,8 @@ public sealed class ApiServer
                         c.Lesson.Subjects = SplitSubjects(subjects);
                     if (fields.TryGetValue("skipBreakNames", out var skip))
                         c.Lesson.SkipBreakNames = SplitSubjects(skip);
+                    if (fields.TryGetValue("saveConnectedClasses", out var connected))
+                        c.Lesson.SaveConnectedClasses = IsOn(connected);
                     c.Lesson.Normalize();
                     return 0;
                 });
@@ -675,6 +694,7 @@ public sealed class ApiServer
                     onlyWhenClassInBoard = lesson.OnlyWhenClassInBoard,
                     staleMinutes = lesson.StaleMinutes,
                     subjects = lesson.Subjects,
+                    saveConnectedClasses = lesson.SaveConnectedClasses,
                     message = "已保存"
                 }, Json));
             }
@@ -800,7 +820,11 @@ public sealed class ApiServer
                 enabled = cfg.BoardSave.Enabled,
                 closeAfterSave = cfg.BoardSave.CloseAfterSave,
                 nameWithLesson = cfg.BoardSave.NameWithLesson,
-                nameTemplate = cfg.BoardSave.NameTemplate
+                nameTemplate = cfg.BoardSave.NameTemplate,
+                includeLessonInName = cfg.BoardSave.IncludeLessonInName,
+                subjectFolders = cfg.BoardSave.SubjectFolders,
+                clearAfterSave = cfg.BoardSave.ClearAfterSave,
+                reusePrompt = cfg.BoardSave.ReusePrompt
             },
             lesson = GetLesson?.Invoke(),
             boardAutoSave = GetBoardAutoSave?.Invoke(),

@@ -61,8 +61,23 @@ public sealed record LessonSnapshot
     /// <summary>距离下一节课还剩多少秒（插件算好一起发，避免 Agent 时钟口径不一致）。</summary>
     public int SecondsToNext { get; init; }
 
-    /// <summary>当前时间点在课表里的序号（从 1 开始，0 = 未知）。</summary>
+    /// <summary>当前时间点所在/刚结束的那一节上课序号（从 1 开始，0 = 未知）。</summary>
     public int LessonIndex { get; init; }
+
+    /// <summary>上一节上课序号（课间时等于 LessonIndex；第一节课前为 0）。</summary>
+    public int PreviousLessonIndex { get; init; }
+
+    /// <summary>下一节上课序号（课中为 LessonIndex + 1；课间为 LessonIndex + 1）。</summary>
+    public int NextLessonIndex { get; init; }
+
+    /// <summary>当前时间点（上课/课间/分割线）的开始时刻。</summary>
+    public DateTimeOffset? CurrentStartAt { get; init; }
+
+    /// <summary>当前时间点的结束时刻；课间时也是下一节的上课时刻。</summary>
+    public DateTimeOffset? CurrentEndAt { get; init; }
+
+    /// <summary>下一节上课时间点的结束时刻（用于“到下一节下课”的续用窗口）。</summary>
+    public DateTimeOffset? NextEndAt { get; init; }
 
     /// <summary>ClassIsland 是否加载了课表。</summary>
     public bool PlanLoaded { get; init; }
@@ -85,7 +100,12 @@ public sealed record LessonSnapshot
         bool planLoaded,
         DateTimeOffset at,
         IEnumerable<string>? subjects = null,
-        string? breakName = null) => new()
+        string? breakName = null,
+        int previousLessonIndex = 0,
+        int nextLessonIndex = 0,
+        DateTimeOffset? currentStartAt = null,
+        DateTimeOffset? currentEndAt = null,
+        DateTimeOffset? nextEndAt = null) => new()
         {
             State = string.IsNullOrWhiteSpace(state) ? LessonStates.None : state,
             CurrentSubject = Normalize(currentSubject),
@@ -95,6 +115,11 @@ public sealed record LessonSnapshot
             NextStartAt = nextStartAt,
             SecondsToNext = Math.Max(0, secondsToNext),
             LessonIndex = Math.Max(0, lessonIndex),
+            PreviousLessonIndex = Math.Max(0, previousLessonIndex),
+            NextLessonIndex = Math.Max(0, nextLessonIndex),
+            CurrentStartAt = currentStartAt,
+            CurrentEndAt = currentEndAt,
+            NextEndAt = nextEndAt,
             PlanLoaded = planLoaded,
             Subjects = LessonSubjects.Normalize(subjects),
             At = at

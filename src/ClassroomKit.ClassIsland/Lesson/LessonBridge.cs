@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reflection;
 using ClassIsland.Core;
 using ClassIsland.Core.Abstractions.Services;
@@ -138,7 +139,7 @@ public sealed class LessonBridge : IDisposable
         var seconds = left > TimeSpan.Zero
             ? (int)Math.Round(left.TotalSeconds)
             : nextStartAt is { } start ? (int)Math.Round((start - now).TotalSeconds) : 0;
-        var lessonIndex = Math.Max(0, Safe(() => lessons.CurrentSelectedIndex, -1) + 1);
+        var times = ReadLessonTimes(lessons, now, state, planLoaded);
 
         TrackSubjectHistory(state, current);
 
@@ -149,11 +150,125 @@ public sealed class LessonBridge : IDisposable
             _wasInClass ? _previousSubject : _lastClassSubject,
             nextStartAt,
             seconds,
-            lessonIndex,
+            times.LessonIndex,
             planLoaded,
             now,
             ReadSubjects(),
-            state == LessonStates.Breaking ? ReadBreakName(lessons, now) : null);
+            state == LessonStates.Breaking ? ReadBreakName(lessons, now) : null,
+            times.PreviousLessonIndex,
+            times.NextLessonIndex,
+            times.CurrentStartAt,
+            times.CurrentEndAt,
+            times.NextEndAt);
+    }
+
+    private sealed record LessonTimes(
+        int LessonIndex,
+        int PreviousLessonIndex,
+        int NextLessonIndex,
+        DateTimeOffset? CurrentStartAt,
+        DateTimeOffset? CurrentEndAt,
+        DateTimeOffset? NextEndAt);
+
+    /// <summary>
+    /// 按课表里的「上课类」时间点算真实节次：课中 = 当前这一节，课间 = 刚结束那一节，
+    /// 同时给出上一节/下一节序号与三个边界时刻。反射失败时退回 CurrentSelectedIndex + 1。
+    /// </summary>
+    private static LessonTimes ReadLessonTimes(ILessonsService lessons, DateTimeOffset now, string state, bool planLoaded)
+    {
+        var fallback = Math.Max(0, Safe(() => lessons.CurrentSelectedIndex, -1) + 1);
+        var fallbackResult = new LessonTimes(fallback, state == LessonStates.Breaking ? fallback : 0, fallback > 0 ? fallback + 1 : 0, null, null, null);
+        if (!planLoaded) return fallbackResult;
+
+        try
+        {
+            var plan = Safe<object?>(() => lessons.CurrentClassPlan, null);
+            // 必须按 TimeLayout.Layouts 里的全部「上课」时间点编号：ClassIsland 的 GetClassIndex()
+            // 也是这么数的，包含被禁用的节次。只看 ValidTimeLayoutItems 会在禁用某一节后把
+            // 后面的节次整体往前挪，文件名里的「第几节」就和学校作息对不上。
+            var items = ReadLayoutItems(plan);
+            if (items is null) return fallbackResult;
+
+            var classes = new List<(int Ordinal, TimeSpan Start, TimeSpan End)>();
+            foreach (var item in items)
+            {
+                if (item is null || !IsClassItem(item)) continue;
+                var start = ReadTimeSpan(item, "StartTime");
+                var end = ReadTimeSpan(item, "EndTime");
+                if (start is null || end is null) continue;
+                classes.Add((classes.Count + 1, start.Value, end.Value));
+            }
+
+            if (classes.Count == 0) return fallbackResult;
+
+            var time = now.TimeOfDay;
+            var day = new DateTimeOffset(now.Year, now.Month, now.Day, 0, 0, 0, now.Offset);
+            var current = classes.FirstOrDefault(c => time >= c.Start && time < c.End);
+            var previous = classes.LastOrDefault(c => c.End <= time);
+            var next = classes.FirstOrDefault(c => c.Start >= time);
+
+            DateTimeOffset? At(TimeSpan value) => day + value;
+
+            if (current.Ordinal > 0 && (state == LessonStates.Class || state == LessonStates.Prepare))
+            {
+                return new LessonTimes(current.Ordinal, current.Ordinal - 1, current.Ordinal + 1,
+                    At(current.Start), At(current.End), next.Ordinal > 0 ? At(next.End) : null);
+            }
+
+            if (state == LessonStates.Breaking || state == LessonStates.Prepare || state == LessonStates.AfterSchool)
+            {
+                var lesson = previous.Ordinal > 0 ? previous.Ordinal : fallback;
+                return new LessonTimes(lesson, lesson, next.Ordinal > 0 ? next.Ordinal : 0,
+                    previous.Ordinal > 0 ? At(previous.Start) : null,
+                    previous.Ordinal > 0 ? At(previous.End) : null,
+                    next.Ordinal > 0 ? At(next.End) : null);
+            }
+
+            if (current.Ordinal > 0)
+            {
+                return new LessonTimes(current.Ordinal, current.Ordinal - 1, current.Ordinal + 1,
+                    At(current.Start), At(current.End), next.Ordinal > 0 ? At(next.End) : null);
+            }
+
+            return fallbackResult;
+        }
+        catch (Exception)
+        {
+            return fallbackResult;
+        }
+    }
+
+    /// <summary>优先读 TimeLayout.Layouts（全部时间点），读不到再退回 ValidTimeLayoutItems。</summary>
+    private static System.Collections.IEnumerable? ReadLayoutItems(object? plan)
+    {
+        try
+        {
+            var layout = plan?.GetType().GetProperty("TimeLayout", BindingFlags.Public | BindingFlags.Instance)?.GetValue(plan);
+            var layouts = layout?.GetType().GetProperty("Layouts", BindingFlags.Public | BindingFlags.Instance)?.GetValue(layout) as System.Collections.IEnumerable;
+            if (layouts is not null)
+            {
+                foreach (var _ in layouts) return layouts;
+            }
+        }
+        catch { /* 反射失败就用有效时间点 */ }
+
+        return plan?.GetType().GetProperty("ValidTimeLayoutItems", BindingFlags.Public | BindingFlags.Instance)?.GetValue(plan) as System.Collections.IEnumerable;
+    }
+
+    private static bool IsClassItem(object item)
+    {
+        try
+        {
+            var value = item.GetType().GetProperty("TimeType", BindingFlags.Public | BindingFlags.Instance)?.GetValue(item);
+            if (value is null) return true;
+            var text = value.ToString();
+            if (string.Equals(text, "Class", StringComparison.OrdinalIgnoreCase)) return true;
+            return int.TryParse(Convert.ToString(value, CultureInfo.InvariantCulture), out var number) && number == 0;
+        }
+        catch (Exception)
+        {
+            return true;
+        }
     }
 
     /// <summary>TimeState → 守护认的 LessonStates 字符串。</summary>
@@ -214,6 +329,11 @@ public sealed class LessonBridge : IDisposable
             || !string.Equals(last.BreakName, snapshot.BreakName, StringComparison.Ordinal)
             || last.PlanLoaded != snapshot.PlanLoaded
             || last.LessonIndex != snapshot.LessonIndex
+            || last.PreviousLessonIndex != snapshot.PreviousLessonIndex
+            || last.NextLessonIndex != snapshot.NextLessonIndex
+            || !SameMinute(last.CurrentStartAt, snapshot.CurrentStartAt)
+            || !SameMinute(last.CurrentEndAt, snapshot.CurrentEndAt)
+            || !SameMinute(last.NextEndAt, snapshot.NextEndAt)
             || !SameSubjects(last.Subjects, snapshot.Subjects)
             || !SameMinute(last.NextStartAt, snapshot.NextStartAt))
             return true;

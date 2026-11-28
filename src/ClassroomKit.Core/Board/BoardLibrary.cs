@@ -1,8 +1,10 @@
 namespace ClassroomKit.Core.Board;
 
 /// <summary>板书目录里的一个文件；界面只负责显示，扫描与统计都在 Core。</summary>
-public sealed record BoardFile(string Name, string Path, long Size, DateTimeOffset Modified)
+public sealed record BoardFile(string Name, string Path, long Size, DateTimeOffset Modified, string Subject = "")
 {
+    public string SubjectText => string.IsNullOrWhiteSpace(Subject) ? "未分类" : Subject;
+
     public string SizeText => Size < 1024 * 1024
         ? (Size / 1024.0).ToString("0.#") + " KB"
         : (Size / 1024.0 / 1024).ToString("0.#") + " MB";
@@ -42,17 +44,17 @@ public static class BoardLibrary
         {
             if (Directory.Exists(folder))
             {
-                var files = Directory.EnumerateFiles(folder, "*", SearchOption.TopDirectoryOnly).ToArray();
-                count = files.Length;
-                foreach (var file in files)
+                // 1.0.4：科目子目录只展开一层；更深层的目录不扫，避免把备份/临时目录算进来。
+                AddFiles(folder, "", null);
+                foreach (var dir in Directory.EnumerateDirectories(folder))
                 {
                     try
                     {
-                        var info = new FileInfo(file);
-                        total += info.Length;
-                        recent.Add(new BoardFile(info.Name, info.FullName, info.Length, info.LastWriteTime));
+                        var name = Path.GetFileName(dir);
+                        if (string.IsNullOrWhiteSpace(name) || name.StartsWith(".", StringComparison.Ordinal)) continue;
+                        AddFiles(dir, name, null);
                     }
-                    catch { /* 单个文件被占用或刚被删，跳过 */ }
+                    catch { /* 单个目录不可读，跳过 */ }
                 }
             }
         }
@@ -64,5 +66,25 @@ public static class BoardLibrary
             total,
             free,
             recent.OrderByDescending(x => x.Modified).Take(Math.Max(0, recentCount)).ToArray());
+
+        void AddFiles(string dir, string subject, object? _)
+        {
+            IEnumerable<string> files;
+            try { files = Directory.EnumerateFiles(dir, "*", SearchOption.TopDirectoryOnly); }
+            catch { return; }
+
+            foreach (var file in files)
+            {
+                try
+                {
+                    var info = new FileInfo(file);
+                    if (!info.Exists || (info.Attributes & FileAttributes.Hidden) != 0) continue;
+                    total += info.Length;
+                    count++;
+                    recent.Add(new BoardFile(info.Name, info.FullName, info.Length, info.LastWriteTime, subject));
+                }
+                catch { /* 单个文件被占用或刚被删，跳过 */ }
+            }
+        }
     }
 }

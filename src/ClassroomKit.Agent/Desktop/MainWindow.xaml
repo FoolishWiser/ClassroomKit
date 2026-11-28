@@ -147,6 +147,8 @@
                 <pages:OverviewPage Visibility="{Binding PageKey, Converter={StaticResource PageVisibility}, ConverterParameter=overview}" />
                 <pages:HotspotPage Visibility="{Binding PageKey, Converter={StaticResource PageVisibility}, ConverterParameter=hotspot}" />
                 <pages:LessonPage Visibility="{Binding PageKey, Converter={StaticResource PageVisibility}, ConverterParameter=lesson}" />
+                <pages:BoardPage Visibility="{Binding PageKey, Converter={StaticResource PageVisibility}, ConverterParameter=board}" />
+                <pages:LabPage Visibility="{Binding PageKey, Converter={StaticResource PageVisibility}, ConverterParameter=lab}" />
                 <pages:UpdatePage Visibility="{Binding PageKey, Converter={StaticResource PageVisibility}, ConverterParameter=update}" />
                 <pages:DiagnosePage Visibility="{Binding PageKey, Converter={StaticResource PageVisibility}, ConverterParameter=diagnose}" />
                 <pages:AdvancedPage Visibility="{Binding PageKey, Converter={StaticResource PageVisibility}, ConverterParameter=advanced}" />
